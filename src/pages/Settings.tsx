@@ -7,7 +7,11 @@ import { useSession } from "@/providers/SessionProvider";
 import { supabase } from "@/lib/supabase";
 import { env } from "@/lib/env";
 import { Switch } from "@/components/ui/switch";
+import { Button } from "@/components/ui/button";
 import { showError, showSuccess } from "@/utils/toast";
+
+const ADMIN_SET_SUPERADMIN_URL =
+  "https://pryoirzeghatrgecwrci.supabase.co/functions/v1/admin-set-super-admin";
 
 export default function Settings() {
   const qc = useQueryClient();
@@ -42,6 +46,41 @@ export default function Settings() {
   }, [tenantQ.data]);
 
   const [saving, setSaving] = useState(false);
+  const [enablingRlsSuperAdmin, setEnablingRlsSuperAdmin] = useState(false);
+
+  const enableRlsSuperAdmin = async () => {
+    if (!isSuperAdminUi) return;
+    setEnablingRlsSuperAdmin(true);
+    try {
+      const { data: sess } = await supabase.auth.getSession();
+      const token = sess.session?.access_token;
+      if (!token) throw new Error("Sessão inválida");
+
+      const res = await fetch(ADMIN_SET_SUPERADMIN_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ set: true }),
+      });
+
+      const json = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(json?.error || `HTTP ${res.status}`);
+      }
+
+      showSuccess(
+        "Super-admin (RLS) ativado. Faça logout/login para o token carregar o novo claim."
+      );
+    } catch (e: any) {
+      showError(
+        `Não foi possível ativar super-admin (RLS). Verifique APP_SUPER_ADMIN_EMAILS nos Secrets das Edge Functions. (${e?.message ?? "erro"})`
+      );
+    } finally {
+      setEnablingRlsSuperAdmin(false);
+    }
+  };
 
   const setFeature = async (key: string, value: boolean) => {
     if (!activeTenantId) return;
@@ -69,7 +108,7 @@ export default function Settings() {
     } catch (e: any) {
       // Most common: RLS blocked because app_metadata.byfrost_super_admin is not set.
       showError(
-        `Não foi possível salvar. Verifique se seu usuário tem app_metadata.byfrost_super_admin=true no Supabase Auth. (${e?.message ?? "erro"})`
+        `Não foi possível salvar (RLS). Ative app_metadata.byfrost_super_admin=true. (${e?.message ?? "erro"})`
       );
       throw e;
     } finally {
@@ -116,9 +155,25 @@ export default function Settings() {
 
               {isSuperAdminUi && (
                 <div className="mt-3 rounded-2xl border border-slate-200 bg-white/70 p-3 text-xs text-slate-600">
-                  Dica: se ao clicar o toggle voltar sozinho ou aparecer erro, marque seu usuário no Supabase
-                  Auth com <span className="font-semibold">app_metadata.byfrost_super_admin=true</span> para
-                  passar no RLS.
+                  <div className="font-medium text-slate-900">Super-admin (RLS)</div>
+                  <div className="mt-1">
+                    Para o banco permitir editar tenants (RLS), seu token precisa ter o claim
+                    <span className="font-semibold"> app_metadata.byfrost_super_admin=true</span>.
+                  </div>
+                  <Button
+                    onClick={enableRlsSuperAdmin}
+                    disabled={enablingRlsSuperAdmin}
+                    variant="secondary"
+                    className="mt-3 h-10 rounded-2xl"
+                  >
+                    {enablingRlsSuperAdmin
+                      ? "Ativando…"
+                      : "Ativar super-admin (RLS) para meu usuário"}
+                  </Button>
+                  <div className="mt-2 text-[11px] text-slate-500">
+                    Requer Secret <span className="font-medium">APP_SUPER_ADMIN_EMAILS</span> nas Edge
+                    Functions. Depois de ativar, faça logout/login.
+                  </div>
                 </div>
               )}
             </div>

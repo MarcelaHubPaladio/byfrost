@@ -88,10 +88,10 @@ export default function Admin() {
     queryKey: ["admin_tenants"],
     enabled: isSuperAdmin,
     queryFn: async () => {
+      // As super-admin, we can see all tenants. Show soft-deleted too (for restore).
       const { data, error } = await supabase
         .from("tenants")
-        .select("id,name,slug,status,created_at")
-        .is("deleted_at", null)
+        .select("id,name,slug,status,created_at,deleted_at")
         .order("created_at", { ascending: false })
         .limit(500);
       if (error) throw error;
@@ -131,6 +131,21 @@ export default function Admin() {
       await captureDebug();
     } finally {
       setCreatingTenant(false);
+    }
+  };
+
+  const restoreTenant = async (tenantId: string) => {
+    try {
+      await ensureFreshTokenForRls();
+      const { error } = await supabase
+        .from("tenants")
+        .update({ deleted_at: null })
+        .eq("id", tenantId);
+      if (error) throw error;
+      showSuccess("Tenant restaurado.");
+      await qc.invalidateQueries({ queryKey: ["admin_tenants"] });
+    } catch (e: any) {
+      showError(`Falha ao restaurar tenant: ${e?.message ?? "erro"}`);
     }
   };
 
@@ -340,6 +355,8 @@ export default function Admin() {
     );
   }
 
+  const deletedCount = (tenantsQ.data ?? []).filter((t: any) => t.deleted_at).length;
+
   return (
     <RequireAuth>
       <AppShell>
@@ -378,7 +395,6 @@ export default function Admin() {
               </div>
               <div className="mt-2 text-xs text-slate-600">
                 Procure por <span className="font-medium">jwtPayload.app_metadata.byfrost_super_admin</span>.
-                Se estiver vazio/false, o banco vai bloquear inserts/updates em tenants.
               </div>
               <pre className="mt-3 max-h-[280px] overflow-auto rounded-2xl bg-slate-50 p-3 text-[11px] text-slate-700">
                 {JSON.stringify(debug, null, 2)}
@@ -433,31 +449,58 @@ export default function Admin() {
                   <div className="rounded-[22px] border border-slate-200 bg-white p-4">
                     <div className="flex items-center justify-between">
                       <div className="text-sm font-semibold text-slate-900">Tenants</div>
-                      <div className="text-xs text-slate-500">{tenantsQ.data?.length ?? 0}</div>
+                      <div className="text-xs text-slate-500">
+                        {(tenantsQ.data?.length ?? 0)}{deletedCount ? ` • ${deletedCount} deletado(s)` : ""}
+                      </div>
                     </div>
 
                     <div className="mt-3 space-y-2">
-                      {(tenantsQ.data ?? []).map((t: any) => (
-                        <div
-                          key={t.id}
-                          className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2"
-                        >
-                          <div className="min-w-0">
-                            <div className="truncate text-sm font-semibold text-slate-900">{t.name}</div>
-                            <div className="mt-0.5 truncate text-xs text-slate-500">/{t.slug}</div>
-                          </div>
-                          <Badge
+                      {(tenantsQ.data ?? []).map((t: any) => {
+                        const softDeleted = Boolean(t.deleted_at);
+                        return (
+                          <div
+                            key={t.id}
                             className={cn(
-                              "rounded-full border-0",
-                              t.status === "active"
-                                ? "bg-emerald-100 text-emerald-900"
-                                : "bg-slate-100 text-slate-700"
+                              "flex items-center justify-between gap-3 rounded-2xl border px-3 py-2",
+                              softDeleted
+                                ? "border-rose-200 bg-rose-50"
+                                : "border-slate-200 bg-slate-50"
                             )}
                           >
-                            {t.status}
-                          </Badge>
-                        </div>
-                      ))}
+                            <div className="min-w-0">
+                              <div className="truncate text-sm font-semibold text-slate-900">{t.name}</div>
+                              <div className="mt-0.5 truncate text-xs text-slate-500">/{t.slug}</div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              {softDeleted ? (
+                                <Badge className="rounded-full border-0 bg-rose-100 text-rose-900 hover:bg-rose-100">
+                                  deletado
+                                </Badge>
+                              ) : (
+                                <Badge
+                                  className={cn(
+                                    "rounded-full border-0",
+                                    t.status === "active"
+                                      ? "bg-emerald-100 text-emerald-900"
+                                      : "bg-slate-100 text-slate-700"
+                                  )}
+                                >
+                                  {t.status}
+                                </Badge>
+                              )}
+                              {softDeleted && (
+                                <Button
+                                  variant="secondary"
+                                  className="h-9 rounded-2xl"
+                                  onClick={() => restoreTenant(t.id)}
+                                >
+                                  Restaurar
+                                </Button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
 
                       {(tenantsQ.data ?? []).length === 0 && (
                         <div className="rounded-2xl border border-dashed border-slate-200 bg-white/60 p-4 text-xs text-slate-500">

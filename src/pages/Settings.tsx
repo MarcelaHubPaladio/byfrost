@@ -7,13 +7,16 @@ import { useSession } from "@/providers/SessionProvider";
 import { supabase } from "@/lib/supabase";
 import { env } from "@/lib/env";
 import { Switch } from "@/components/ui/switch";
+import { showError, showSuccess } from "@/utils/toast";
 
 export default function Settings() {
   const qc = useQueryClient();
   const { activeTenantId } = useTenant();
   const { user } = useSession();
   const email = (user?.email ?? "").toLowerCase();
-  const isSuperAdmin = env.APP_SUPER_ADMIN_EMAILS.includes(email);
+
+  // UI gate (email allowlist). Database write gate is enforced by RLS via JWT app_metadata.byfrost_super_admin.
+  const isSuperAdminUi = env.APP_SUPER_ADMIN_EMAILS.includes(email);
 
   const tenantQ = useQuery({
     queryKey: ["tenant_settings", activeTenantId],
@@ -42,7 +45,7 @@ export default function Settings() {
 
   const setFeature = async (key: string, value: boolean) => {
     if (!activeTenantId) return;
-    if (!isSuperAdmin) return;
+    if (!isSuperAdminUi) return;
 
     setSaving(true);
     try {
@@ -54,10 +57,21 @@ export default function Settings() {
           [key]: value,
         },
       };
-      const { error } = await supabase.from("tenants").update({ branding_json: next }).eq("id", activeTenantId);
+      const { error } = await supabase
+        .from("tenants")
+        .update({ branding_json: next })
+        .eq("id", activeTenantId);
       if (error) throw error;
+
+      showSuccess("Configuração salva.");
       await qc.invalidateQueries({ queryKey: ["tenant_settings", activeTenantId] });
       await qc.invalidateQueries({ queryKey: ["cases", activeTenantId] });
+    } catch (e: any) {
+      // Most common: RLS blocked because app_metadata.byfrost_super_admin is not set.
+      showError(
+        `Não foi possível salvar. Verifique se seu usuário tem app_metadata.byfrost_super_admin=true no Supabase Auth. (${e?.message ?? "erro"})`
+      );
+      throw e;
     } finally {
       setSaving(false);
     }
@@ -77,7 +91,7 @@ export default function Settings() {
               <div className="text-sm font-semibold text-slate-900">Governança de comunicação</div>
               <div className="mt-1 text-xs text-slate-500">
                 A IA nunca envia mensagem ao cliente sem aprovação humana. Além disso, o tenant pode desligar a
-                feature “avisar cliente”.
+                feature "avisar cliente".
               </div>
 
               <div className="mt-4 flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
@@ -90,13 +104,21 @@ export default function Settings() {
                 <Switch
                   checked={features.notify_customer}
                   onCheckedChange={(v) => setFeature("notify_customer", v)}
-                  disabled={!isSuperAdmin || saving}
+                  disabled={!isSuperAdminUi || saving}
                 />
               </div>
 
-              {!isSuperAdmin && (
+              {!isSuperAdminUi && (
                 <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
                   Você não está na allowlist VITE_APP_SUPER_ADMIN_EMAILS. Modo somente leitura.
+                </div>
+              )}
+
+              {isSuperAdminUi && (
+                <div className="mt-3 rounded-2xl border border-slate-200 bg-white/70 p-3 text-xs text-slate-600">
+                  Dica: se ao clicar o toggle voltar sozinho ou aparecer erro, marque seu usuário no Supabase
+                  Auth com <span className="font-semibold">app_metadata.byfrost_super_admin=true</span> para
+                  passar no RLS.
                 </div>
               )}
             </div>

@@ -20,7 +20,9 @@ type CaseRow = {
   updated_at: string;
   assigned_vendor_id: string | null;
   vendors?: { display_name: string | null; phone_e164: string | null } | null;
+  // Nem sempre existe FK/relacionamento exposto; então mantemos também meta_json.
   journeys?: { key: string | null; name: string | null } | null;
+  meta_json?: any;
 };
 
 type JourneyOpt = {
@@ -131,10 +133,9 @@ export default function Dashboard() {
     return Array.from(new Set(normalized));
   }, [selectedJourney]);
 
-  // IMPORTANTE: após resets, podem existir jornadas duplicadas (mesma key, ids diferentes).
-  // Para não "sumir" com casos recém-criados, carregamos os casos do tenant e filtramos no client por:
-  // - journeys.key
-  // - OU journey_id (quando a jornada selecionada é encontrada)
+  // Para debug e confiabilidade pós-reset:
+  // - buscamos os casos do tenant
+  // - filtramos por key (preferência: journeys.key; fallback: meta_json.journey_key)
   const casesQ = useQuery({
     queryKey: ["cases_by_tenant", activeTenantId],
     enabled: Boolean(activeTenantId),
@@ -144,7 +145,7 @@ export default function Dashboard() {
       const { data, error } = await supabase
         .from("cases")
         .select(
-          "id,journey_id,title,status,state,created_at,updated_at,assigned_vendor_id,vendors(display_name,phone_e164),journeys(key,name)"
+          "id,journey_id,title,status,state,created_at,updated_at,assigned_vendor_id,vendors(display_name,phone_e164),journeys(key,name),meta_json"
         )
         .eq("tenant_id", activeTenantId!)
         .is("deleted_at", null)
@@ -161,11 +162,27 @@ export default function Dashboard() {
     if (!selectedKey) return [];
 
     return rows.filter((r) => {
-      if (r.journeys?.key && r.journeys.key === selectedKey) return true;
+      const keyFromJoin = r.journeys?.key ?? null;
+      const keyFromMeta = (r.meta_json as any)?.journey_key ?? null;
+
+      if (keyFromJoin && keyFromJoin === selectedKey) return true;
+      if (keyFromMeta && keyFromMeta === selectedKey) return true;
+
+      // fallback adicional por journey_id quando a jornada selecionada foi encontrada
       if (selectedJourney?.id && r.journey_id && r.journey_id === selectedJourney.id) return true;
+
       return false;
     });
   }, [casesQ.data, selectedKey, selectedJourney?.id]);
+
+  const statusCounts = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const r of filteredRows) {
+      const k = String(r.status ?? "");
+      m.set(k, (m.get(k) ?? 0) + 1);
+    }
+    return Array.from(m.entries()).sort((a, b) => b[1] - a[1]);
+  }, [filteredRows]);
 
   const pendQ = useQuery({
     queryKey: ["pendencies_open", activeTenantId, filteredRows.map((c) => c.id).join(",")],
@@ -224,8 +241,7 @@ export default function Dashboard() {
             <div className="min-w-0">
               <h2 className="text-lg font-semibold tracking-tight text-slate-900">Casos</h2>
               <p className="mt-1 text-sm text-slate-600">
-                Agora a jornada faz parte da rota: <span className="font-medium">/app/j/&lt;slug&gt;</span>. Isso evita
-                filtros quebrados por URL após resets.
+                Agora a jornada faz parte da rota: <span className="font-medium">/app/j/&lt;slug&gt;</span>.
               </p>
             </div>
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
@@ -287,9 +303,13 @@ export default function Dashboard() {
                   <div className="mt-2 text-[11px] text-slate-500">
                     {selectedKey}
                     {selectedJourney?.id ? ` • ${selectedJourney.id.slice(0, 8)}…` : ""}
-                    {filteredRows.length === 0 && (casesQ.data?.length ?? 0) > 0
-                      ? " • 0 casos nesse filtro"
-                      : ""}
+                    {(casesQ.data?.length ?? 0) ? ` • tenant: ${casesQ.data?.length ?? 0}` : ""}
+                    {` • nesse fluxo: ${filteredRows.length}`}
+                    {statusCounts.length ? (
+                      <span className="text-slate-400">
+                        {" "}• status: {statusCounts.map(([s, n]) => `${s}(${n})`).join(", ")}
+                      </span>
+                    ) : null}
                   </div>
                 )}
               </div>
@@ -300,6 +320,16 @@ export default function Dashboard() {
             <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
               O slug <span className="font-semibold">{journeyKey}</span> não existe (ou foi resetado). Vou te levar
               para o fluxo principal.
+            </div>
+          )}
+
+          {selectedKey && (casesQ.data?.length ?? 0) === 0 && !casesQ.isLoading && (
+            <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+              Nenhum case foi retornado do banco para este tenant.
+              <div className="mt-1 text-xs text-amber-900/80">
+                Se você sabe que existe case no banco, isso geralmente indica <span className="font-semibold">RLS</span>{" "}
+                bloqueando seu usuário (policy em cases = is_panel_user(tenant_id)).
+              </div>
             </div>
           )}
 

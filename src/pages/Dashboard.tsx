@@ -1,6 +1,6 @@
 import { useMemo, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { AppShell } from "@/components/AppShell";
 import { RequireAuth } from "@/components/RequireAuth";
 import { useTenant } from "@/providers/TenantProvider";
@@ -46,7 +46,16 @@ function titleizeState(s: string) {
 
 export default function Dashboard() {
   const { activeTenantId } = useTenant();
-  const [sp, setSp] = useSearchParams();
+  const nav = useNavigate();
+  const loc = useLocation();
+  const { journeyKey } = useParams<{ journeyKey?: string }>();
+
+  // Back-compat: /app?journey=<uuid> -> /app/j/<journeys.key>
+  const legacyJourneyId = useMemo(() => {
+    const sp = new URLSearchParams(loc.search);
+    const id = sp.get("journey");
+    return id && id.length > 10 ? id : null;
+  }, [loc.search]);
 
   const journeyQ = useQuery({
     queryKey: ["tenant_journeys_enabled", activeTenantId],
@@ -77,38 +86,44 @@ export default function Dashboard() {
     },
   });
 
-  const selectedJourneyId = sp.get("journey") || "";
+  const selectedKey = journeyKey ?? "";
 
-  const selectedJourneyIsValid = useMemo(() => {
-    if (!selectedJourneyId) return false;
-    return Boolean((journeyQ.data ?? []).some((j) => j.id === selectedJourneyId));
-  }, [journeyQ.data, selectedJourneyId]);
+  const selectedJourney = useMemo(() => {
+    if (!selectedKey) return null;
+    return (journeyQ.data ?? []).find((j) => j.key === selectedKey) ?? null;
+  }, [journeyQ.data, selectedKey]);
 
   const pickFirstJourney = () => {
-    const first = journeyQ.data?.[0]?.id;
-    if (!first) return;
-    setSp(
-      (prev) => {
-        const next = new URLSearchParams(prev);
-        next.set("journey", first);
-        return next;
-      },
-      { replace: true }
-    );
+    const first = journeyQ.data?.[0];
+    if (!first?.key) return;
+    nav(`/app/j/${encodeURIComponent(first.key)}`, { replace: true });
   };
 
   useEffect(() => {
     if (!activeTenantId) return;
-    if (selectedJourneyId && selectedJourneyIsValid) return;
     if (!journeyQ.data?.length) return;
-    pickFirstJourney();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTenantId, journeyQ.data, selectedJourneyId, selectedJourneyIsValid]);
 
-  const selectedJourney = useMemo(() => {
-    if (!selectedJourneyId) return null;
-    return (journeyQ.data ?? []).find((j) => j.id === selectedJourneyId) ?? null;
-  }, [journeyQ.data, selectedJourneyId]);
+    // 1) Se veio um ?journey antigo (uuid), tenta mapear para key
+    if (!journeyKey && legacyJourneyId) {
+      const match = (journeyQ.data ?? []).find((j) => j.id === legacyJourneyId);
+      if (match?.key) {
+        nav(`/app/j/${encodeURIComponent(match.key)}`, { replace: true });
+        return;
+      }
+    }
+
+    // 2) Se não tem journeyKey na rota, manda para a primeira
+    if (!journeyKey) {
+      pickFirstJourney();
+      return;
+    }
+
+    // 3) Se a key não existe mais (ex: após reset), volta para a primeira
+    if (journeyKey && !selectedJourney) {
+      pickFirstJourney();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTenantId, journeyQ.data, journeyKey, legacyJourneyId]);
 
   const states = useMemo(() => {
     const st = (selectedJourney?.default_state_machine_json?.states ?? []) as string[];
@@ -118,8 +133,8 @@ export default function Dashboard() {
 
   // IMPORTANTE: após resets, podem existir jornadas duplicadas (mesma key, ids diferentes).
   // Para não "sumir" com casos recém-criados, carregamos os casos do tenant e filtramos no client por:
-  // - journey_id (preferencial)
-  // - OU journey key (fallback)
+  // - journeys.key
+  // - OU journey_id (quando a jornada selecionada é encontrada)
   const casesQ = useQuery({
     queryKey: ["cases_by_tenant", activeTenantId],
     enabled: Boolean(activeTenantId),
@@ -143,16 +158,14 @@ export default function Dashboard() {
 
   const filteredRows = useMemo(() => {
     const rows = casesQ.data ?? [];
-    if (!selectedJourneyId) return [];
-
-    const key = selectedJourney?.key ?? null;
+    if (!selectedKey) return [];
 
     return rows.filter((r) => {
-      if (r.journey_id && r.journey_id === selectedJourneyId) return true;
-      if (key && r.journeys?.key && r.journeys.key === key) return true;
+      if (r.journeys?.key && r.journeys.key === selectedKey) return true;
+      if (selectedJourney?.id && r.journey_id && r.journey_id === selectedJourney.id) return true;
       return false;
     });
-  }, [casesQ.data, selectedJourneyId, selectedJourney?.key]);
+  }, [casesQ.data, selectedKey, selectedJourney?.id]);
 
   const pendQ = useQuery({
     queryKey: ["pendencies_open", activeTenantId, filteredRows.map((c) => c.id).join(",")],
@@ -190,7 +203,9 @@ export default function Dashboard() {
 
     return all.map((st) => {
       const items =
-        st === "__other__" ? filteredRows.filter((r) => !known.has(r.state)) : filteredRows.filter((r) => r.state === st);
+        st === "__other__"
+          ? filteredRows.filter((r) => !known.has(r.state))
+          : filteredRows.filter((r) => r.state === st);
       return {
         key: st,
         label: st === "__other__" ? "Outros" : titleizeState(st),
@@ -199,8 +214,7 @@ export default function Dashboard() {
     });
   }, [filteredRows, states]);
 
-  const shouldShowInvalidJourneyBanner =
-    Boolean(selectedJourneyId) && !selectedJourneyIsValid && Boolean(journeyQ.data?.length);
+  const shouldShowInvalidJourneyBanner = Boolean(journeyKey) && Boolean(journeyQ.data?.length) && !selectedJourney;
 
   return (
     <RequireAuth>
@@ -210,8 +224,8 @@ export default function Dashboard() {
             <div className="min-w-0">
               <h2 className="text-lg font-semibold tracking-tight text-slate-900">Casos</h2>
               <p className="mt-1 text-sm text-slate-600">
-                Selecione a jornada para visualizar o board por estados. A IA apenas sugere e pede informações —
-                mudanças de status e aprovações são humanas.
+                Agora a jornada faz parte da rota: <span className="font-medium">/app/j/&lt;slug&gt;</span>. Isso evita
+                filtros quebrados por URL após resets.
               </p>
             </div>
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
@@ -238,15 +252,11 @@ export default function Dashboard() {
                   <div>
                     <div className="text-[11px] font-semibold text-slate-700">Jornada</div>
                     <select
-                      value={selectedJourneyId}
+                      value={selectedKey}
                       onChange={(e) => {
-                        const nextId = e.target.value;
-                        setSp((prev) => {
-                          const next = new URLSearchParams(prev);
-                          if (nextId) next.set("journey", nextId);
-                          else next.delete("journey");
-                          return next;
-                        });
+                        const nextKey = e.target.value;
+                        if (!nextKey) return;
+                        nav(`/app/j/${encodeURIComponent(nextKey)}`);
                       }}
                       className="mt-1 h-9 w-full min-w-[260px] rounded-xl border border-slate-200 bg-white px-2 text-sm text-slate-800 outline-none focus:border-[hsl(var(--byfrost-accent)/0.45)]"
                     >
@@ -254,7 +264,7 @@ export default function Dashboard() {
                         <option value="">(nenhuma jornada habilitada)</option>
                       ) : (
                         (journeyQ.data ?? []).map((j) => (
-                          <option key={j.id} value={j.id}>
+                          <option key={j.key} value={j.key}>
                             {j.name}
                           </option>
                         ))
@@ -269,16 +279,17 @@ export default function Dashboard() {
                     disabled={!journeyQ.data?.length}
                     title="Voltar para o fluxo principal"
                   >
-                    Padrão
+                    Principal
                   </Button>
                 </div>
 
-                {selectedJourney && (
+                {selectedKey && (
                   <div className="mt-2 text-[11px] text-slate-500">
-                    {selectedJourney.key} • {selectedJourney.id.slice(0, 8)}…
-                    {filteredRows.length === 0 && (casesQ.data?.length ?? 0) > 0 ? (
-                      <span className="text-slate-400"> • 0 casos nesse filtro</span>
-                    ) : null}
+                    {selectedKey}
+                    {selectedJourney?.id ? ` • ${selectedJourney.id.slice(0, 8)}…` : ""}
+                    {filteredRows.length === 0 && (casesQ.data?.length ?? 0) > 0
+                      ? " • 0 casos nesse filtro"
+                      : ""}
                   </div>
                 )}
               </div>
@@ -287,19 +298,18 @@ export default function Dashboard() {
 
           {shouldShowInvalidJourneyBanner && (
             <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-              Essa URL está com um <span className="font-semibold">filtro de jornada antigo</span>. Clique em{" "}
-              <span className="font-semibold">Padrão</span> (ao lado do seletor) para corrigir.
-              <div className="mt-1 text-xs text-amber-900/80">Filtro atual: {selectedJourneyId}</div>
+              O slug <span className="font-semibold">{journeyKey}</span> não existe (ou foi resetado). Vou te levar
+              para o fluxo principal.
             </div>
           )}
 
-          {!selectedJourneyId && (
+          {!selectedKey && (
             <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-              Habilite ao menos uma jornada no Admin e selecione aqui.
+              Habilite ao menos uma jornada no Admin.
             </div>
           )}
 
-          {selectedJourneyId && (
+          {selectedKey && (
             <div className="mt-4 overflow-x-auto pb-1">
               <div className="flex min-w-[980px] gap-4">
                 {columns.map((col) => (

@@ -32,7 +32,10 @@ const App = () => (
               <Route path="/login" element={<Login />} />
               <Route path="/tenants" element={<TenantSelect />} />
 
+              {/* Dashboard por jornada (slug = journeys.key) */}
               <Route path="/app" element={<Dashboard />} />
+              <Route path="/app/j/:journeyKey" element={<Dashboard />} />
+
               <Route path="/app/cases/:id" element={<CaseDetail />} />
               <Route path="/app/simulator" element={<Simulator />} />
               <Route path="/app/settings" element={<Settings />} />

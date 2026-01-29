@@ -336,13 +336,15 @@ serve(async (req) => {
             ? "Conversa (WhatsApp)"
             : `Conversa (${journey!.name ?? journey!.key})`;
 
+      // IMPORTANT: The current DB schema enforces a status check constraint.
+      // Use the default/expected status "open".
       const { data: createdCase, error: cErr } = await supabase
         .from("cases")
         .insert({
           tenant_id: instance.tenant_id,
           journey_id: journey!.id,
           case_type: "order",
-          status: "in_progress",
+          status: "open",
           state: initial,
           created_by_channel: "whatsapp",
           created_by_vendor_id: vendorId,

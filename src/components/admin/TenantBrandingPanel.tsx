@@ -10,6 +10,8 @@ import { showError, showSuccess } from "@/utils/toast";
 const BUCKET = "tenant-assets";
 const BRANDING_URL =
   "https://pryoirzeghatrgecwrci.supabase.co/functions/v1/branding-extract-palette";
+const UPLOAD_URL =
+  "https://pryoirzeghatrgecwrci.supabase.co/functions/v1/branding-upload-logo";
 
 function publicUrl(bucket: string, path: string) {
   try {
@@ -17,6 +19,17 @@ function publicUrl(bucket: string, path: string) {
   } catch {
     return null;
   }
+}
+
+async function fileToBase64(file: File) {
+  const buf = await file.arrayBuffer();
+  let binary = "";
+  const bytes = new Uint8Array(buf);
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(...bytes.slice(i, i + chunkSize));
+  }
+  return btoa(binary);
 }
 
 export function TenantBrandingPanel() {
@@ -69,35 +82,34 @@ export function TenantBrandingPanel() {
 
     setUploading(true);
     try {
-      const ext = f.name.split(".").pop()?.toLowerCase() || "png";
-      const path = `tenants/${activeTenantId}/logo.${ext}`;
+      const fileBase64 = await fileToBase64(f);
 
-      const { error: upErr } = await supabase.storage
-        .from(BUCKET)
-        .upload(path, f, { upsert: true, contentType: f.type });
+      const { data: sess } = await supabase.auth.getSession();
+      const token = sess.session?.access_token;
+      if (!token) throw new Error("Sessão inválida");
 
-      if (upErr) {
-        showError(
-          `Falha ao subir logo. Verifique se existe o bucket '${BUCKET}' no Supabase Storage e se está público. (${upErr.message})`
-        );
-        return;
+      const res = await fetch(UPLOAD_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          tenantId: activeTenantId,
+          filename: f.name,
+          contentType: f.type || "image/png",
+          fileBase64,
+        }),
+      });
+
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.ok) {
+        throw new Error(json?.error || `HTTP ${res.status}`);
       }
-
-      const current = tenantQ.data?.branding_json ?? {};
-      const next = {
-        ...current,
-        logo: { bucket: BUCKET, path, updated_at: new Date().toISOString() },
-      };
-
-      const { error: tErr } = await supabase
-        .from("tenants")
-        .update({ branding_json: next })
-        .eq("id", activeTenantId);
-      if (tErr) throw tErr;
 
       showSuccess("Logo atualizado. Agora extraia a paleta.");
       await qc.invalidateQueries({ queryKey: ["tenant_branding", activeTenantId] });
-      await qc.invalidateQueries({ queryKey: ["tenants"] });
+      await qc.invalidateQueries({ queryKey: ["tenant_settings", activeTenantId] });
     } catch (e: any) {
       showError(`Erro ao atualizar logo: ${e?.message ?? "erro"}`);
     } finally {
@@ -138,9 +150,6 @@ export function TenantBrandingPanel() {
       showSuccess("Paleta extraída e aplicada ao tenant.");
       await qc.invalidateQueries({ queryKey: ["tenant_branding", activeTenantId] });
       await qc.invalidateQueries({ queryKey: ["tenant_settings", activeTenantId] });
-      await qc.invalidateQueries({ queryKey: ["cases", activeTenantId] });
-      // refresh tenant list cache for header branding
-      await qc.invalidateQueries({ queryKey: ["admin_tenants"] });
     } catch (e: any) {
       showError(
         `Falha ao extrair paleta. Verifique GOOGLE_VISION_API_KEY nos Secrets das Edge Functions. (${e?.message ?? "erro"})`
@@ -153,7 +162,7 @@ export function TenantBrandingPanel() {
   if (!activeTenantId) {
     return (
       <div className="rounded-[22px] border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-        Selecione um tenant (botão “Trocar”) para configurar branding.
+        Selecione um tenant (botão "Trocar") para configurar branding.
       </div>
     );
   }
@@ -163,7 +172,8 @@ export function TenantBrandingPanel() {
       <div className="rounded-[22px] border border-slate-200 bg-white p-4">
         <div className="text-sm font-semibold text-slate-900">Logo do tenant</div>
         <div className="mt-1 text-xs text-slate-500">
-          Upload no Storage e gravação em <span className="font-medium">tenants.branding_json.logo</span>.
+          Upload via Edge Function (bypass do Storage RLS) e gravação em{" "}
+          <span className="font-medium">tenants.branding_json.logo</span>.
         </div>
 
         <div className="mt-4 grid gap-3">
@@ -176,7 +186,7 @@ export function TenantBrandingPanel() {
               className="mt-1 rounded-2xl file:rounded-xl file:border-0 file:bg-slate-100 file:px-3 file:py-2 file:text-xs file:font-medium file:text-slate-700"
             />
             <div className="mt-1 text-[11px] text-slate-500">
-              Bucket usado: <span className="font-medium">{BUCKET}</span> (crie no Supabase Storage e deixe público).
+              Armazenamento: bucket <span className="font-medium">{BUCKET}</span>.
             </div>
           </div>
 
@@ -229,10 +239,12 @@ export function TenantBrandingPanel() {
           </div>
 
           <div className="mt-3 grid grid-cols-2 gap-3">
-            {(palette?.primary?.hex || palette?.secondary?.hex || palette?.tertiary?.hex || palette?.quaternary?.hex
+            {(palette?.primary?.hex ||
+            palette?.secondary?.hex ||
+            palette?.tertiary?.hex ||
+            palette?.quaternary?.hex
               ? [palette?.primary, palette?.secondary, palette?.tertiary, palette?.quaternary]
-              : []
-            )
+              : [])
               .filter(Boolean)
               .map((c: any, idx: number) => (
                 <div
@@ -254,7 +266,7 @@ export function TenantBrandingPanel() {
 
             {!palette && (
               <div className="col-span-2 rounded-2xl border border-dashed border-slate-200 bg-white/60 p-4 text-xs text-slate-500">
-                Sem paleta ainda. Suba um logo e clique em “Extrair paleta”.
+                Sem paleta ainda. Suba um logo e clique em "Extrair paleta".
               </div>
             )}
           </div>

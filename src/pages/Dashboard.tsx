@@ -1,14 +1,15 @@
-import { useMemo, useEffect } from "react";
+import { useMemo, useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { AppShell } from "@/components/AppShell";
 import { RequireAuth } from "@/components/RequireAuth";
 import { useTenant } from "@/providers/TenantProvider";
+import { useSession } from "@/providers/SessionProvider";
 import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Clock, MapPin, RefreshCw, Sparkles } from "lucide-react";
+import { Clock, MapPin, RefreshCw, Sparkles, ShieldAlert } from "lucide-react";
 
 type CaseRow = {
   id: string;
@@ -65,9 +66,11 @@ function titleizeState(s: string) {
 
 export default function Dashboard() {
   const { activeTenantId } = useTenant();
+  const { user } = useSession();
   const nav = useNavigate();
   const loc = useLocation();
   const { journeyKey } = useParams<{ journeyKey?: string }>();
+  const [refreshingToken, setRefreshingToken] = useState(false);
 
   // Back-compat: /app?journey=<uuid> -> /app/j/<journeys.key>
   const legacyJourneyId = useMemo(() => {
@@ -217,6 +220,29 @@ export default function Dashboard() {
     },
   });
 
+  // Diagnóstico do lado do banco: como o Postgres está vendo seu JWT?
+  const rlsDiagQ = useQuery({
+    queryKey: ["rls_diag", activeTenantId],
+    enabled: Boolean(activeTenantId),
+    refetchOnWindowFocus: true,
+    queryFn: async () => {
+      const [claimsRes, superRes, panelRes] = await Promise.all([
+        supabase.rpc("jwt_claims"),
+        supabase.rpc("is_super_admin"),
+        supabase.rpc("is_panel_user", { p_tenant_id: activeTenantId! }),
+      ]);
+
+      return {
+        jwtClaims: claimsRes.error ? null : (claimsRes.data as any),
+        jwtClaimsError: claimsRes.error ? claimsRes.error.message : null,
+        isSuperAdminDb: superRes.error ? null : (superRes.data as any),
+        isSuperAdminDbError: superRes.error ? superRes.error.message : null,
+        isPanelUserDb: panelRes.error ? null : (panelRes.data as any),
+        isPanelUserDbError: panelRes.error ? panelRes.error.message : null,
+      };
+    },
+  });
+
   const pendQ = useQuery({
     queryKey: ["pendencies_open", activeTenantId, filteredRows.map((c) => c.id).join(",")],
     enabled: Boolean(activeTenantId && filteredRows.length),
@@ -266,6 +292,32 @@ export default function Dashboard() {
 
   const shouldShowInvalidJourneyBanner = Boolean(journeyKey) && Boolean(journeyQ.data?.length) && !selectedJourney;
 
+  const tokenLooksSuperAdminUi = Boolean(
+    (user as any)?.app_metadata?.byfrost_super_admin || (user as any)?.app_metadata?.super_admin
+  );
+
+  const mismatch =
+    selectedKey &&
+    debugRpcQ.data &&
+    debugRpcQ.data.cases_total > 0 &&
+    filteredRows.length === 0;
+
+  const refreshToken = async () => {
+    setRefreshingToken(true);
+    try {
+      await supabase.auth.refreshSession();
+      await Promise.all([
+        journeyQ.refetch(),
+        casesQ.refetch(),
+        pendQ.refetch(),
+        debugRpcQ.refetch(),
+        rlsDiagQ.refetch(),
+      ]);
+    } finally {
+      setRefreshingToken(false);
+    }
+  };
+
   return (
     <RequireAuth>
       <AppShell>
@@ -292,6 +344,7 @@ export default function Dashboard() {
                   casesQ.refetch();
                   pendQ.refetch();
                   debugRpcQ.refetch();
+                  rlsDiagQ.refetch();
                 }}
               >
                 <RefreshCw className="mr-2 h-4 w-4" /> Atualizar
@@ -373,14 +426,60 @@ export default function Dashboard() {
             </div>
           )}
 
-          {selectedKey && debugRpcQ.data && debugRpcQ.data.cases_total > 0 && filteredRows.length === 0 && (
+          {mismatch && (
             <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-              O banco diz que existem <span className="font-semibold">{debugRpcQ.data.cases_total}</span> case(s) nesse
-              fluxo, mas a UI não está enxergando.
-              <div className="mt-1 text-xs text-amber-900/80">
-                Isso quase sempre é <span className="font-semibold">RLS (policies)</span> ou seu usuário não está com
-                o token atualizado para o tenant.
+              <div className="flex items-start gap-2">
+                <ShieldAlert className="mt-0.5 h-4 w-4" />
+                <div className="min-w-0">
+                  O banco diz que existem <span className="font-semibold">{debugRpcQ.data!.cases_total}</span> case(s)
+                  nesse fluxo, mas a UI não está enxergando.
+                  <div className="mt-1 text-xs text-amber-900/80">
+                    Isso é quase sempre <span className="font-semibold">RLS (policies)</span> + token sem o claim
+                    certo.
+                  </div>
+                </div>
               </div>
+
+              <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
+                <Button
+                  variant="secondary"
+                  className="h-10 rounded-2xl"
+                  onClick={refreshToken}
+                  disabled={refreshingToken}
+                >
+                  {refreshingToken ? "Atualizando token…" : "Atualizar token (RLS)"}
+                </Button>
+                <div className="text-xs text-amber-900/80">
+                  user.app_metadata: {tokenLooksSuperAdminUi ? "super-admin" : "(sem super-admin)"}
+                  {rlsDiagQ.data?.isSuperAdminDbError
+                    ? ` • db.is_super_admin erro: ${rlsDiagQ.data.isSuperAdminDbError}`
+                    : typeof rlsDiagQ.data?.isSuperAdminDb === "boolean"
+                      ? ` • db.is_super_admin: ${rlsDiagQ.data.isSuperAdminDb ? "true" : "false"}`
+                      : ""}
+                  {rlsDiagQ.data?.isPanelUserDbError
+                    ? ` • db.is_panel_user erro: ${rlsDiagQ.data.isPanelUserDbError}`
+                    : typeof rlsDiagQ.data?.isPanelUserDb === "boolean"
+                      ? ` • db.is_panel_user: ${rlsDiagQ.data.isPanelUserDb ? "true" : "false"}`
+                      : ""}
+                </div>
+              </div>
+
+              {debugRpcQ.data?.latest?.length ? (
+                <div className="mt-3 text-xs text-amber-900/80">
+                  Últimos cases no fluxo (do banco):
+                  <div className="mt-1 flex flex-wrap gap-2">
+                    {debugRpcQ.data.latest.slice(0, 5).map((c) => (
+                      <span
+                        key={c.id}
+                        className="rounded-full border border-amber-200 bg-white/70 px-2 py-1 font-medium"
+                        title={`${c.status} • ${c.state}`}
+                      >
+                        {c.id.slice(0, 8)}…
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
             </div>
           )}
 

@@ -32,7 +32,10 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
   );
   const [loading, setLoading] = useState(true);
 
-  const isSuperAdmin = Boolean((user as any)?.app_metadata?.byfrost_super_admin);
+  // Keep this aligned with database RLS helpers (public.is_super_admin()).
+  const isSuperAdmin = Boolean(
+    (user as any)?.app_metadata?.byfrost_super_admin || (user as any)?.app_metadata?.super_admin
+  );
 
   const setActiveTenantId = (id: string) => {
     localStorage.setItem(LS_KEY, id);

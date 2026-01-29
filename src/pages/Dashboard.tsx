@@ -7,7 +7,8 @@ import { useTenant } from "@/providers/TenantProvider";
 import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
-import { Clock, MapPin, Sparkles } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Clock, MapPin, RefreshCw, Sparkles } from "lucide-react";
 
 type CaseRow = {
   id: string;
@@ -49,6 +50,9 @@ export default function Dashboard() {
   const journeyQ = useQuery({
     queryKey: ["tenant_journeys_enabled", activeTenantId],
     enabled: Boolean(activeTenantId),
+    // Jornadas mudam pouco; só precisamos revalidar ocasionalmente.
+    staleTime: 30_000,
+    refetchOnWindowFocus: true,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("tenant_journeys")
@@ -81,11 +85,14 @@ export default function Dashboard() {
     if (selectedJourneyId) return;
     const first = journeyQ.data?.[0]?.id;
     if (!first) return;
-    setSp((prev) => {
-      const next = new URLSearchParams(prev);
-      next.set("journey", first);
-      return next;
-    }, { replace: true });
+    setSp(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.set("journey", first);
+        return next;
+      },
+      { replace: true }
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTenantId, journeyQ.data]);
 
@@ -103,6 +110,9 @@ export default function Dashboard() {
   const casesQ = useQuery({
     queryKey: ["cases", activeTenantId, selectedJourneyId],
     enabled: Boolean(activeTenantId && selectedJourneyId),
+    // Webhooks podem criar cases a qualquer momento; manter o board vivo.
+    refetchInterval: 5000,
+    refetchOnWindowFocus: true,
     queryFn: async () => {
       const q = supabase
         .from("cases")
@@ -124,6 +134,8 @@ export default function Dashboard() {
   const pendQ = useQuery({
     queryKey: ["pendencies_open", activeTenantId, casesQ.data?.map((c) => c.id).join(",")],
     enabled: Boolean(activeTenantId && casesQ.data?.length),
+    refetchInterval: 7000,
+    refetchOnWindowFocus: true,
     queryFn: async () => {
       const ids = (casesQ.data ?? []).map((c) => c.id);
       const { data, error } = await supabase
@@ -179,11 +191,23 @@ export default function Dashboard() {
               </p>
             </div>
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-              <div className="hidden md:flex items-center gap-2">
+              <div className="hidden items-center gap-2 md:flex">
                 <div className="rounded-2xl bg-[hsl(var(--byfrost-accent)/0.10)] px-3 py-2 text-xs font-medium text-[hsl(var(--byfrost-accent))]">
                   <Sparkles className="mr-1 inline h-4 w-4" /> explicabilidade ativa
                 </div>
               </div>
+
+              <Button
+                variant="secondary"
+                className="h-10 rounded-2xl"
+                onClick={() => {
+                  journeyQ.refetch();
+                  casesQ.refetch();
+                  pendQ.refetch();
+                }}
+              >
+                <RefreshCw className="mr-2 h-4 w-4" /> Atualizar
+              </Button>
 
               <div className="rounded-2xl border border-slate-200 bg-white/70 px-3 py-2 shadow-sm">
                 <div className="text-[11px] font-semibold text-slate-700">Jornada</div>

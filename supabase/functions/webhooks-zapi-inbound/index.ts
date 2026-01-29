@@ -5,6 +5,13 @@ import { normalizePhoneE164Like } from "../_shared/normalize.ts";
 
 type InboundType = "text" | "image" | "audio" | "location";
 
+type JourneyInfo = {
+  id: string;
+  key: string;
+  name?: string;
+  default_state_machine_json?: any;
+};
+
 function pickFirst<T>(...values: Array<T | null | undefined>): T | null {
   for (const v of values) if (v !== null && v !== undefined && v !== "") return v as T;
   return null;
@@ -64,15 +71,47 @@ function normalizeInbound(payload: any): {
     payload?.data?.media_url
   );
 
-  const latRaw = pickFirst(payload?.latitude, payload?.data?.latitude, payload?.location?.latitude, payload?.data?.location?.latitude);
-  const lngRaw = pickFirst(payload?.longitude, payload?.data?.longitude, payload?.location?.longitude, payload?.data?.location?.longitude);
+  const latRaw = pickFirst(
+    payload?.latitude,
+    payload?.data?.latitude,
+    payload?.location?.latitude,
+    payload?.data?.location?.latitude
+  );
+  const lngRaw = pickFirst(
+    payload?.longitude,
+    payload?.data?.longitude,
+    payload?.location?.longitude,
+    payload?.data?.location?.longitude
+  );
 
   const location =
     type === "location" && latRaw != null && lngRaw != null
       ? { lat: Number(latRaw), lng: Number(lngRaw) }
       : null;
 
-  return { zapiInstanceId, type, from, to, text: text ?? null, mediaUrl: mediaUrl ?? null, location, raw: payload };
+  return {
+    zapiInstanceId,
+    type,
+    from,
+    to,
+    text: text ?? null,
+    mediaUrl: mediaUrl ?? null,
+    location,
+    raw: payload,
+  };
+}
+
+function safeStates(j: JourneyInfo | null | undefined) {
+  const st = (j?.default_state_machine_json?.states ?? []) as any[];
+  return Array.isArray(st) ? st.map((s) => String(s)).filter(Boolean) : [];
+}
+
+function pickInitialState(j: JourneyInfo, hint: string | null) {
+  const states = safeStates(j);
+  const def = String(j?.default_state_machine_json?.default ?? "new");
+  if (hint && states.includes(hint)) return hint;
+  if (states.includes(def)) return def;
+  return states[0] ?? def;
 }
 
 serve(async (req) => {
@@ -102,7 +141,7 @@ serve(async (req) => {
 
     const { data: instance, error: instErr } = await supabase
       .from("wa_instances")
-      .select("id, tenant_id, webhook_secret")
+      .select("id, tenant_id, webhook_secret, default_journey_id")
       .eq("zapi_instance_id", normalized.zapiInstanceId)
       .maybeSingle();
 
@@ -178,14 +217,44 @@ serve(async (req) => {
       }
     }
 
-    // Find journey (MVP sales_order)
-    const { data: journeyRow, error: jErr } = await supabase
-      .from("journeys")
-      .select("id")
-      .eq("key", "sales_order")
-      .maybeSingle();
-    if (jErr || !journeyRow) {
-      console.error(`[${fn}] Missing journey sales_order`, { jErr });
+    // Journey routing:
+    // 1) instance.default_journey_id (if set)
+    // 2) first enabled tenant_journey
+    // 3) fallback to sales_order
+    let journey: JourneyInfo | null = null;
+
+    if (instance.default_journey_id) {
+      const { data: j } = await supabase
+        .from("journeys")
+        .select("id,key,name,default_state_machine_json")
+        .eq("id", instance.default_journey_id)
+        .maybeSingle();
+      if (j?.id) journey = j as any;
+    }
+
+    if (!journey) {
+      const { data: tj } = await supabase
+        .from("tenant_journeys")
+        .select("journey_id, journeys(id,key,name,default_state_machine_json)")
+        .eq("tenant_id", instance.tenant_id)
+        .eq("enabled", true)
+        .order("created_at", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      if (tj?.journeys?.id) journey = tj.journeys as any;
+    }
+
+    if (!journey) {
+      const { data: j } = await supabase
+        .from("journeys")
+        .select("id,key,name,default_state_machine_json")
+        .eq("key", "sales_order")
+        .maybeSingle();
+      if (j?.id) journey = j as any;
+    }
+
+    if (!journey) {
+      console.error(`[${fn}] No journey available for routing`, { tenantId: instance.tenant_id });
       return new Response("Journey not configured", { status: 500, headers: corsHeaders });
     }
 
@@ -204,25 +273,42 @@ serve(async (req) => {
       }
     };
 
+    const findLatestCaseForVendor = async () => {
+      if (!vendorId) return null;
+      const { data } = await supabase
+        .from("cases")
+        .select("id,state")
+        .eq("tenant_id", instance.tenant_id)
+        .eq("journey_id", journey!.id)
+        .eq("assigned_vendor_id", vendorId)
+        .is("deleted_at", null)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      return (data as any) ?? null;
+    };
+
     // Routing
     if (normalized.type === "image") {
       if (!vendorId) {
         return new Response("Missing vendor phone", { status: 400, headers: corsHeaders });
       }
 
+      const initial = pickInitialState(journey, "awaiting_ocr");
+
       const { data: createdCase, error: cErr } = await supabase
         .from("cases")
         .insert({
           tenant_id: instance.tenant_id,
-          journey_id: journeyRow.id,
+          journey_id: journey.id,
           case_type: "order",
           status: "in_progress",
-          state: "awaiting_ocr",
+          state: initial,
           created_by_channel: "whatsapp",
           created_by_vendor_id: vendorId,
           assigned_vendor_id: vendorId,
-          title: "Pedido (foto recebida)",
-          meta_json: { correlation_id: correlationId, photo_attempt: 1 },
+          title: journey.key === "sales_order" ? "Pedido (foto recebida)" : `Novo caso (${journey.name ?? journey.key})`,
+          meta_json: { correlation_id: correlationId, journey_key: journey.key, photo_attempt: 1 },
         })
         .select("id")
         .single();
@@ -244,78 +330,73 @@ serve(async (req) => {
         });
       }
 
-      // Initial pendencies
-      await supabase.from("pendencies").insert([
-        {
-          tenant_id: instance.tenant_id,
-          case_id: createdCase.id,
-          type: "need_location",
-          assigned_to_role: "vendor",
-          question_text: "Envie sua localização (WhatsApp: Compartilhar localização). Sem isso não conseguimos registrar o pedido.",
-          required: true,
-          status: "open",
-          due_at: new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString(),
-        },
-        {
-          tenant_id: instance.tenant_id,
-          case_id: createdCase.id,
-          type: "need_more_pages",
-          assigned_to_role: "vendor",
-          question_text: "Tem mais alguma folha desse pedido? Se sim, envie as próximas fotos. Se não, responda: última folha.",
-          required: false,
-          status: "open",
-          due_at: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
-        },
-      ]);
-
       await supabase.from("timeline_events").insert({
         tenant_id: instance.tenant_id,
         case_id: createdCase.id,
         event_type: "inbound_image",
         actor_type: "vendor",
         actor_id: vendorId,
-        message: "Foto do pedido recebida. Iniciando OCR e validações.",
-        meta_json: { correlation_id: correlationId },
+        message:
+          journey.key === "sales_order"
+            ? "Foto do pedido recebida. Iniciando OCR e validações."
+            : "Imagem recebida via WhatsApp.",
+        meta_json: { correlation_id: correlationId, journey_key: journey.key },
         occurred_at: new Date().toISOString(),
       });
 
-      await supabase.from("decision_logs").insert({
-        tenant_id: instance.tenant_id,
-        case_id: createdCase.id,
-        agent_id: null,
-        input_summary: "Mensagem inbound com imagem",
-        output_summary: "Caso criado + pendências iniciais (localização / páginas)",
-        reasoning_public: "Para registrar o pedido, a localização do WhatsApp é obrigatória. OCR será executado para extrair os campos.",
-        why_json: { need_location: true, ask_more_pages: true },
-        confidence_json: { overall: 0.6 },
-        occurred_at: new Date().toISOString(),
-      });
+      if (journey.key === "sales_order") {
+        // Initial pendencies (legacy flow)
+        await supabase.from("pendencies").insert([
+          {
+            tenant_id: instance.tenant_id,
+            case_id: createdCase.id,
+            type: "need_location",
+            assigned_to_role: "vendor",
+            question_text: "Envie sua localização (WhatsApp: Compartilhar localização). Sem isso não conseguimos registrar o pedido.",
+            required: true,
+            status: "open",
+            due_at: new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString(),
+          },
+          {
+            tenant_id: instance.tenant_id,
+            case_id: createdCase.id,
+            type: "need_more_pages",
+            assigned_to_role: "vendor",
+            question_text: "Tem mais alguma folha desse pedido? Se sim, envie as próximas fotos. Se não, responda: última folha.",
+            required: false,
+            status: "open",
+            due_at: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+          },
+        ]);
+
+        await enqueueJob("OCR_IMAGE", `OCR_IMAGE:${createdCase.id}`, {
+          case_id: createdCase.id,
+          correlation_id: correlationId,
+        });
+        await enqueueJob("VALIDATE_FIELDS", `VALIDATE_FIELDS:${createdCase.id}`, {
+          case_id: createdCase.id,
+          correlation_id: correlationId,
+        });
+        await enqueueJob("ASK_PENDENCIES", `ASK_PENDENCIES:${createdCase.id}:${Date.now()}`, {
+          case_id: createdCase.id,
+          correlation_id: correlationId,
+        });
+      }
 
       await supabase.rpc("append_audit_ledger", {
         p_tenant_id: instance.tenant_id,
         p_payload: {
-          kind: "inbound_image_created_case",
+          kind: "wa_inbound_routed",
           correlation_id: correlationId,
           case_id: createdCase.id,
           from: normalized.from,
           instance: normalized.zapiInstanceId,
+          journey_id: journey.id,
+          journey_key: journey.key,
         },
       });
 
-      await enqueueJob("OCR_IMAGE", `OCR_IMAGE:${createdCase.id}`, {
-        case_id: createdCase.id,
-        correlation_id: correlationId,
-      });
-      await enqueueJob("VALIDATE_FIELDS", `VALIDATE_FIELDS:${createdCase.id}`, {
-        case_id: createdCase.id,
-        correlation_id: correlationId,
-      });
-      await enqueueJob("ASK_PENDENCIES", `ASK_PENDENCIES:${createdCase.id}:${Date.now()}`, {
-        case_id: createdCase.id,
-        correlation_id: correlationId,
-      });
-
-      return new Response(JSON.stringify({ ok: true, correlation_id: correlationId, case_id: createdCase.id }), {
+      return new Response(JSON.stringify({ ok: true, correlation_id: correlationId, case_id: createdCase.id, journey_id: journey.id }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -325,17 +406,7 @@ serve(async (req) => {
         return new Response("Missing vendor or location", { status: 400, headers: corsHeaders });
       }
 
-      // Find latest case for this vendor needing location
-      const { data: openCase } = await supabase
-        .from("cases")
-        .select("id")
-        .eq("tenant_id", instance.tenant_id)
-        .eq("assigned_vendor_id", vendorId)
-        .is("deleted_at", null)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
+      const openCase = await findLatestCaseForVendor();
       if (!openCase?.id) {
         return new Response(JSON.stringify({ ok: true, note: "No open case" }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -353,6 +424,7 @@ serve(async (req) => {
         last_updated_by: "whatsapp_location",
       });
 
+      // only sales_order has the need_location pendency by default
       await supabase
         .from("pendencies")
         .update({ status: "answered", answered_text: "Localização enviada", answered_payload_json: normalized.location })
@@ -367,24 +439,20 @@ serve(async (req) => {
         event_type: "location_received",
         actor_type: "vendor",
         actor_id: vendorId,
-        message: "Localização recebida. Pedido pode avançar para revisão.",
-        meta_json: normalized.location,
+        message: "Localização recebida via WhatsApp.",
+        meta_json: { correlation_id: correlationId, ...normalized.location, journey_key: journey.key },
         occurred_at: new Date().toISOString(),
       });
 
-      await supabase.from("cases").update({ state: "ready_for_review" }).eq("id", openCase.id);
+      const nextState = pickInitialState(journey, "ready_for_review");
+      await supabase.from("cases").update({ state: nextState }).eq("id", openCase.id);
 
-      await supabase.rpc("append_audit_ledger", {
-        p_tenant_id: instance.tenant_id,
-        p_payload: { kind: "location_received", correlation_id: correlationId, case_id: openCase.id, from: normalized.from },
-      });
-
-      return new Response(JSON.stringify({ ok: true, correlation_id: correlationId, case_id: openCase.id }), {
+      return new Response(JSON.stringify({ ok: true, correlation_id: correlationId, case_id: openCase.id, journey_id: journey.id }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    // text/audio: treat as pendency answer (MVP)
+    // text/audio
     if (normalized.type === "text" || normalized.type === "audio") {
       if (!vendorId) {
         return new Response(JSON.stringify({ ok: true, note: "No vendor" }), {
@@ -392,16 +460,7 @@ serve(async (req) => {
         });
       }
 
-      const { data: openCase } = await supabase
-        .from("cases")
-        .select("id")
-        .eq("tenant_id", instance.tenant_id)
-        .eq("assigned_vendor_id", vendorId)
-        .is("deleted_at", null)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
+      const openCase = await findLatestCaseForVendor();
       if (!openCase?.id) {
         return new Response(JSON.stringify({ ok: true, note: "No open case" }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -410,20 +469,34 @@ serve(async (req) => {
 
       const answerText = normalized.type === "audio" ? "(áudio recebido - transcrição pendente)" : normalized.text;
 
-      // Answer the oldest open vendor pendency
-      const { data: pendency } = await supabase
-        .from("pendencies")
-        .select("id")
-        .eq("tenant_id", instance.tenant_id)
-        .eq("case_id", openCase.id)
-        .eq("assigned_to_role", "vendor")
-        .eq("status", "open")
-        .order("created_at", { ascending: true })
-        .limit(1)
-        .maybeSingle();
+      if (journey.key === "sales_order") {
+        // Answer the oldest open vendor pendency (legacy flow)
+        const { data: pendency } = await supabase
+          .from("pendencies")
+          .select("id")
+          .eq("tenant_id", instance.tenant_id)
+          .eq("case_id", openCase.id)
+          .eq("assigned_to_role", "vendor")
+          .eq("status", "open")
+          .order("created_at", { ascending: true })
+          .limit(1)
+          .maybeSingle();
 
-      if (pendency?.id) {
-        await supabase.from("pendencies").update({ status: "answered", answered_text: answerText, answered_payload_json: payload }).eq("id", pendency.id);
+        if (pendency?.id) {
+          await supabase
+            .from("pendencies")
+            .update({ status: "answered", answered_text: answerText, answered_payload_json: payload })
+            .eq("id", pendency.id);
+        }
+
+        await enqueueJob("VALIDATE_FIELDS", `VALIDATE_FIELDS:${openCase.id}:${Date.now()}`, {
+          case_id: openCase.id,
+          correlation_id: correlationId,
+        });
+        await enqueueJob("ASK_PENDENCIES", `ASK_PENDENCIES:${openCase.id}:${Date.now()}`, {
+          case_id: openCase.id,
+          correlation_id: correlationId,
+        });
       }
 
       await supabase.from("timeline_events").insert({
@@ -432,21 +505,12 @@ serve(async (req) => {
         event_type: "vendor_reply",
         actor_type: "vendor",
         actor_id: vendorId,
-        message: `Resposta do vendedor recebida${normalized.type === "audio" ? " (áudio)" : ""}.`,
-        meta_json: { correlation_id: correlationId },
+        message: `Mensagem do vendedor recebida${normalized.type === "audio" ? " (áudio)" : ""}.`,
+        meta_json: { correlation_id: correlationId, journey_key: journey.key },
         occurred_at: new Date().toISOString(),
       });
 
-      await enqueueJob("VALIDATE_FIELDS", `VALIDATE_FIELDS:${openCase.id}:${Date.now()}`, {
-        case_id: openCase.id,
-        correlation_id: correlationId,
-      });
-      await enqueueJob("ASK_PENDENCIES", `ASK_PENDENCIES:${openCase.id}:${Date.now()}`, {
-        case_id: openCase.id,
-        correlation_id: correlationId,
-      });
-
-      return new Response(JSON.stringify({ ok: true, correlation_id: correlationId, case_id: openCase.id }), {
+      return new Response(JSON.stringify({ ok: true, correlation_id: correlationId, case_id: openCase.id, journey_id: journey.id }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }

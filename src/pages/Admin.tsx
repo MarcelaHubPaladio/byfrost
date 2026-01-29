@@ -185,6 +185,28 @@ export default function Admin() {
     },
   });
 
+  const tenantJourneysQ = useQuery({
+    queryKey: ["admin_tenant_journeys_enabled", activeTenantId],
+    enabled: Boolean(isSuperAdmin && activeTenantId),
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("tenant_journeys")
+        .select("journey_id, journeys(id,name,key)")
+        .eq("tenant_id", activeTenantId!)
+        .eq("enabled", true)
+        .limit(500);
+      if (error) throw error;
+
+      const opts = (data ?? [])
+        .map((r: any) => r.journeys)
+        .filter(Boolean)
+        .map((j: any) => ({ id: j.id as string, name: j.name as string, key: j.key as string }));
+
+      opts.sort((a, b) => a.name.localeCompare(b.name));
+      return opts;
+    },
+  });
+
   const instancesQ = useQuery({
     queryKey: ["admin_instances", activeTenantId],
     enabled: Boolean(isSuperAdmin && activeTenantId),
@@ -192,7 +214,7 @@ export default function Admin() {
       const { data, error } = await supabase
         .from("wa_instances")
         .select(
-          "id,name,status,zapi_instance_id,phone_number,webhook_secret,created_at"
+          "id,name,status,zapi_instance_id,phone_number,webhook_secret,default_journey_id,created_at"
         )
         .eq("tenant_id", activeTenantId!)
         .is("deleted_at", null)
@@ -202,6 +224,23 @@ export default function Admin() {
       return data ?? [];
     },
   });
+
+  const setInstanceJourney = async (instanceId: string, journeyId: string | null) => {
+    if (!activeTenantId) return;
+    try {
+      await ensureFreshTokenForRls();
+      const { error } = await supabase
+        .from("wa_instances")
+        .update({ default_journey_id: journeyId })
+        .eq("tenant_id", activeTenantId)
+        .eq("id", instanceId);
+      if (error) throw error;
+      showSuccess("Roteamento salvo.");
+      await qc.invalidateQueries({ queryKey: ["admin_instances", activeTenantId] });
+    } catch (e: any) {
+      showError(`Falha ao salvar roteamento: ${e?.message ?? "erro"}`);
+    }
+  };
 
   const [vendorPhone, setVendorPhone] = useState("+55");
   const [vendorName, setVendorName] = useState("");
@@ -310,6 +349,7 @@ export default function Admin() {
   const [instZapiId, setInstZapiId] = useState("");
   const [instToken, setInstToken] = useState("");
   const [instSecret, setInstSecret] = useState("");
+  const [instJourneyId, setInstJourneyId] = useState<string>("");
   const [savingInst, setSavingInst] = useState(false);
 
   const addInstance = async () => {
@@ -326,12 +366,14 @@ export default function Admin() {
         zapi_token_encrypted: instToken.trim(),
         phone_number: instPhone.trim() || null,
         webhook_secret: instSecret.trim() || crypto.randomUUID(),
+        default_journey_id: instJourneyId || null,
       });
       if (error) throw error;
       showSuccess("Instância cadastrada.");
       setInstZapiId("");
       setInstToken("");
       setInstSecret("");
+      setInstJourneyId("");
       await qc.invalidateQueries({ queryKey: ["admin_instances", activeTenantId] });
     } catch (e: any) {
       const msg = String(e?.message ?? "erro");
@@ -672,7 +714,7 @@ export default function Admin() {
                     <div className="rounded-[22px] border border-slate-200 bg-white p-4">
                       <div className="text-sm font-semibold text-slate-900">Cadastrar instância</div>
                       <div className="mt-1 text-xs text-slate-500">
-                        Para webhook real, configure no Z-API o endpoint e use o webhook_secret.
+                        Defina a jornada padrão para onde o webhook vai rotear mensagens inbound.
                       </div>
 
                       <div className="mt-4 grid gap-3">
@@ -721,6 +763,25 @@ export default function Admin() {
                           />
                         </div>
 
+                        <div>
+                          <Label className="text-xs">Jornada padrão (inbound)</Label>
+                          <select
+                            value={instJourneyId}
+                            onChange={(e) => setInstJourneyId(e.target.value)}
+                            className="mt-1 h-10 w-full rounded-2xl border border-slate-200 bg-white px-3 text-sm text-slate-700 shadow-sm focus:border-[hsl(var(--byfrost-accent)/0.45)] outline-none"
+                          >
+                            <option value="">(fallback)</option>
+                            {(tenantJourneysQ.data ?? []).map((j) => (
+                              <option key={j.id} value={j.id}>
+                                {j.name}
+                              </option>
+                            ))}
+                          </select>
+                          <div className="mt-1 text-[11px] text-slate-500">
+                            Se vazio, o webhook tenta usar a primeira jornada habilitada do tenant; se não existir, usa sales_order.
+                          </div>
+                        </div>
+
                         <Button
                           onClick={addInstance}
                           disabled={savingInst || !instZapiId.trim() || !instToken.trim()}
@@ -758,6 +819,27 @@ export default function Admin() {
                               <Badge className="rounded-full border-0 bg-emerald-100 text-emerald-900 hover:bg-emerald-100">
                                 {i.status}
                               </Badge>
+                            </div>
+
+                            <div className="mt-3 rounded-2xl border border-slate-200 bg-white/70 p-2">
+                              <div className="text-[11px] font-semibold text-slate-700">Roteamento inbound</div>
+                              <select
+                                value={i.default_journey_id ?? ""}
+                                onChange={(e) =>
+                                  setInstanceJourney(i.id, e.target.value ? e.target.value : null)
+                                }
+                                className="mt-1 h-9 w-full rounded-xl border border-slate-200 bg-white px-2 text-sm text-slate-700 outline-none focus:border-[hsl(var(--byfrost-accent)/0.45)]"
+                              >
+                                <option value="">(fallback)</option>
+                                {(tenantJourneysQ.data ?? []).map((j) => (
+                                  <option key={j.id} value={j.id}>
+                                    {j.name}
+                                  </option>
+                                ))}
+                              </select>
+                              <div className="mt-1 text-[11px] text-slate-500">
+                                Define em qual jornada cada nova conversa/caso será criado.
+                              </div>
                             </div>
                           </div>
                         ))}

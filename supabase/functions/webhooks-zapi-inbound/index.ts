@@ -249,12 +249,18 @@ serve(async (req) => {
     let journey: JourneyInfo | null = null;
 
     if (instance.default_journey_id) {
-      const { data: j } = await supabase
+      // Note: algumas instalações não têm deleted_at em journeys. Evite filtrar por deleted_at aqui.
+      const { data: j, error: jErr } = await supabase
         .from("journeys")
         .select("id,key,name,default_state_machine_json")
         .eq("id", instance.default_journey_id)
-        .is("deleted_at", null)
         .maybeSingle();
+      if (jErr) {
+        console.error(`[${fn}] Failed to load journey by default_journey_id`, {
+          default_journey_id: instance.default_journey_id,
+          jErr,
+        });
+      }
       if (j?.id) journey = j as any;
       if (!journey) {
         console.warn(`[${fn}] Instance default_journey_id not found`, {
@@ -264,7 +270,7 @@ serve(async (req) => {
     }
 
     if (!journey) {
-      const { data: tj } = await supabase
+      const { data: tj, error: tjErr } = await supabase
         .from("tenant_journeys")
         .select("journey_id, journeys(id,key,name,default_state_machine_json)")
         .eq("tenant_id", instance.tenant_id)
@@ -272,16 +278,17 @@ serve(async (req) => {
         .order("created_at", { ascending: true })
         .limit(1)
         .maybeSingle();
+      if (tjErr) console.error(`[${fn}] Failed to load tenant_journeys for routing`, { tjErr });
       if (tj?.journeys?.id) journey = tj.journeys as any;
     }
 
     if (!journey) {
-      const { data: j } = await supabase
+      const { data: j, error: jErr } = await supabase
         .from("journeys")
         .select("id,key,name,default_state_machine_json")
         .eq("key", "sales_order")
-        .is("deleted_at", null)
         .maybeSingle();
+      if (jErr) console.error(`[${fn}] Failed to load fallback journey sales_order`, { jErr });
       if (j?.id) journey = j as any;
     }
 
@@ -291,13 +298,24 @@ serve(async (req) => {
       return new Response("Journey not configured", { status: 500, headers: corsHeaders });
     }
 
+    console.log(`[${fn}] Routed inbound`, {
+      tenant_id: instance.tenant_id,
+      instance_id: instance.id,
+      zapi_instance_id: effectiveInstanceId,
+      journey_id: journey.id,
+      journey_key: journey.key,
+      wa_type: normalized.type,
+      from: normalized.from,
+    });
+
     // Read tenant+jornada config_json (panel-configurable)
-    const { data: tJ } = await supabase
+    const { data: tJ, error: tJErr } = await supabase
       .from("tenant_journeys")
       .select("config_json")
       .eq("tenant_id", instance.tenant_id)
       .eq("journey_id", journey.id)
       .maybeSingle();
+    if (tJErr) console.error(`[${fn}] Failed to load tenant_journeys config_json`, { tJErr });
     const cfg = (tJ as any)?.config_json ?? {};
 
     const cfgOcrEnabled = Boolean(readCfg(cfg, "automation.ocr.enabled"));
@@ -499,6 +517,8 @@ serve(async (req) => {
       caseId = res.caseId ?? null;
       skippedReason = (res as any).skippedReason ?? null;
     }
+
+    console.log(`[${fn}] ensureCase`, { case_id: caseId, skippedReason, wa_type: normalized.type });
 
     // Write inbound message (always)
     const { data: insertedMsg, error: msgErr } = await supabase

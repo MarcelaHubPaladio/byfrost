@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 import { showError, showSuccess } from "@/utils/toast";
 import { cn } from "@/lib/utils";
 
@@ -21,13 +22,13 @@ type JourneyRow = {
   key: string;
   name: string;
   description: string | null;
+  default_state_machine_json?: any;
 };
 
 type TenantSectorRow = {
   id: string;
   sector_id: string;
   enabled: boolean;
-  config_json: any;
 };
 
 type TenantJourneyRow = {
@@ -53,6 +54,27 @@ export function TenantJourneysPanel() {
   const [configDraft, setConfigDraft] = useState<string>("{}");
   const [savingConfig, setSavingConfig] = useState(false);
 
+  // ---- Create sector/journey (catalog) ----
+  const [creatingSector, setCreatingSector] = useState(false);
+  const [sectorName, setSectorName] = useState("");
+  const [sectorDesc, setSectorDesc] = useState("");
+
+  const [creatingJourney, setCreatingJourney] = useState(false);
+  const [journeySectorId, setJourneySectorId] = useState<string>("");
+  const [journeyKey, setJourneyKey] = useState("");
+  const [journeyName, setJourneyName] = useState("");
+  const [journeyDesc, setJourneyDesc] = useState("");
+  const [journeyStateMachine, setJourneyStateMachine] = useState(
+    JSON.stringify(
+      {
+        states: ["new", "in_progress", "ready_for_review", "confirmed", "finalized"],
+        default: "new",
+      },
+      null,
+      2
+    )
+  );
+
   const sectorsQ = useQuery({
     queryKey: ["sectors"],
     queryFn: async () => {
@@ -70,7 +92,7 @@ export function TenantJourneysPanel() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("journeys")
-        .select("id,sector_id,key,name,description")
+        .select("id,sector_id,key,name,description,default_state_machine_json")
         .order("name", { ascending: true });
       if (error) throw error;
       return (data ?? []) as JourneyRow[];
@@ -83,9 +105,8 @@ export function TenantJourneysPanel() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("tenant_sectors")
-        .select("id,sector_id,enabled,config_json")
+        .select("id,sector_id,enabled")
         .eq("tenant_id", activeTenantId!)
-        .is("deleted_at", null)
         .limit(500);
       if (error) throw error;
       return (data ?? []) as TenantSectorRow[];
@@ -100,7 +121,6 @@ export function TenantJourneysPanel() {
         .from("tenant_journeys")
         .select("id,journey_id,enabled,config_json")
         .eq("tenant_id", activeTenantId!)
-        .is("deleted_at", null)
         .limit(500);
       if (error) throw error;
       return (data ?? []) as TenantJourneyRow[];
@@ -145,6 +165,57 @@ export function TenantJourneysPanel() {
     setConfigDraft(JSON.stringify(next, null, 2));
   }, [selectedJourneyId, selectedTenantJourney]);
 
+  const createSector = async () => {
+    if (!sectorName.trim()) return;
+    setCreatingSector(true);
+    try {
+      const { error } = await supabase.from("sectors").insert({
+        name: sectorName.trim(),
+        description: sectorDesc.trim() || null,
+      });
+      if (error) throw error;
+      showSuccess("Setor criado.");
+      setSectorName("");
+      setSectorDesc("");
+      await qc.invalidateQueries({ queryKey: ["sectors"] });
+    } catch (e: any) {
+      showError(`Falha ao criar setor: ${e?.message ?? "erro"}`);
+    } finally {
+      setCreatingSector(false);
+    }
+  };
+
+  const createJourney = async () => {
+    if (!journeyName.trim() || !journeyKey.trim()) return;
+    setCreatingJourney(true);
+    try {
+      const sm = safeJsonParse(journeyStateMachine);
+      if (!sm.ok) {
+        showError(`State machine JSON inválido: ${sm.error}`);
+        return;
+      }
+
+      const { error } = await supabase.from("journeys").insert({
+        sector_id: journeySectorId || null,
+        key: journeyKey.trim(),
+        name: journeyName.trim(),
+        description: journeyDesc.trim() || null,
+        default_state_machine_json: sm.value,
+      });
+      if (error) throw error;
+
+      showSuccess("Jornada criada.");
+      setJourneyKey("");
+      setJourneyName("");
+      setJourneyDesc("");
+      await qc.invalidateQueries({ queryKey: ["journeys"] });
+    } catch (e: any) {
+      showError(`Falha ao criar jornada: ${e?.message ?? "erro"}`);
+    } finally {
+      setCreatingJourney(false);
+    }
+  };
+
   const toggleSector = async (sectorId: string, enabled: boolean) => {
     if (!activeTenantId) return;
     try {
@@ -161,7 +232,6 @@ export function TenantJourneysPanel() {
           tenant_id: activeTenantId,
           sector_id: sectorId,
           enabled,
-          config_json: {},
         });
         if (error) throw error;
       }
@@ -249,43 +319,167 @@ export function TenantJourneysPanel() {
   const noneSectorJourneys = journeysBySector.get("__none__") ?? [];
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
-      <div className="rounded-[22px] border border-slate-200 bg-white p-4">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <div className="text-sm font-semibold text-slate-900">Setores e jornadas do tenant</div>
-            <div className="mt-1 text-xs text-slate-500">
-              Habilite o que o tenant pode usar. A lógica do MVP ainda não lê isso automaticamente (por enquanto é catálogo + governança).
+    <div className="grid gap-4">
+      <div className="grid gap-4 lg:grid-cols-2">
+        <div className="rounded-[22px] border border-slate-200 bg-white p-4">
+          <div className="text-sm font-semibold text-slate-900">Criar setor (catálogo)</div>
+          <div className="mt-1 text-xs text-slate-500">Setores são globais e reutilizáveis entre tenants.</div>
+
+          <div className="mt-4 grid gap-3">
+            <div>
+              <Label className="text-xs">Nome</Label>
+              <Input value={sectorName} onChange={(e) => setSectorName(e.target.value)} className="mt-1 rounded-2xl" placeholder="Ex: Vendas" />
             </div>
-          </div>
-          <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-600">
-            tenant_id: <span className="font-medium text-slate-900">{activeTenantId.slice(0, 8)}…</span>
+            <div>
+              <Label className="text-xs">Descrição (opcional)</Label>
+              <Input value={sectorDesc} onChange={(e) => setSectorDesc(e.target.value)} className="mt-1 rounded-2xl" placeholder="Ex: Fluxos de captura de pedido" />
+            </div>
+            <Button
+              onClick={createSector}
+              disabled={creatingSector || !sectorName.trim()}
+              className="h-11 rounded-2xl bg-[hsl(var(--byfrost-accent))] text-white hover:bg-[hsl(var(--byfrost-accent)/0.92)]"
+            >
+              {creatingSector ? "Criando…" : "Criar setor"}
+            </Button>
           </div>
         </div>
 
-        <div className="mt-4 space-y-3">
-          {sectors.map((s) => {
-            const ts = tenantSectorBySectorId.get(s.id);
-            const sectorEnabled = ts?.enabled ?? false;
-            const list = journeysBySector.get(s.id) ?? [];
+        <div className="rounded-[22px] border border-slate-200 bg-white p-4">
+          <div className="text-sm font-semibold text-slate-900">Criar jornada/fluxo (catálogo)</div>
+          <div className="mt-1 text-xs text-slate-500">
+            Jornadas são globais. Depois você habilita a jornada para o tenant logo abaixo.
+          </div>
 
-            return (
-              <div key={s.id} className="rounded-[20px] border border-slate-200 bg-slate-50 p-3">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-semibold text-slate-900">{s.name}</div>
-                    {s.description && (
-                      <div className="mt-0.5 text-xs text-slate-600">{s.description}</div>
+          <div className="mt-4 grid gap-3">
+            <div>
+              <Label className="text-xs">Setor (opcional)</Label>
+              <select
+                value={journeySectorId}
+                onChange={(e) => setJourneySectorId(e.target.value)}
+                className="mt-1 h-10 w-full rounded-2xl border border-slate-200 bg-white px-3 text-sm text-slate-700 shadow-sm focus:border-[hsl(var(--byfrost-accent)/0.45)] outline-none"
+              >
+                <option value="">Sem setor</option>
+                {sectors.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <Label className="text-xs">Key (única)</Label>
+                <Input value={journeyKey} onChange={(e) => setJourneyKey(e.target.value)} className="mt-1 rounded-2xl" placeholder="Ex: sales_order" />
+              </div>
+              <div>
+                <Label className="text-xs">Nome</Label>
+                <Input value={journeyName} onChange={(e) => setJourneyName(e.target.value)} className="mt-1 rounded-2xl" placeholder="Ex: Pedido (WhatsApp + Foto)" />
+              </div>
+            </div>
+
+            <div>
+              <Label className="text-xs">Descrição (opcional)</Label>
+              <Input value={journeyDesc} onChange={(e) => setJourneyDesc(e.target.value)} className="mt-1 rounded-2xl" placeholder="Ex: Captura por foto com OCR" />
+            </div>
+
+            <div>
+              <Label className="text-xs">default_state_machine_json</Label>
+              <Textarea value={journeyStateMachine} onChange={(e) => setJourneyStateMachine(e.target.value)} className="mt-1 min-h-[140px] rounded-2xl bg-white font-mono text-[12px]" />
+              <div className="mt-1 text-[11px] text-slate-500">Precisa ser JSON válido.</div>
+            </div>
+
+            <Button
+              onClick={createJourney}
+              disabled={creatingJourney || !journeyKey.trim() || !journeyName.trim()}
+              className="h-11 rounded-2xl bg-[hsl(var(--byfrost-accent))] text-white hover:bg-[hsl(var(--byfrost-accent)/0.92)]"
+            >
+              {creatingJourney ? "Criando…" : "Criar jornada"}
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
+        <div className="rounded-[22px] border border-slate-200 bg-white p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="text-sm font-semibold text-slate-900">Ativar fluxos para este tenant</div>
+              <div className="mt-1 text-xs text-slate-500">
+                Use os toggles para habilitar setores e jornadas. Isso grava em <span className="font-medium">tenant_sectors</span> e <span className="font-medium">tenant_journeys</span>.
+              </div>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-600">
+              tenant_id: <span className="font-medium text-slate-900">{activeTenantId.slice(0, 8)}…</span>
+            </div>
+          </div>
+
+          <div className="mt-4 space-y-3">
+            {sectors.map((s) => {
+              const ts = tenantSectorBySectorId.get(s.id);
+              const sectorEnabled = ts?.enabled ?? false;
+              const list = journeysBySector.get(s.id) ?? [];
+
+              return (
+                <div key={s.id} className="rounded-[20px] border border-slate-200 bg-slate-50 p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-semibold text-slate-900">{s.name}</div>
+                      {s.description && (
+                        <div className="mt-0.5 text-xs text-slate-600">{s.description}</div>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] text-slate-500">habilitado</span>
+                      <Switch checked={sectorEnabled} onCheckedChange={(v) => toggleSector(s.id, v)} />
+                    </div>
+                  </div>
+
+                  <div className="mt-3 grid gap-2">
+                    {list.map((j) => {
+                      const tj = tenantJourneyByJourneyId.get(j.id);
+                      const enabled = tj?.enabled ?? false;
+                      const selected = selectedJourneyId === j.id;
+
+                      return (
+                        <button
+                          key={j.id}
+                          type="button"
+                          onClick={() => setSelectedJourneyId(j.id)}
+                          className={cn(
+                            "flex items-center justify-between gap-3 rounded-2xl border px-3 py-2 text-left transition",
+                            selected
+                              ? "border-[hsl(var(--byfrost-accent)/0.45)] bg-white"
+                              : "border-slate-200 bg-white/60 hover:bg-white"
+                          )}
+                        >
+                          <div className="min-w-0">
+                            <div className="truncate text-xs font-semibold text-slate-900">{j.name}</div>
+                            <div className="mt-0.5 truncate text-[11px] text-slate-500">key: {j.key}</div>
+                          </div>
+                          <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                            <span className="text-[11px] text-slate-500">on</span>
+                            <Switch checked={enabled} onCheckedChange={(v) => toggleJourney(j.id, v)} />
+                          </div>
+                        </button>
+                      );
+                    })}
+
+                    {list.length === 0 && (
+                      <div className="rounded-2xl border border-dashed border-slate-200 bg-white/60 p-3 text-xs text-slate-500">
+                        Sem jornadas neste setor.
+                      </div>
                     )}
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[11px] text-slate-500">habilitado</span>
-                    <Switch checked={sectorEnabled} onCheckedChange={(v) => toggleSector(s.id, v)} />
-                  </div>
                 </div>
+              );
+            })}
 
+            {noneSectorJourneys.length > 0 && (
+              <div className="rounded-[20px] border border-slate-200 bg-slate-50 p-3">
+                <div className="text-sm font-semibold text-slate-900">Jornadas sem setor</div>
                 <div className="mt-3 grid gap-2">
-                  {list.map((j) => {
+                  {noneSectorJourneys.map((j) => {
                     const tj = tenantJourneyByJourneyId.get(j.id);
                     const enabled = tj?.enabled ?? false;
                     const selected = selectedJourneyId === j.id;
@@ -313,97 +507,49 @@ export function TenantJourneysPanel() {
                       </button>
                     );
                   })}
-
-                  {list.length === 0 && (
-                    <div className="rounded-2xl border border-dashed border-slate-200 bg-white/60 p-3 text-xs text-slate-500">
-                      Sem jornadas neste setor.
-                    </div>
-                  )}
                 </div>
               </div>
-            );
-          })}
+            )}
+          </div>
+        </div>
 
-          {noneSectorJourneys.length > 0 && (
-            <div className="rounded-[20px] border border-slate-200 bg-slate-50 p-3">
-              <div className="text-sm font-semibold text-slate-900">Jornadas sem setor</div>
-              <div className="mt-3 grid gap-2">
-                {noneSectorJourneys.map((j) => {
-                  const tj = tenantJourneyByJourneyId.get(j.id);
-                  const enabled = tj?.enabled ?? false;
-                  const selected = selectedJourneyId === j.id;
+        <div className="rounded-[22px] border border-slate-200 bg-white p-4">
+          <div className="text-sm font-semibold text-slate-900">Config da jornada (por tenant)</div>
+          <div className="mt-1 text-xs text-slate-500">
+            Armazenado em <span className="font-medium">tenant_journeys.config_json</span>.
+          </div>
 
-                  return (
-                    <button
-                      key={j.id}
-                      type="button"
-                      onClick={() => setSelectedJourneyId(j.id)}
-                      className={cn(
-                        "flex items-center justify-between gap-3 rounded-2xl border px-3 py-2 text-left transition",
-                        selected
-                          ? "border-[hsl(var(--byfrost-accent)/0.45)] bg-white"
-                          : "border-slate-200 bg-white/60 hover:bg-white"
-                      )}
-                    >
-                      <div className="min-w-0">
-                        <div className="truncate text-xs font-semibold text-slate-900">{j.name}</div>
-                        <div className="mt-0.5 truncate text-[11px] text-slate-500">key: {j.key}</div>
-                      </div>
-                      <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-                        <span className="text-[11px] text-slate-500">on</span>
-                        <Switch checked={enabled} onCheckedChange={(v) => toggleJourney(j.id, v)} />
-                      </div>
-                    </button>
-                  );
-                })}
+          {!selectedJourney ? (
+            <div className="mt-4 rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+              Selecione uma jornada à esquerda para editar o JSON.
+            </div>
+          ) : (
+            <div className="mt-4 space-y-3">
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
+                <div className="text-xs font-semibold text-slate-900">{selectedJourney.name}</div>
+                <div className="mt-0.5 text-[11px] text-slate-500">key: {selectedJourney.key}</div>
               </div>
+
+              <div>
+                <Label className="text-xs">config_json</Label>
+                <Textarea
+                  value={configDraft}
+                  onChange={(e) => setConfigDraft(e.target.value)}
+                  className="mt-1 min-h-[260px] rounded-2xl bg-white font-mono text-[12px]"
+                />
+                <div className="mt-1 text-[11px] text-slate-500">JSON válido.</div>
+              </div>
+
+              <Button
+                onClick={saveJourneyConfig}
+                disabled={savingConfig}
+                className="h-11 w-full rounded-2xl bg-[hsl(var(--byfrost-accent))] text-white hover:bg-[hsl(var(--byfrost-accent)/0.92)]"
+              >
+                {savingConfig ? "Salvando…" : "Salvar config"}
+              </Button>
             </div>
           )}
         </div>
-      </div>
-
-      <div className="rounded-[22px] border border-slate-200 bg-white p-4">
-        <div className="text-sm font-semibold text-slate-900">Config da jornada (por tenant)</div>
-        <div className="mt-1 text-xs text-slate-500">
-          Armazenado em <span className="font-medium">tenant_journeys.config_json</span>. Você pode usar isso para parâmetros da jornada (ex.: SLAs, mensagens padrão, validações extras).
-        </div>
-
-        {!selectedJourney ? (
-          <div className="mt-4 rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
-            Selecione uma jornada à esquerda para editar o JSON.
-          </div>
-        ) : (
-          <div className="mt-4 space-y-3">
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
-              <div className="text-xs font-semibold text-slate-900">{selectedJourney.name}</div>
-              <div className="mt-0.5 text-[11px] text-slate-500">key: {selectedJourney.key}</div>
-            </div>
-
-            <div>
-              <Label className="text-xs">config_json</Label>
-              <Textarea
-                value={configDraft}
-                onChange={(e) => setConfigDraft(e.target.value)}
-                className="mt-1 min-h-[260px] rounded-2xl bg-white font-mono text-[12px]"
-              />
-              <div className="mt-1 text-[11px] text-slate-500">
-                Dica: JSON válido. Ex.: <span className="font-mono">{"{"}"sla_hours":4{"}"}"</span>
-              </div>
-            </div>
-
-            <Button
-              onClick={saveJourneyConfig}
-              disabled={savingConfig}
-              className="h-11 w-full rounded-2xl bg-[hsl(var(--byfrost-accent))] text-white hover:bg-[hsl(var(--byfrost-accent)/0.92)]"
-            >
-              {savingConfig ? "Salvando…" : "Salvar config"}
-            </Button>
-
-            <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-900">
-              Nota: a UI já grava no banco, mas o processamento atual (MVP) ainda não consome essas configs automaticamente.
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );

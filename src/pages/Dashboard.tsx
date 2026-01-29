@@ -80,19 +80,14 @@ export default function Dashboard() {
 
   const selectedJourneyId = sp.get("journey") || "";
 
-  useEffect(() => {
-    if (!activeTenantId) return;
+  const selectedJourneyIsValid = useMemo(() => {
+    if (!selectedJourneyId) return false;
+    return Boolean((journeyQ.data ?? []).some((j) => j.id === selectedJourneyId));
+  }, [journeyQ.data, selectedJourneyId]);
+
+  const pickFirstJourney = () => {
     const first = journeyQ.data?.[0]?.id;
     if (!first) return;
-
-    // Se o usuário tem um ?journey antigo (ex: reset criou uma jornada nova),
-    // força trocar para a primeira disponível.
-    const selectedIsValid = selectedJourneyId
-      ? Boolean((journeyQ.data ?? []).some((j) => j.id === selectedJourneyId))
-      : false;
-
-    if (selectedJourneyId && selectedIsValid) return;
-
     setSp(
       (prev) => {
         const next = new URLSearchParams(prev);
@@ -101,8 +96,22 @@ export default function Dashboard() {
       },
       { replace: true }
     );
+  };
+
+  useEffect(() => {
+    if (!activeTenantId) return;
+    // Quando o reset cria uma jornada nova, URLs antigas (/app?journey=...) ficam inválidas.
+    // Aqui corrigimos automaticamente para a primeira jornada habilitada do tenant.
+    if (selectedJourneyId && selectedJourneyIsValid) return;
+    if (!selectedJourneyId && journeyQ.data?.length) {
+      pickFirstJourney();
+      return;
+    }
+    if (selectedJourneyId && !selectedJourneyIsValid && journeyQ.data?.length) {
+      pickFirstJourney();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTenantId, journeyQ.data, selectedJourneyId]);
+  }, [activeTenantId, journeyQ.data, selectedJourneyId, selectedJourneyIsValid]);
 
   const selectedJourney = useMemo(() => {
     if (!selectedJourneyId) return null;
@@ -186,6 +195,9 @@ export default function Dashboard() {
     });
   }, [rows, states]);
 
+  const shouldShowInvalidJourneyBanner =
+    Boolean(selectedJourneyId) && !selectedJourneyIsValid && Boolean(journeyQ.data?.length);
+
   return (
     <RequireAuth>
       <AppShell>
@@ -218,33 +230,61 @@ export default function Dashboard() {
               </Button>
 
               <div className="rounded-2xl border border-slate-200 bg-white/70 px-3 py-2 shadow-sm">
-                <div className="text-[11px] font-semibold text-slate-700">Jornada</div>
-                <select
-                  value={selectedJourneyId}
-                  onChange={(e) => {
-                    const nextId = e.target.value;
-                    setSp((prev) => {
-                      const next = new URLSearchParams(prev);
-                      if (nextId) next.set("journey", nextId);
-                      else next.delete("journey");
-                      return next;
-                    });
-                  }}
-                  className="mt-1 h-9 w-full min-w-[260px] rounded-xl border border-slate-200 bg-white px-2 text-sm text-slate-800 outline-none focus:border-[hsl(var(--byfrost-accent)/0.45)]"
-                >
-                  {(journeyQ.data ?? []).length === 0 ? (
-                    <option value="">(nenhuma jornada habilitada)</option>
-                  ) : (
-                    (journeyQ.data ?? []).map((j) => (
-                      <option key={j.id} value={j.id}>
-                        {j.name}
-                      </option>
-                    ))
-                  )}
-                </select>
+                <div className="flex items-end justify-between gap-3">
+                  <div>
+                    <div className="text-[11px] font-semibold text-slate-700">Jornada</div>
+                    <select
+                      value={selectedJourneyId}
+                      onChange={(e) => {
+                        const nextId = e.target.value;
+                        setSp((prev) => {
+                          const next = new URLSearchParams(prev);
+                          if (nextId) next.set("journey", nextId);
+                          else next.delete("journey");
+                          return next;
+                        });
+                      }}
+                      className="mt-1 h-9 w-full min-w-[260px] rounded-xl border border-slate-200 bg-white px-2 text-sm text-slate-800 outline-none focus:border-[hsl(var(--byfrost-accent)/0.45)]"
+                    >
+                      {(journeyQ.data ?? []).length === 0 ? (
+                        <option value="">(nenhuma jornada habilitada)</option>
+                      ) : (
+                        (journeyQ.data ?? []).map((j) => (
+                          <option key={j.id} value={j.id}>
+                            {j.name}
+                          </option>
+                        ))
+                      )}
+                    </select>
+                  </div>
+
+                  <Button
+                    variant="secondary"
+                    className="h-9 rounded-2xl"
+                    onClick={pickFirstJourney}
+                    disabled={!journeyQ.data?.length}
+                    title="Voltar para o fluxo principal"
+                  >
+                    Padrão
+                  </Button>
+                </div>
+
+                {selectedJourney && (
+                  <div className="mt-2 text-[11px] text-slate-500">
+                    {selectedJourney.key} • {selectedJourney.id.slice(0, 8)}…
+                  </div>
+                )}
               </div>
             </div>
           </div>
+
+          {shouldShowInvalidJourneyBanner && (
+            <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+              Essa URL está com um <span className="font-semibold">filtro de jornada antigo</span>. Clique em{" "}
+              <span className="font-semibold">Padrão</span> (ao lado do seletor) para corrigir.
+              <div className="mt-1 text-xs text-amber-900/80">Filtro atual: {selectedJourneyId}</div>
+            </div>
+          )}
 
           {!selectedJourneyId && (
             <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">

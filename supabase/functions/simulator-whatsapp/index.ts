@@ -115,21 +115,6 @@ serve(async (req) => {
       });
     }
 
-    // Persist inbound
-    await supabase.from("wa_messages").insert({
-      tenant_id: tenantId,
-      instance_id: instanceId,
-      direction: "inbound",
-      from_phone: from,
-      to_phone: to,
-      type: type === "image" ? "image" : type === "audio" ? "audio" : type === "location" ? "location" : "text",
-      body_text: text,
-      media_url: mediaUrl,
-      payload_json: body,
-      correlation_id: correlationId,
-      occurred_at: new Date().toISOString(),
-    });
-
     // Case creation flow (MVP)
     let caseId: string | null = null;
 
@@ -160,6 +145,22 @@ serve(async (req) => {
       }
 
       caseId = createdCase.id;
+
+      // Persist inbound (linked to case)
+      await supabase.from("wa_messages").insert({
+        tenant_id: tenantId,
+        instance_id: instanceId,
+        case_id: caseId,
+        direction: "inbound",
+        from_phone: from,
+        to_phone: to,
+        type: type === "image" ? "image" : type === "audio" ? "audio" : type === "location" ? "location" : "text",
+        body_text: text,
+        media_url: mediaUrl,
+        payload_json: body,
+        correlation_id: correlationId,
+        occurred_at: new Date().toISOString(),
+      });
 
       // attachment (URL-based) or placeholder (inline base64)
       if (mediaUrl) {
@@ -269,6 +270,7 @@ serve(async (req) => {
         await supabase.from("wa_messages").insert({
           tenant_id: tenantId,
           instance_id: instanceId,
+          case_id: caseId,
           direction: "outbound",
           from_phone: to,
           to_phone: from,
@@ -283,6 +285,22 @@ serve(async (req) => {
       await supabase.rpc("append_audit_ledger", {
         p_tenant_id: tenantId,
         p_payload: { kind: "simulator_run", correlation_id: correlationId, case_id: caseId },
+      });
+    } else {
+      // Persist inbound (not linked to case) for non-image simulator payloads
+      await supabase.from("wa_messages").insert({
+        tenant_id: tenantId,
+        instance_id: instanceId,
+        case_id: null,
+        direction: "inbound",
+        from_phone: from,
+        to_phone: to,
+        type: type === "image" ? "image" : type === "audio" ? "audio" : type === "location" ? "location" : "text",
+        body_text: text,
+        media_url: mediaUrl,
+        payload_json: body,
+        correlation_id: correlationId,
+        occurred_at: new Date().toISOString(),
       });
     }
 

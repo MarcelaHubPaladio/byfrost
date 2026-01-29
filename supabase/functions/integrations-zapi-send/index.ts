@@ -21,6 +21,12 @@ serve(async (req) => {
     const mediaUrl = (body.mediaUrl as string | undefined) ?? null;
     const payloadMeta = body.meta ?? {};
 
+    const caseId =
+      (body.caseId as string | undefined) ??
+      (payloadMeta?.case_id as string | undefined) ??
+      (payloadMeta?.caseId as string | undefined) ??
+      null;
+
     if (!tenantId || !instanceId || !to) {
       return new Response(JSON.stringify({ ok: false, error: "Missing tenantId/instanceId/to" }), {
         status: 400,
@@ -51,6 +57,7 @@ serve(async (req) => {
     const { error: msgErr } = await supabase.from("wa_messages").insert({
       tenant_id: tenantId,
       instance_id: inst.id,
+      case_id: caseId,
       direction: "outbound",
       from_phone: from ?? inst.phone_number ?? null,
       to_phone: to,
@@ -113,6 +120,7 @@ serve(async (req) => {
         correlation_id: correlationId,
         to,
         type,
+        case_id: caseId,
         has_external_attempt: shouldCall,
       },
     });

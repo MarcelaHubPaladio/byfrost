@@ -108,6 +108,7 @@ serve(async (req) => {
           await supabase.from("wa_messages").insert({
             tenant_id: tenantId,
             instance_id: inst.id,
+            case_id: caseId,
             direction: "outbound",
             from_phone: inst.phone_number ?? null,
             to_phone: leader.phone_e164,

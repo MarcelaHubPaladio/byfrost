@@ -219,10 +219,16 @@ export function TenantJourneysPanel() {
   const createDefaultPendencies = Boolean(
     (configObj as any)?.automation?.on_image?.create_default_pendencies
   );
-  const onImageInitialState =
-    (configObj as any)?.automation?.on_image?.initial_state ?? "";
-  const onLocationNextState =
-    (configObj as any)?.automation?.on_location?.next_state ?? "";
+  const onImageInitialState = (configObj as any)?.automation?.on_image?.initial_state ?? "";
+
+  // Default: ON (abrir case por texto/áudio) — pode desligar no switch.
+  const createCaseOnText = (configObj as any)?.automation?.on_text?.create_case ?? true;
+  const onTextInitialState = (configObj as any)?.automation?.on_text?.initial_state ?? "";
+
+  const createCaseOnLocation = Boolean((configObj as any)?.automation?.on_location?.create_case);
+  const onLocationInitialState = (configObj as any)?.automation?.on_location?.initial_state ?? "";
+
+  const onLocationNextState = (configObj as any)?.automation?.on_location?.next_state ?? "";
 
   const createSector = async () => {
     if (!sectorName.trim()) return;
@@ -766,6 +772,108 @@ export function TenantJourneysPanel() {
               <div className="rounded-2xl border border-slate-200 bg-white p-3">
                 <div className="flex items-start justify-between gap-3">
                   <div>
+                    <div className="text-xs font-semibold text-slate-900">Conversas (texto / áudio)</div>
+                    <div className="mt-0.5 text-[11px] text-slate-500">
+                      Defina se uma mensagem de texto deve <span className="font-medium">abrir um case automaticamente</span> quando não existir um case ativo para o número.
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-3 flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
+                  <div>
+                    <div className="text-xs font-semibold text-slate-900">Criar case ao receber texto</div>
+                    <div className="mt-0.5 text-[11px] text-slate-600">
+                      Se desligado, textos entram como log em <span className="font-medium">wa_messages</span>, mas não aparecem no Dashboard.
+                    </div>
+                  </div>
+                  <Switch
+                    checked={createCaseOnText}
+                    onCheckedChange={(v) => updateConfig({ automation: { on_text: { create_case: v } } })}
+                  />
+                </div>
+
+                <div className="mt-3">
+                  <Label className="text-xs">Estado inicial ao abrir por texto</Label>
+                  <select
+                    value={onTextInitialState}
+                    onChange={(e) => updateConfig({ automation: { on_text: { initial_state: e.target.value } } })}
+                    className="mt-1 h-10 w-full rounded-2xl border border-slate-200 bg-white px-3 text-sm text-slate-700 shadow-sm outline-none focus:border-[hsl(var(--byfrost-accent)/0.45)]"
+                  >
+                    <option value="">(usar default da jornada)</option>
+                    {journeyStates.map((s) => (
+                      <option key={s} value={s}>
+                        {s}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-slate-200 bg-white p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-xs font-semibold text-slate-900">Localização</div>
+                    <div className="mt-0.5 text-[11px] text-slate-500">
+                      Útil quando seu fluxo depende de localização e você quer que ela também possa abrir o case.
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-3 flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
+                  <div>
+                    <div className="text-xs font-semibold text-slate-900">Criar case ao receber localização</div>
+                    <div className="mt-0.5 text-[11px] text-slate-600">
+                      Se desligado, localização só será aplicada se já existir um case ativo.
+                    </div>
+                  </div>
+                  <Switch
+                    checked={createCaseOnLocation}
+                    onCheckedChange={(v) => updateConfig({ automation: { on_location: { create_case: v } } })}
+                  />
+                </div>
+
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <Label className="text-xs">Estado inicial ao abrir por localização</Label>
+                    <select
+                      value={onLocationInitialState}
+                      onChange={(e) =>
+                        updateConfig({ automation: { on_location: { initial_state: e.target.value } } })
+                      }
+                      className="mt-1 h-10 w-full rounded-2xl border border-slate-200 bg-white px-3 text-sm text-slate-700 shadow-sm outline-none focus:border-[hsl(var(--byfrost-accent)/0.45)]"
+                    >
+                      <option value="">(usar default da jornada)</option>
+                      {journeyStates.map((s) => (
+                        <option key={s} value={s}>
+                          {s}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <Label className="text-xs">Após receber localização</Label>
+                    <select
+                      value={onLocationNextState}
+                      onChange={(e) =>
+                        updateConfig({ automation: { on_location: { next_state: e.target.value } } })
+                      }
+                      className="mt-1 h-10 w-full rounded-2xl border border-slate-200 bg-white px-3 text-sm text-slate-700 shadow-sm outline-none focus:border-[hsl(var(--byfrost-accent)/0.45)]"
+                    >
+                      <option value="">(não mudar estado)</option>
+                      {journeyStates.map((s) => (
+                        <option key={s} value={s}>
+                          {s}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-slate-200 bg-white p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
                     <div className="text-xs font-semibold text-slate-900">OCR (Google Vision)</div>
                     <div className="mt-0.5 text-[11px] text-slate-500">
                       Quando ligado, uma imagem inbound pode enfileirar OCR e preencher campos (dependendo do fluxo).
@@ -813,23 +921,7 @@ export function TenantJourneysPanel() {
                     </select>
                   </div>
 
-                  <div>
-                    <Label className="text-xs">Após receber localização</Label>
-                    <select
-                      value={onLocationNextState}
-                      onChange={(e) =>
-                        updateConfig({ automation: { on_location: { next_state: e.target.value } } })
-                      }
-                      className="mt-1 h-10 w-full rounded-2xl border border-slate-200 bg-white px-3 text-sm text-slate-700 shadow-sm outline-none focus:border-[hsl(var(--byfrost-accent)/0.45)]"
-                    >
-                      <option value="">(não mudar estado)</option>
-                      {journeyStates.map((s) => (
-                        <option key={s} value={s}>
-                          {s}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                  <div className="hidden sm:block" />
                 </div>
 
                 <Button

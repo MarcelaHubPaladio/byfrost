@@ -17,6 +17,24 @@ function pickFirst<T>(...values: Array<T | null | undefined>): T | null {
   return null;
 }
 
+function extractPathAuth(reqUrl: string): { pathInstanceId: string | null; pathSecret: string | null } {
+  try {
+    const u = new URL(reqUrl);
+    // Example:
+    // /functions/v1/webhooks-zapi-inbound/<instanceId>/<secret>
+    const parts = u.pathname.split("/").filter(Boolean);
+    const idx = parts.findIndex((p) => p === "webhooks-zapi-inbound");
+    if (idx < 0) return { pathInstanceId: null, pathSecret: null };
+    const after = parts.slice(idx + 1);
+    return {
+      pathInstanceId: after?.[0] ? decodeURIComponent(after[0]) : null,
+      pathSecret: after?.[1] ? decodeURIComponent(after[1]) : null,
+    };
+  } catch {
+    return { pathInstanceId: null, pathSecret: null };
+  }
+}
+
 function normalizeInbound(payload: any): {
   zapiInstanceId: string | null;
   type: InboundType;
@@ -132,27 +150,31 @@ serve(async (req) => {
       return new Response("Method not allowed", { status: 405, headers: corsHeaders });
     }
 
+    const { pathInstanceId, pathSecret } = extractPathAuth(req.url);
+
     const payload = await req.json().catch(() => null);
     if (!payload) {
       return new Response("Invalid JSON", { status: 400, headers: corsHeaders });
     }
 
     const normalized = normalizeInbound(payload);
-    if (!normalized.zapiInstanceId) {
+    const effectiveInstanceId = normalized.zapiInstanceId ?? pathInstanceId;
+
+    if (!effectiveInstanceId) {
       console.warn(`[${fn}] Missing instance id`, { keys: Object.keys(payload ?? {}) });
       return new Response("Missing instanceId", { status: 400, headers: corsHeaders });
     }
 
     const secretHeader = req.headers.get("x-webhook-secret") ?? req.headers.get("x-byfrost-webhook-secret");
     const secretQuery = new URL(req.url).searchParams.get("secret");
-    const providedSecret = secretHeader ?? secretQuery;
+    const providedSecret = secretHeader ?? secretQuery ?? pathSecret;
 
     const supabase = createSupabaseAdmin();
 
     const { data: instance, error: instErr } = await supabase
       .from("wa_instances")
       .select("id, tenant_id, webhook_secret, default_journey_id")
-      .eq("zapi_instance_id", normalized.zapiInstanceId)
+      .eq("zapi_instance_id", effectiveInstanceId)
       .maybeSingle();
 
     if (instErr) {
@@ -337,7 +359,7 @@ serve(async (req) => {
           meta_json: {
             correlation_id: correlationId,
             journey_key: journey.key,
-            zapi_instance: normalized.zapiInstanceId,
+            zapi_instance: effectiveInstanceId,
             photo_attempt: 1,
           },
         })
@@ -423,7 +445,7 @@ serve(async (req) => {
           correlation_id: correlationId,
           case_id: createdCase.id,
           from: normalized.from,
-          instance: normalized.zapiInstanceId,
+          instance: effectiveInstanceId,
           journey_id: journey.id,
           journey_key: journey.key,
           cfg_ocr_enabled: cfgOcrEnabled,

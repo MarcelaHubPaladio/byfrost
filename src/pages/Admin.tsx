@@ -37,6 +37,14 @@ function decodeJwtPayload(token: string): any {
   }
 }
 
+function fmtTs(ts: string) {
+  try {
+    return new Date(ts).toLocaleString();
+  } catch {
+    return ts;
+  }
+}
+
 export default function Admin() {
   const qc = useQueryClient();
   const { activeTenantId, activeTenant, isSuperAdmin } = useTenant();
@@ -388,6 +396,27 @@ export default function Admin() {
     }
   };
 
+  const [monitorInstanceId, setMonitorInstanceId] = useState<string>("");
+
+  const waRecentQ = useQuery({
+    queryKey: ["admin_wa_recent", activeTenantId, monitorInstanceId],
+    enabled: Boolean(isSuperAdmin && activeTenantId),
+    queryFn: async () => {
+      let q = supabase
+        .from("wa_messages")
+        .select("id,instance_id,direction,type,from_phone,to_phone,body_text,media_url,correlation_id,occurred_at")
+        .eq("tenant_id", activeTenantId!)
+        .order("occurred_at", { ascending: false })
+        .limit(50);
+
+      if (monitorInstanceId) q = q.eq("instance_id", monitorInstanceId);
+
+      const { data, error } = await q;
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
   if (!isSuperAdmin) {
     return (
       <RequireAuth>
@@ -401,6 +430,12 @@ export default function Admin() {
   }
 
   const deletedCount = (tenantsQ.data ?? []).filter((t: any) => t.deleted_at).length;
+
+  const instanceById = useMemo(() => {
+    const m = new Map<string, any>();
+    for (const it of instancesQ.data ?? []) m.set(it.id, it);
+    return m;
+  }, [instancesQ.data]);
 
   return (
     <RequireAuth>
@@ -710,145 +745,274 @@ export default function Admin() {
                     Selecione um tenant (botão "Trocar") para cadastrar instâncias WhatsApp.
                   </div>
                 ) : (
-                  <div className="grid gap-4 lg:grid-cols-[0.95fr_1.05fr]">
-                    <div className="rounded-[22px] border border-slate-200 bg-white p-4">
-                      <div className="text-sm font-semibold text-slate-900">Cadastrar instância</div>
-                      <div className="mt-1 text-xs text-slate-500">
-                        Defina a jornada padrão para onde o webhook vai rotear mensagens inbound.
+                  <div className="grid gap-4">
+                    <div className="grid gap-4 lg:grid-cols-[0.95fr_1.05fr]">
+                      <div className="rounded-[22px] border border-slate-200 bg-white p-4">
+                        <div className="text-sm font-semibold text-slate-900">Cadastrar instância</div>
+                        <div className="mt-1 text-xs text-slate-500">
+                          Defina a jornada padrão para onde o webhook vai rotear mensagens inbound.
+                        </div>
+
+                        <div className="mt-4 grid gap-3">
+                          <div>
+                            <Label className="text-xs">Nome</Label>
+                            <Input
+                              value={instName}
+                              onChange={(e) => setInstName(e.target.value)}
+                              className="mt-1 rounded-2xl"
+                            />
+                          </div>
+                          <div>
+                            <Label className="text-xs">Phone number (opcional)</Label>
+                            <Input
+                              value={instPhone}
+                              onChange={(e) => setInstPhone(e.target.value)}
+                              className="mt-1 rounded-2xl"
+                              placeholder="+5511888888888"
+                            />
+                          </div>
+                          <div>
+                            <Label className="text-xs">Z-API instance id</Label>
+                            <Input
+                              value={instZapiId}
+                              onChange={(e) => setInstZapiId(e.target.value)}
+                              className="mt-1 rounded-2xl"
+                              placeholder="abc123"
+                            />
+                          </div>
+                          <div>
+                            <Label className="text-xs">Z-API token</Label>
+                            <Input
+                              value={instToken}
+                              onChange={(e) => setInstToken(e.target.value)}
+                              className="mt-1 rounded-2xl"
+                              placeholder="token"
+                            />
+                          </div>
+                          <div>
+                            <Label className="text-xs">Webhook secret</Label>
+                            <Input
+                              value={instSecret}
+                              onChange={(e) => setInstSecret(e.target.value)}
+                              className="mt-1 rounded-2xl"
+                              placeholder="secreto (ou deixe vazio para gerar)"
+                            />
+                          </div>
+
+                          <div>
+                            <Label className="text-xs">Jornada padrão (inbound)</Label>
+                            <select
+                              value={instJourneyId}
+                              onChange={(e) => setInstJourneyId(e.target.value)}
+                              className="mt-1 h-10 w-full rounded-2xl border border-slate-200 bg-white px-3 text-sm text-slate-700 shadow-sm focus:border-[hsl(var(--byfrost-accent)/0.45)] outline-none"
+                            >
+                              <option value="">(fallback)</option>
+                              {(tenantJourneysQ.data ?? []).map((j) => (
+                                <option key={j.id} value={j.id}>
+                                  {j.name}
+                                </option>
+                              ))}
+                            </select>
+                            <div className="mt-1 text-[11px] text-slate-500">
+                              Se vazio, o webhook tenta usar a primeira jornada habilitada do tenant; se não existir, usa sales_order.
+                            </div>
+                          </div>
+
+                          <Button
+                            onClick={addInstance}
+                            disabled={savingInst || !instZapiId.trim() || !instToken.trim()}
+                            className="h-11 rounded-2xl bg-[hsl(var(--byfrost-accent))] text-white hover:bg-[hsl(var(--byfrost-accent)/0.92)]"
+                          >
+                            {savingInst ? "Salvando…" : "Cadastrar instância"}
+                          </Button>
+                        </div>
                       </div>
 
-                      <div className="mt-4 grid gap-3">
-                        <div>
-                          <Label className="text-xs">Nome</Label>
-                          <Input
-                            value={instName}
-                            onChange={(e) => setInstName(e.target.value)}
-                            className="mt-1 rounded-2xl"
-                          />
-                        </div>
-                        <div>
-                          <Label className="text-xs">Phone number (opcional)</Label>
-                          <Input
-                            value={instPhone}
-                            onChange={(e) => setInstPhone(e.target.value)}
-                            className="mt-1 rounded-2xl"
-                            placeholder="+5511888888888"
-                          />
-                        </div>
-                        <div>
-                          <Label className="text-xs">Z-API instance id</Label>
-                          <Input
-                            value={instZapiId}
-                            onChange={(e) => setInstZapiId(e.target.value)}
-                            className="mt-1 rounded-2xl"
-                            placeholder="abc123"
-                          />
-                        </div>
-                        <div>
-                          <Label className="text-xs">Z-API token</Label>
-                          <Input
-                            value={instToken}
-                            onChange={(e) => setInstToken(e.target.value)}
-                            className="mt-1 rounded-2xl"
-                            placeholder="token"
-                          />
-                        </div>
-                        <div>
-                          <Label className="text-xs">Webhook secret</Label>
-                          <Input
-                            value={instSecret}
-                            onChange={(e) => setInstSecret(e.target.value)}
-                            className="mt-1 rounded-2xl"
-                            placeholder="secreto (ou deixe vazio para gerar)"
-                          />
+                      <div className="rounded-[22px] border border-slate-200 bg-white p-4">
+                        <div className="flex items-center justify-between">
+                          <div className="text-sm font-semibold text-slate-900">Instâncias do tenant</div>
+                          <div className="text-xs text-slate-500">{instancesQ.data?.length ?? 0}</div>
                         </div>
 
-                        <div>
-                          <Label className="text-xs">Jornada padrão (inbound)</Label>
-                          <select
-                            value={instJourneyId}
-                            onChange={(e) => setInstJourneyId(e.target.value)}
-                            className="mt-1 h-10 w-full rounded-2xl border border-slate-200 bg-white px-3 text-sm text-slate-700 shadow-sm focus:border-[hsl(var(--byfrost-accent)/0.45)] outline-none"
-                          >
-                            <option value="">(fallback)</option>
-                            {(tenantJourneysQ.data ?? []).map((j) => (
-                              <option key={j.id} value={j.id}>
-                                {j.name}
-                              </option>
-                            ))}
-                          </select>
-                          <div className="mt-1 text-[11px] text-slate-500">
-                            Se vazio, o webhook tenta usar a primeira jornada habilitada do tenant; se não existir, usa sales_order.
-                          </div>
-                        </div>
+                        <div className="mt-3 space-y-2">
+                          {(instancesQ.data ?? []).map((i: any) => {
+                            const pathUrl = `https://pryoirzeghatrgecwrci.supabase.co/functions/v1/webhooks-zapi-inbound/${encodeURIComponent(
+                              i.zapi_instance_id
+                            )}/${encodeURIComponent(i.webhook_secret)}`;
+                            return (
+                              <div
+                                key={i.id}
+                                className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2"
+                              >
+                                <div className="flex items-start justify-between gap-3">
+                                  <div className="min-w-0">
+                                    <div className="truncate text-sm font-semibold text-slate-900">
+                                      {i.name}
+                                    </div>
+                                    <div className="mt-0.5 text-xs text-slate-500 truncate">
+                                      zapi_instance_id: {i.zapi_instance_id}
+                                    </div>
+                                    <div className="mt-0.5 text-xs text-slate-500 truncate">
+                                      webhook_secret: {i.webhook_secret}
+                                    </div>
+                                  </div>
+                                  <Badge className="rounded-full border-0 bg-emerald-100 text-emerald-900 hover:bg-emerald-100">
+                                    {i.status}
+                                  </Badge>
+                                </div>
 
-                        <Button
-                          onClick={addInstance}
-                          disabled={savingInst || !instZapiId.trim() || !instToken.trim()}
-                          className="h-11 rounded-2xl bg-[hsl(var(--byfrost-accent))] text-white hover:bg-[hsl(var(--byfrost-accent)/0.92)]"
-                        >
-                          {savingInst ? "Salvando…" : "Cadastrar instância"}
-                        </Button>
+                                <div className="mt-3 rounded-2xl border border-slate-200 bg-white/70 p-2">
+                                  <div className="text-[11px] font-semibold text-slate-700">Webhook URL (sem header/query)</div>
+                                  <div className="mt-1 rounded-xl bg-slate-50 px-2 py-1 text-[11px] text-slate-700 break-all">
+                                    {pathUrl}
+                                  </div>
+                                  <div className="mt-1 text-[11px] text-slate-500">
+                                    Cole essa URL no Z-API. Ela já carrega <span className="font-medium">instanceId</span> e <span className="font-medium">secret</span> no caminho.
+                                  </div>
+                                </div>
+
+                                <div className="mt-3 rounded-2xl border border-slate-200 bg-white/70 p-2">
+                                  <div className="text-[11px] font-semibold text-slate-700">Roteamento inbound</div>
+                                  <select
+                                    value={i.default_journey_id ?? ""}
+                                    onChange={(e) =>
+                                      setInstanceJourney(i.id, e.target.value ? e.target.value : null)
+                                    }
+                                    className="mt-1 h-9 w-full rounded-xl border border-slate-200 bg-white px-2 text-sm text-slate-700 outline-none focus:border-[hsl(var(--byfrost-accent)/0.45)]"
+                                  >
+                                    <option value="">(fallback)</option>
+                                    {(tenantJourneysQ.data ?? []).map((j) => (
+                                      <option key={j.id} value={j.id}>
+                                        {j.name}
+                                      </option>
+                                    ))}
+                                  </select>
+                                  <div className="mt-1 text-[11px] text-slate-500">
+                                    Define em qual jornada cada nova conversa/caso será criado.
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+
+                          {(instancesQ.data ?? []).length === 0 && (
+                            <div className="rounded-2xl border border-dashed border-slate-200 bg-white/60 p-4 text-xs text-slate-500">
+                              Nenhuma instância cadastrada.
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
 
                     <div className="rounded-[22px] border border-slate-200 bg-white p-4">
-                      <div className="flex items-center justify-between">
-                        <div className="text-sm font-semibold text-slate-900">Instâncias do tenant</div>
-                        <div className="text-xs text-slate-500">{instancesQ.data?.length ?? 0}</div>
+                      <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+                        <div>
+                          <div className="text-sm font-semibold text-slate-900">Monitor de eventos (Z-API → Byfrost)</div>
+                          <div className="mt-1 text-xs text-slate-600">
+                            Se o webhook estiver chegando, você verá entradas novas em <span className="font-medium">wa_messages</span> aqui.
+                          </div>
+                        </div>
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                          <div className="rounded-2xl border border-slate-200 bg-white/70 px-3 py-2 shadow-sm">
+                            <div className="text-[11px] font-semibold text-slate-700">Instância</div>
+                            <select
+                              value={monitorInstanceId}
+                              onChange={(e) => setMonitorInstanceId(e.target.value)}
+                              className="mt-1 h-9 w-full min-w-[260px] rounded-xl border border-slate-200 bg-white px-2 text-sm text-slate-700 outline-none focus:border-[hsl(var(--byfrost-accent)/0.45)]"
+                            >
+                              <option value="">(todas)</option>
+                              {(instancesQ.data ?? []).map((i: any) => (
+                                <option key={i.id} value={i.id}>
+                                  {i.name}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <Button
+                            variant="secondary"
+                            className="h-10 rounded-2xl"
+                            onClick={() => waRecentQ.refetch()}
+                          >
+                            Atualizar
+                          </Button>
+                        </div>
                       </div>
 
-                      <div className="mt-3 space-y-2">
-                        {(instancesQ.data ?? []).map((i: any) => (
-                          <div
-                            key={i.id}
-                            className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2"
-                          >
-                            <div className="flex items-start justify-between gap-3">
-                              <div className="min-w-0">
-                                <div className="truncate text-sm font-semibold text-slate-900">
-                                  {i.name}
-                                </div>
-                                <div className="mt-0.5 text-xs text-slate-500 truncate">
-                                  zapi_instance_id: {i.zapi_instance_id}
-                                </div>
-                                <div className="mt-0.5 text-xs text-slate-500 truncate">
-                                  webhook_secret: {i.webhook_secret}
-                                </div>
-                              </div>
-                              <Badge className="rounded-full border-0 bg-emerald-100 text-emerald-900 hover:bg-emerald-100">
-                                {i.status}
-                              </Badge>
-                            </div>
+                      <div className="mt-4 overflow-hidden rounded-[18px] border border-slate-200">
+                        <div className="grid grid-cols-[140px_96px_110px_1fr] gap-0 bg-slate-50 px-3 py-2 text-[11px] font-semibold text-slate-700">
+                          <div>Quando</div>
+                          <div>Direção</div>
+                          <div>Tipo</div>
+                          <div>Resumo</div>
+                        </div>
 
-                            <div className="mt-3 rounded-2xl border border-slate-200 bg-white/70 p-2">
-                              <div className="text-[11px] font-semibold text-slate-700">Roteamento inbound</div>
-                              <select
-                                value={i.default_journey_id ?? ""}
-                                onChange={(e) =>
-                                  setInstanceJourney(i.id, e.target.value ? e.target.value : null)
-                                }
-                                className="mt-1 h-9 w-full rounded-xl border border-slate-200 bg-white px-2 text-sm text-slate-700 outline-none focus:border-[hsl(var(--byfrost-accent)/0.45)]"
+                        <div className="divide-y divide-slate-200 bg-white">
+                          {(waRecentQ.data ?? []).map((m: any) => {
+                            const inst = instanceById.get(m.instance_id);
+                            const summary =
+                              m.type === "image"
+                                ? (m.media_url ? `Imagem: ${m.media_url}` : "Imagem")
+                                : m.type === "location"
+                                  ? "Localização"
+                                  : (m.body_text ?? "(sem texto)");
+                            return (
+                              <div
+                                key={m.id}
+                                className="grid grid-cols-[140px_96px_110px_1fr] items-start gap-0 px-3 py-2"
                               >
-                                <option value="">(fallback)</option>
-                                {(tenantJourneysQ.data ?? []).map((j) => (
-                                  <option key={j.id} value={j.id}>
-                                    {j.name}
-                                  </option>
-                                ))}
-                              </select>
-                              <div className="mt-1 text-[11px] text-slate-500">
-                                Define em qual jornada cada nova conversa/caso será criado.
-                              </div>
-                            </div>
-                          </div>
-                        ))}
+                                <div className="text-[11px] text-slate-600">
+                                  <div className="font-medium text-slate-900">{fmtTs(m.occurred_at)}</div>
+                                  <div className="mt-0.5 text-slate-500 truncate">{inst?.name ?? "—"}</div>
+                                </div>
 
-                        {(instancesQ.data ?? []).length === 0 && (
-                          <div className="rounded-2xl border border-dashed border-slate-200 bg-white/60 p-4 text-xs text-slate-500">
-                            Nenhuma instância cadastrada.
-                          </div>
-                        )}
+                                <div className="pt-0.5">
+                                  <Badge
+                                    className={cn(
+                                      "rounded-full border-0",
+                                      m.direction === "inbound"
+                                        ? "bg-indigo-100 text-indigo-900 hover:bg-indigo-100"
+                                        : "bg-emerald-100 text-emerald-900 hover:bg-emerald-100"
+                                    )}
+                                  >
+                                    {m.direction}
+                                  </Badge>
+                                </div>
+
+                                <div className="pt-0.5">
+                                  <Badge className="rounded-full border-0 bg-slate-100 text-slate-700 hover:bg-slate-100">
+                                    {m.type}
+                                  </Badge>
+                                </div>
+
+                                <div className="min-w-0">
+                                  <div className="text-xs text-slate-900 truncate">{summary}</div>
+                                  <div className="mt-0.5 text-[11px] text-slate-500 truncate">
+                                    {m.from_phone ? `de ${m.from_phone}` : ""}
+                                    {m.to_phone ? ` → ${m.to_phone}` : ""}
+                                    {m.correlation_id ? ` • ${m.correlation_id}` : ""}
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+
+                          {waRecentQ.isError && (
+                            <div className="px-3 py-3 text-sm text-rose-700">
+                              Erro ao carregar monitor: {(waRecentQ.error as any)?.message ?? ""}
+                            </div>
+                          )}
+
+                          {(waRecentQ.data ?? []).length === 0 && !waRecentQ.isError && (
+                            <div className="px-3 py-6 text-center text-sm text-slate-500">
+                              Nenhum evento ainda. Se o Z-API estiver apontando para o webhook correto, os registros vão aparecer aqui.
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+                        Dica: se você colou apenas <span className="font-medium">/webhooks-zapi-inbound</span> no Z-API, ele vai retornar 401 porque o Byfrost exige secret.
+                        Use a <span className="font-medium">Webhook URL (sem header/query)</span> da instância acima.
                       </div>
                     </div>
                   </div>

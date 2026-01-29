@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { showError, showSuccess } from "@/utils/toast";
 import { cn } from "@/lib/utils";
-import { ArrowDown, ArrowUp, Plus, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, Plus, Sparkles, Trash2 } from "lucide-react";
 
 type SectorRow = {
   id: string;
@@ -53,6 +53,25 @@ function move<T>(arr: T[], from: number, to: number) {
   const [it] = copy.splice(from, 1);
   copy.splice(to, 0, it);
   return copy;
+}
+
+function safeJsonParse(s: string) {
+  try {
+    return { ok: true as const, value: JSON.parse(s) };
+  } catch (e: any) {
+    return { ok: false as const, error: e?.message ?? "JSON inválido" };
+  }
+}
+
+function deepMerge(a: any, b: any) {
+  if (Array.isArray(a) || Array.isArray(b)) return b;
+  if (typeof a !== "object" || a === null) return b;
+  if (typeof b !== "object" || b === null) return b;
+  const out: any = { ...a };
+  for (const [k, v] of Object.entries(b)) {
+    out[k] = k in out ? deepMerge(out[k], v) : v;
+  }
+  return out;
 }
 
 export function TenantJourneysPanel() {
@@ -175,11 +194,35 @@ export function TenantJourneysPanel() {
     return tenantJourneyByJourneyId.get(selectedJourneyId) ?? null;
   }, [selectedJourneyId, tenantJourneyByJourneyId]);
 
+  const journeyStates = useMemo(() => {
+    const raw = (selectedJourney?.default_state_machine_json?.states ?? []) as any[];
+    const list = Array.isArray(raw) ? raw.map((s) => String(s)).filter(Boolean) : [];
+    return Array.from(new Set(list));
+  }, [selectedJourney]);
+
   // keep draft in sync with selection
   useEffect(() => {
     const next = selectedTenantJourney?.config_json ?? {};
     setConfigDraft(JSON.stringify(next, null, 2));
   }, [selectedJourneyId, selectedTenantJourney]);
+
+  const configParsed = useMemo(() => safeJsonParse(configDraft), [configDraft]);
+  const configObj = configParsed.ok ? (configParsed.value ?? {}) : null;
+
+  const updateConfig = (patch: any) => {
+    const base = configObj ?? {};
+    const next = deepMerge(base, patch);
+    setConfigDraft(JSON.stringify(next, null, 2));
+  };
+
+  const ocrEnabled = Boolean((configObj as any)?.automation?.ocr?.enabled);
+  const createDefaultPendencies = Boolean(
+    (configObj as any)?.automation?.on_image?.create_default_pendencies
+  );
+  const onImageInitialState =
+    (configObj as any)?.automation?.on_image?.initial_state ?? "";
+  const onLocationNextState =
+    (configObj as any)?.automation?.on_location?.next_state ?? "";
 
   const createSector = async () => {
     if (!sectorName.trim()) return;
@@ -307,28 +350,25 @@ export function TenantJourneysPanel() {
     if (!activeTenantId || !selectedJourneyId) return;
     setSavingConfig(true);
     try {
-      let parsed: any;
-      try {
-        parsed = JSON.parse(configDraft);
-      } catch (e: any) {
-        showError(`Config JSON inválido: ${e?.message ?? "erro"}`);
+      const parsed = safeJsonParse(configDraft);
+      if (!parsed.ok) {
+        showError(`Config JSON inválido: ${parsed.error}`);
         return;
       }
 
       const existing = tenantJourneyByJourneyId.get(selectedJourneyId);
       if (!existing) {
-        // create row if absent, keep enabled true by default
         const { error } = await supabase.from("tenant_journeys").insert({
           tenant_id: activeTenantId,
           journey_id: selectedJourneyId,
           enabled: true,
-          config_json: parsed,
+          config_json: parsed.value,
         });
         if (error) throw error;
       } else {
         const { error } = await supabase
           .from("tenant_journeys")
-          .update({ config_json: parsed })
+          .update({ config_json: parsed.value })
           .eq("tenant_id", activeTenantId)
           .eq("id", existing.id);
         if (error) throw error;
@@ -341,6 +381,37 @@ export function TenantJourneysPanel() {
     } finally {
       setSavingConfig(false);
     }
+  };
+
+  const applyOcrDefaults = () => {
+    if (!selectedJourney) return;
+    const st = journeyStates;
+    const initial =
+      st.includes("awaiting_ocr")
+        ? "awaiting_ocr"
+        : st.includes(String(selectedJourney.default_state_machine_json?.default ?? ""))
+          ? String(selectedJourney.default_state_machine_json?.default ?? "")
+          : st[0] ?? "new";
+
+    const afterLocation =
+      st.includes("ready_for_review")
+        ? "ready_for_review"
+        : st.includes("in_progress")
+          ? "in_progress"
+          : st[0] ?? "new";
+
+    updateConfig({
+      automation: {
+        ocr: { enabled: true, provider: "google_vision" },
+        on_image: {
+          initial_state: initial,
+          create_default_pendencies: selectedJourney.key === "sales_order",
+        },
+        on_location: {
+          next_state: afterLocation,
+        },
+      },
+    });
   };
 
   if (!activeTenantId) {
@@ -672,14 +743,18 @@ export function TenantJourneysPanel() {
         </div>
 
         <div className="rounded-[22px] border border-slate-200 bg-white p-4">
-          <div className="text-sm font-semibold text-slate-900">Config da jornada (por tenant)</div>
+          <div className="text-sm font-semibold text-slate-900">Automação do fluxo (por tenant)</div>
           <div className="mt-1 text-xs text-slate-500">
-            Armazenado em <span className="font-medium">tenant_journeys.config_json</span>.
+            Configure aqui como o WhatsApp deve tratar <span className="font-medium">imagens</span> e <span className="font-medium">OCR</span> para esta jornada.
           </div>
 
           {!selectedJourney ? (
             <div className="mt-4 rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
-              Selecione uma jornada à esquerda para editar o JSON.
+              Selecione uma jornada à esquerda para configurar.
+            </div>
+          ) : !configParsed.ok ? (
+            <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-900">
+              config_json inválido: {configParsed.error}
             </div>
           ) : (
             <div className="mt-4 space-y-3">
@@ -688,23 +763,109 @@ export function TenantJourneysPanel() {
                 <div className="mt-0.5 text-[11px] text-slate-500">key: {selectedJourney.key}</div>
               </div>
 
-              <div>
-                <Label className="text-xs">config_json</Label>
+              <div className="rounded-2xl border border-slate-200 bg-white p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-xs font-semibold text-slate-900">OCR (Google Vision)</div>
+                    <div className="mt-0.5 text-[11px] text-slate-500">
+                      Quando ligado, uma imagem inbound pode enfileirar OCR e preencher campos (dependendo do fluxo).
+                    </div>
+                  </div>
+                  <Switch
+                    checked={ocrEnabled}
+                    onCheckedChange={(v) =>
+                      updateConfig({ automation: { ocr: { enabled: v, provider: "google_vision" } } })
+                    }
+                  />
+                </div>
+
+                <div className="mt-3 flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
+                  <div>
+                    <div className="text-xs font-semibold text-slate-900">Pendências padrão (vendedor)</div>
+                    <div className="mt-0.5 text-[11px] text-slate-600">
+                      Cria automaticamente "localização" e "próximas páginas". Recomendado para sales_order.
+                    </div>
+                  </div>
+                  <Switch
+                    checked={createDefaultPendencies}
+                    onCheckedChange={(v) =>
+                      updateConfig({ automation: { on_image: { create_default_pendencies: v } } })
+                    }
+                  />
+                </div>
+
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <Label className="text-xs">Estado ao receber imagem</Label>
+                    <select
+                      value={onImageInitialState}
+                      onChange={(e) =>
+                        updateConfig({ automation: { on_image: { initial_state: e.target.value } } })
+                      }
+                      className="mt-1 h-10 w-full rounded-2xl border border-slate-200 bg-white px-3 text-sm text-slate-700 shadow-sm outline-none focus:border-[hsl(var(--byfrost-accent)/0.45)]"
+                    >
+                      <option value="">(usar default da jornada)</option>
+                      {journeyStates.map((s) => (
+                        <option key={s} value={s}>
+                          {s}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <Label className="text-xs">Após receber localização</Label>
+                    <select
+                      value={onLocationNextState}
+                      onChange={(e) =>
+                        updateConfig({ automation: { on_location: { next_state: e.target.value } } })
+                      }
+                      className="mt-1 h-10 w-full rounded-2xl border border-slate-200 bg-white px-3 text-sm text-slate-700 shadow-sm outline-none focus:border-[hsl(var(--byfrost-accent)/0.45)]"
+                    >
+                      <option value="">(não mudar estado)</option>
+                      {journeyStates.map((s) => (
+                        <option key={s} value={s}>
+                          {s}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="mt-3 h-10 w-full rounded-2xl"
+                  onClick={applyOcrDefaults}
+                >
+                  <Sparkles className="mr-2 h-4 w-4" /> Aplicar defaults de OCR
+                </Button>
+              </div>
+
+              <div className="rounded-2xl border border-slate-200 bg-white p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-xs font-semibold text-slate-900">Config JSON (avançado)</div>
+                    <div className="mt-0.5 text-[11px] text-slate-500">
+                      Você ainda pode editar manualmente se precisar.
+                    </div>
+                  </div>
+                </div>
+
                 <Textarea
                   value={configDraft}
                   onChange={(e) => setConfigDraft(e.target.value)}
-                  className="mt-1 min-h-[260px] rounded-2xl bg-white font-mono text-[12px]"
+                  className="mt-3 min-h-[220px] rounded-2xl bg-white font-mono text-[12px]"
                 />
-                <div className="mt-1 text-[11px] text-slate-500">JSON válido.</div>
-              </div>
 
-              <Button
-                onClick={saveJourneyConfig}
-                disabled={savingConfig}
-                className="h-11 w-full rounded-2xl bg-[hsl(var(--byfrost-accent))] text-white hover:bg-[hsl(var(--byfrost-accent)/0.92)]"
-              >
-                {savingConfig ? "Salvando…" : "Salvar config"}
-              </Button>
+                <Button
+                  onClick={saveJourneyConfig}
+                  disabled={savingConfig}
+                  className="mt-3 h-11 w-full rounded-2xl bg-[hsl(var(--byfrost-accent))] text-white hover:bg-[hsl(var(--byfrost-accent)/0.92)]"
+                >
+                  {savingConfig ? "Salvando…" : "Salvar config"}
+                </Button>
+              </div>
             </div>
           )}
         </div>

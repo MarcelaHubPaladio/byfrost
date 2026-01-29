@@ -114,6 +114,16 @@ function pickInitialState(j: JourneyInfo, hint: string | null) {
   return states[0] ?? def;
 }
 
+function readCfg(obj: any, path: string) {
+  const parts = path.split(".").filter(Boolean);
+  let cur: any = obj;
+  for (const p of parts) {
+    if (!cur || typeof cur !== "object") return undefined;
+    cur = cur[p];
+  }
+  return cur;
+}
+
 serve(async (req) => {
   const fn = "webhooks-zapi-inbound";
   try {
@@ -258,6 +268,22 @@ serve(async (req) => {
       return new Response("Journey not configured", { status: 500, headers: corsHeaders });
     }
 
+    // Read tenant+jornada config_json (panel-configurable)
+    const { data: tJ } = await supabase
+      .from("tenant_journeys")
+      .select("config_json")
+      .eq("tenant_id", instance.tenant_id)
+      .eq("journey_id", journey.id)
+      .maybeSingle();
+    const cfg = (tJ as any)?.config_json ?? {};
+
+    const cfgOcrEnabled = Boolean(readCfg(cfg, "automation.ocr.enabled"));
+    const cfgPendenciesOnImage = Boolean(readCfg(cfg, "automation.on_image.create_default_pendencies"));
+    const cfgInitialStateOnImage =
+      (readCfg(cfg, "automation.on_image.initial_state") as string | undefined) ?? null;
+    const cfgLocationNextState =
+      (readCfg(cfg, "automation.on_location.next_state") as string | undefined) ?? null;
+
     const enqueueJob = async (type: string, idempotencyKey: string, payloadJson: any) => {
       const { error } = await supabase.from("job_queue").insert({
         tenant_id: instance.tenant_id,
@@ -294,7 +320,7 @@ serve(async (req) => {
         return new Response("Missing vendor phone", { status: 400, headers: corsHeaders });
       }
 
-      const initial = pickInitialState(journey, "awaiting_ocr");
+      const initial = pickInitialState(journey, cfgInitialStateOnImage);
 
       const { data: createdCase, error: cErr } = await supabase
         .from("cases")
@@ -308,7 +334,12 @@ serve(async (req) => {
           created_by_vendor_id: vendorId,
           assigned_vendor_id: vendorId,
           title: journey.key === "sales_order" ? "Pedido (foto recebida)" : `Novo caso (${journey.name ?? journey.key})`,
-          meta_json: { correlation_id: correlationId, journey_key: journey.key, photo_attempt: 1 },
+          meta_json: {
+            correlation_id: correlationId,
+            journey_key: journey.key,
+            zapi_instance: normalized.zapiInstanceId,
+            photo_attempt: 1,
+          },
         })
         .select("id")
         .single();
@@ -336,23 +367,22 @@ serve(async (req) => {
         event_type: "inbound_image",
         actor_type: "vendor",
         actor_id: vendorId,
-        message:
-          journey.key === "sales_order"
-            ? "Foto do pedido recebida. Iniciando OCR e validações."
-            : "Imagem recebida via WhatsApp.",
+        message: cfgOcrEnabled
+          ? "Imagem recebida. OCR será executado conforme configuração do fluxo."
+          : "Imagem recebida via WhatsApp.",
         meta_json: { correlation_id: correlationId, journey_key: journey.key },
         occurred_at: new Date().toISOString(),
       });
 
-      if (journey.key === "sales_order") {
-        // Initial pendencies (legacy flow)
+      // Default pendencies (configurable)
+      if (cfgPendenciesOnImage) {
         await supabase.from("pendencies").insert([
           {
             tenant_id: instance.tenant_id,
             case_id: createdCase.id,
             type: "need_location",
             assigned_to_role: "vendor",
-            question_text: "Envie sua localização (WhatsApp: Compartilhar localização). Sem isso não conseguimos registrar o pedido.",
+            question_text: "Envie sua localização (WhatsApp: Compartilhar localização).",
             required: true,
             status: "open",
             due_at: new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString(),
@@ -368,7 +398,10 @@ serve(async (req) => {
             due_at: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
           },
         ]);
+      }
 
+      // OCR pipeline (configurable)
+      if (cfgOcrEnabled) {
         await enqueueJob("OCR_IMAGE", `OCR_IMAGE:${createdCase.id}`, {
           case_id: createdCase.id,
           correlation_id: correlationId,
@@ -393,12 +426,14 @@ serve(async (req) => {
           instance: normalized.zapiInstanceId,
           journey_id: journey.id,
           journey_key: journey.key,
+          cfg_ocr_enabled: cfgOcrEnabled,
         },
       });
 
-      return new Response(JSON.stringify({ ok: true, correlation_id: correlationId, case_id: createdCase.id, journey_id: journey.id }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify({ ok: true, correlation_id: correlationId, case_id: createdCase.id, journey_id: journey.id }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
     }
 
     if (normalized.type === "location") {
@@ -424,7 +459,7 @@ serve(async (req) => {
         last_updated_by: "whatsapp_location",
       });
 
-      // only sales_order has the need_location pendency by default
+      // (Optional) answer a standard pendency if present
       await supabase
         .from("pendencies")
         .update({ status: "answered", answered_text: "Localização enviada", answered_payload_json: normalized.location })
@@ -444,12 +479,14 @@ serve(async (req) => {
         occurred_at: new Date().toISOString(),
       });
 
-      const nextState = pickInitialState(journey, "ready_for_review");
-      await supabase.from("cases").update({ state: nextState }).eq("id", openCase.id);
+      if (cfgLocationNextState && safeStates(journey).includes(cfgLocationNextState)) {
+        await supabase.from("cases").update({ state: cfgLocationNextState }).eq("id", openCase.id);
+      }
 
-      return new Response(JSON.stringify({ ok: true, correlation_id: correlationId, case_id: openCase.id, journey_id: journey.id }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify({ ok: true, correlation_id: correlationId, case_id: openCase.id, journey_id: journey.id }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
     }
 
     // text/audio
@@ -469,34 +506,23 @@ serve(async (req) => {
 
       const answerText = normalized.type === "audio" ? "(áudio recebido - transcrição pendente)" : normalized.text;
 
-      if (journey.key === "sales_order") {
-        // Answer the oldest open vendor pendency (legacy flow)
-        const { data: pendency } = await supabase
+      // Minimal behavior: if there is an open vendor pendency, answer it.
+      const { data: pendency } = await supabase
+        .from("pendencies")
+        .select("id")
+        .eq("tenant_id", instance.tenant_id)
+        .eq("case_id", openCase.id)
+        .eq("assigned_to_role", "vendor")
+        .eq("status", "open")
+        .order("created_at", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+
+      if (pendency?.id) {
+        await supabase
           .from("pendencies")
-          .select("id")
-          .eq("tenant_id", instance.tenant_id)
-          .eq("case_id", openCase.id)
-          .eq("assigned_to_role", "vendor")
-          .eq("status", "open")
-          .order("created_at", { ascending: true })
-          .limit(1)
-          .maybeSingle();
-
-        if (pendency?.id) {
-          await supabase
-            .from("pendencies")
-            .update({ status: "answered", answered_text: answerText, answered_payload_json: payload })
-            .eq("id", pendency.id);
-        }
-
-        await enqueueJob("VALIDATE_FIELDS", `VALIDATE_FIELDS:${openCase.id}:${Date.now()}`, {
-          case_id: openCase.id,
-          correlation_id: correlationId,
-        });
-        await enqueueJob("ASK_PENDENCIES", `ASK_PENDENCIES:${openCase.id}:${Date.now()}`, {
-          case_id: openCase.id,
-          correlation_id: correlationId,
-        });
+          .update({ status: "answered", answered_text: answerText, answered_payload_json: payload })
+          .eq("id", pendency.id);
       }
 
       await supabase.from("timeline_events").insert({
@@ -510,9 +536,22 @@ serve(async (req) => {
         occurred_at: new Date().toISOString(),
       });
 
-      return new Response(JSON.stringify({ ok: true, correlation_id: correlationId, case_id: openCase.id, journey_id: journey.id }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      // If OCR pipeline is enabled for this journey, keep validating/asking.
+      if (cfgOcrEnabled) {
+        await enqueueJob("VALIDATE_FIELDS", `VALIDATE_FIELDS:${openCase.id}:${Date.now()}`, {
+          case_id: openCase.id,
+          correlation_id: correlationId,
+        });
+        await enqueueJob("ASK_PENDENCIES", `ASK_PENDENCIES:${openCase.id}:${Date.now()}`, {
+          case_id: openCase.id,
+          correlation_id: correlationId,
+        });
+      }
+
+      return new Response(
+        JSON.stringify({ ok: true, correlation_id: correlationId, case_id: openCase.id, journey_id: journey.id }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
     }
 
     return new Response(JSON.stringify({ ok: true, note: "Ignored" }), {

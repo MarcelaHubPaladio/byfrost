@@ -9,11 +9,23 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { showError, showSuccess } from "@/utils/toast";
 import { cn } from "@/lib/utils";
 import { TenantBrandingPanel } from "@/components/admin/TenantBrandingPanel";
 import { TenantJourneysPanel } from "@/components/admin/TenantJourneysPanel";
 import { JourneyPromptsPanel } from "@/components/admin/JourneyPromptsPanel";
+import { Trash2 } from "lucide-react";
 
 function slugify(s: string) {
   return (s ?? "")
@@ -51,6 +63,7 @@ export default function Admin() {
 
   const [refreshingSession, setRefreshingSession] = useState(false);
   const [debug, setDebug] = useState<any>(null);
+  const [deletingInstanceId, setDeletingInstanceId] = useState<string | null>(null);
 
   const refreshSession = async () => {
     setRefreshingSession(true);
@@ -247,6 +260,27 @@ export default function Admin() {
       await qc.invalidateQueries({ queryKey: ["admin_instances", activeTenantId] });
     } catch (e: any) {
       showError(`Falha ao salvar roteamento: ${e?.message ?? "erro"}`);
+    }
+  };
+
+  const deleteInstance = async (instanceId: string) => {
+    if (!activeTenantId) return;
+    setDeletingInstanceId(instanceId);
+    try {
+      await ensureFreshTokenForRls();
+      const { error } = await supabase
+        .from("wa_instances")
+        .update({ deleted_at: new Date().toISOString(), status: "disabled" })
+        .eq("tenant_id", activeTenantId)
+        .eq("id", instanceId);
+      if (error) throw error;
+      showSuccess("Instância excluída.");
+      await qc.invalidateQueries({ queryKey: ["admin_instances", activeTenantId] });
+      if (monitorInstanceId === instanceId) setMonitorInstanceId("");
+    } catch (e: any) {
+      showError(`Falha ao excluir instância: ${e?.message ?? "erro"}`);
+    } finally {
+      setDeletingInstanceId(null);
     }
   };
 
@@ -903,9 +937,41 @@ export default function Admin() {
                                       webhook_secret: {i.webhook_secret}
                                     </div>
                                   </div>
-                                  <Badge className="rounded-full border-0 bg-emerald-100 text-emerald-900 hover:bg-emerald-100">
-                                    {i.status}
-                                  </Badge>
+                                  <div className="flex items-center gap-2">
+                                    <Badge className="rounded-full border-0 bg-emerald-100 text-emerald-900 hover:bg-emerald-100">
+                                      {i.status}
+                                    </Badge>
+
+                                    <AlertDialog>
+                                      <AlertDialogTrigger asChild>
+                                        <Button
+                                          variant="secondary"
+                                          className="h-9 rounded-2xl border border-rose-200 bg-rose-50 px-3 text-rose-800 shadow-sm hover:bg-rose-100 hover:text-rose-900"
+                                          disabled={deletingInstanceId === i.id}
+                                          title="Excluir instância"
+                                        >
+                                          <Trash2 className="h-4 w-4" />
+                                        </Button>
+                                      </AlertDialogTrigger>
+                                      <AlertDialogContent className="rounded-[22px]">
+                                        <AlertDialogHeader>
+                                          <AlertDialogTitle>Excluir instância?</AlertDialogTitle>
+                                          <AlertDialogDescription>
+                                            Isso vai remover a instância do painel (soft delete). As mensagens já registradas serão mantidas.
+                                          </AlertDialogDescription>
+                                        </AlertDialogHeader>
+                                        <AlertDialogFooter>
+                                          <AlertDialogCancel className="rounded-2xl">Cancelar</AlertDialogCancel>
+                                          <AlertDialogAction
+                                            className="rounded-2xl bg-rose-600 text-white hover:bg-rose-700"
+                                            onClick={() => deleteInstance(i.id)}
+                                          >
+                                            Excluir
+                                          </AlertDialogAction>
+                                        </AlertDialogFooter>
+                                      </AlertDialogContent>
+                                    </AlertDialog>
+                                  </div>
                                 </div>
 
                                 <div className="mt-3 rounded-2xl border border-slate-200 bg-white/70 p-2">

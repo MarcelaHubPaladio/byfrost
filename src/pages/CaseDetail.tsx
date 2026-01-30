@@ -9,6 +9,7 @@ import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { WhatsAppConversation } from "@/components/case/WhatsAppConversation";
+import { CaseTimeline, type CaseTimelineEvent } from "@/components/case/CaseTimeline";
 import {
   ArrowLeft,
   CheckCircle2,
@@ -129,10 +130,10 @@ export default function CaseDetail() {
         .select("id,event_type,actor_type,message,occurred_at")
         .eq("tenant_id", activeTenantId!)
         .eq("case_id", id!)
-        .order("occurred_at", { ascending: false })
-        .limit(100);
+        .order("occurred_at", { ascending: true })
+        .limit(200);
       if (error) throw error;
-      return data ?? [];
+      return (data ?? []) as CaseTimelineEvent[];
     },
   });
 
@@ -287,9 +288,7 @@ export default function CaseDetail() {
                 </Badge>
                 <span className="truncate">
                   {(c?.vendors?.display_name ?? "Vendedor") +
-                    (c?.vendors?.phone_e164
-                      ? ` • ${c?.vendors?.phone_e164}`
-                      : "")}
+                    (c?.vendors?.phone_e164 ? ` • ${c?.vendors?.phone_e164}` : "")}
                 </span>
               </div>
             </div>
@@ -310,17 +309,66 @@ export default function CaseDetail() {
             </div>
           </div>
 
-          <div className="mt-5 grid gap-4 lg:grid-cols-[1.05fr_0.95fr]">
-            {/* Left: attachments + fields */}
+          {/* Layout: esquerda (conteúdo) + direita (chat fixo) */}
+          <div className="mt-5 grid gap-4 lg:grid-cols-[0.95fr_1.05fr]">
+            {/* Left */}
             <div className="space-y-4">
+              {/* Pendências */}
+              <div className="rounded-[22px] border border-slate-200 bg-white p-4">
+                <div className="flex items-center justify-between">
+                  <div className="text-sm font-semibold text-slate-900">Pendências</div>
+                  <div className="text-xs text-slate-500">{pendQ.data?.length ?? 0}</div>
+                </div>
+                <div className="mt-3 space-y-2">
+                  {(pendQ.data ?? []).map((p: any) => (
+                    <div
+                      key={p.id}
+                      className="rounded-2xl border border-slate-200 bg-white px-3 py-2"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="text-xs font-semibold text-slate-900 truncate">
+                            {p.question_text}
+                          </div>
+                          <div className="mt-0.5 text-[11px] text-slate-500">
+                            {p.assigned_to_role} • {p.type} • {p.required ? "obrigatória" : "opcional"}
+                          </div>
+                        </div>
+                        <Badge
+                          className={cn(
+                            "rounded-full border-0",
+                            p.status === "open"
+                              ? "bg-amber-100 text-amber-900"
+                              : p.status === "answered"
+                                ? "bg-emerald-100 text-emerald-900"
+                                : "bg-slate-100 text-slate-700"
+                          )}
+                        >
+                          {p.status}
+                        </Badge>
+                      </div>
+                      {p.answered_text && (
+                        <div className="mt-2 text-xs text-slate-600">
+                          <span className="font-medium">Resposta:</span> {p.answered_text}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                  {(pendQ.data ?? []).length === 0 && (
+                    <div className="rounded-2xl border border-dashed border-slate-200 bg-white/60 p-4 text-xs text-slate-500">
+                      Sem pendências.
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Anexos */}
               <div className="rounded-[22px] border border-slate-200 bg-white p-4">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
                     <ImageIcon className="h-4 w-4 text-slate-500" /> Anexos
                   </div>
-                  <div className="text-xs text-slate-500">
-                    {attachmentsQ.data?.length ?? 0}
-                  </div>
+                  <div className="text-xs text-slate-500">{attachmentsQ.data?.length ?? 0}</div>
                 </div>
 
                 <div className="mt-3 grid gap-3 sm:grid-cols-2">
@@ -352,6 +400,7 @@ export default function CaseDetail() {
                 </div>
               </div>
 
+              {/* Campos extraídos */}
               <div className="rounded-[22px] border border-slate-200 bg-white p-4">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
@@ -374,116 +423,23 @@ export default function CaseDetail() {
                             {f.key}
                           </div>
                           <div className="truncate text-sm font-medium text-slate-900">
-                            {f.value_text ??
-                              (f.value_json
-                                ? JSON.stringify(f.value_json)
-                                : "—")}
+                            {f.value_text ?? (f.value_json ? JSON.stringify(f.value_json) : "—")}
                           </div>
-                          <div className="mt-0.5 text-[11px] text-slate-500">
-                            fonte: {f.source}
-                          </div>
+                          <div className="mt-0.5 text-[11px] text-slate-500">fonte: {f.source}</div>
                         </div>
                         <ConfidencePill v={f.confidence} />
                       </div>
                     ))}
 
-                  {(fieldsQ.data ?? []).filter((f: any) => f.key !== "ocr_text")
-                    .length === 0 && (
+                  {(fieldsQ.data ?? []).filter((f: any) => f.key !== "ocr_text").length === 0 && (
                     <div className="rounded-2xl border border-dashed border-slate-200 bg-white/60 p-4 text-xs text-slate-500">
-                      Ainda não há campos extraídos. Rode o processor (jobs) ou use o
-                      simulador.
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* Right: pendencies + timeline + messages + decisions */}
-            <div className="space-y-4">
-              <div className="rounded-[22px] border border-slate-200 bg-white p-4">
-                <div className="flex items-center justify-between">
-                  <div className="text-sm font-semibold text-slate-900">Pendências</div>
-                  <div className="text-xs text-slate-500">{pendQ.data?.length ?? 0}</div>
-                </div>
-                <div className="mt-3 space-y-2">
-                  {(pendQ.data ?? []).map((p: any) => (
-                    <div
-                      key={p.id}
-                      className="rounded-2xl border border-slate-200 bg-white px-3 py-2"
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <div className="text-xs font-semibold text-slate-900 truncate">
-                            {p.question_text}
-                          </div>
-                          <div className="mt-0.5 text-[11px] text-slate-500">
-                            {p.assigned_to_role} • {p.type} •{" "}
-                            {p.required ? "obrigatória" : "opcional"}
-                          </div>
-                        </div>
-                        <Badge
-                          className={cn(
-                            "rounded-full border-0",
-                            p.status === "open"
-                              ? "bg-amber-100 text-amber-900"
-                              : p.status === "answered"
-                                ? "bg-emerald-100 text-emerald-900"
-                                : "bg-slate-100 text-slate-700"
-                          )}
-                        >
-                          {p.status}
-                        </Badge>
-                      </div>
-                      {p.answered_text && (
-                        <div className="mt-2 text-xs text-slate-600">
-                          <span className="font-medium">Resposta:</span> {p.answered_text}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                  {(pendQ.data ?? []).length === 0 && (
-                    <div className="rounded-2xl border border-dashed border-slate-200 bg-white/60 p-4 text-xs text-slate-500">
-                      Sem pendências.
+                      Ainda não há campos extraídos. Rode o processor (jobs) ou use o simulador.
                     </div>
                   )}
                 </div>
               </div>
 
-              <div className="rounded-[22px] border border-slate-200 bg-white p-4">
-                <div className="flex items-center justify-between">
-                  <div className="text-sm font-semibold text-slate-900">Timeline</div>
-                  <div className="text-xs text-slate-500">trilha completa</div>
-                </div>
-
-                <div className="mt-3 space-y-2">
-                  {(timelineQ.data ?? []).slice(0, 10).map((e: any) => (
-                    <div
-                      key={e.id}
-                      className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2"
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="text-xs font-semibold text-slate-900 truncate">
-                          {e.message}
-                        </div>
-                        <div className="text-[11px] text-slate-500">
-                          {new Date(e.occurred_at).toLocaleString()}
-                        </div>
-                      </div>
-                      <div className="mt-0.5 text-[11px] text-slate-500">
-                        {e.actor_type} • {e.event_type}
-                      </div>
-                    </div>
-                  ))}
-                  {(timelineQ.data ?? []).length === 0 && (
-                    <div className="rounded-2xl border border-dashed border-slate-200 bg-white/60 p-4 text-xs text-slate-500">
-                      Sem eventos ainda.
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {id && <WhatsAppConversation caseId={id} />}
-
+              {/* Decisões IA */}
               <div className="rounded-[22px] border border-slate-200 bg-white p-4">
                 <div className="flex items-center justify-between">
                   <div className="text-sm font-semibold text-slate-900">Decisões da IA (WHY)</div>
@@ -511,9 +467,7 @@ export default function CaseDetail() {
                       </div>
 
                       {d.reasoning_public && (
-                        <div className="mt-2 text-xs leading-relaxed text-slate-600">
-                          {d.reasoning_public}
-                        </div>
+                        <div className="mt-2 text-xs leading-relaxed text-slate-600">{d.reasoning_public}</div>
                       )}
 
                       <div className="mt-2 grid gap-2 md:grid-cols-2">
@@ -540,13 +494,22 @@ export default function CaseDetail() {
                   )}
                 </div>
               </div>
+
+              {/* Timeline por último (estilo do anexo) */}
+              <CaseTimeline events={timelineQ.data ?? []} />
+            </div>
+
+            {/* Right: Chat fixo ocupando o espaço */}
+            <div className="lg:sticky lg:top-5 lg:h-[calc(100vh-140px)]">
+              <div className="h-[70vh] lg:h-full">
+                {id && <WhatsAppConversation caseId={id} className="h-full" />}
+              </div>
             </div>
           </div>
 
           <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
             <CheckCircle2 className="mr-1 inline h-4 w-4 text-emerald-600" />
-            Ações críticas (aprovação/status) são humanas. A IA registra sugestões,
-            pendências e justificativas.
+            Ações críticas (aprovação/status) são humanas. A IA registra sugestões, pendências e justificativas.
           </div>
         </div>
       </AppShell>

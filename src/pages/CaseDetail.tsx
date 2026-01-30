@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AppShell } from "@/components/AppShell";
@@ -10,11 +10,6 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { WhatsAppConversation } from "@/components/case/WhatsAppConversation";
 import { CaseTimeline, type CaseTimelineEvent } from "@/components/case/CaseTimeline";
-import { CaseCustomerCard } from "@/components/crm/CaseCustomerCard";
-import { CaseNotesCard } from "@/components/crm/CaseNotesCard";
-import { CaseTasksCard } from "@/components/crm/CaseTasksCard";
-import { CaseProductsCard } from "@/components/crm/CaseProductsCard";
-import { CaseTagsCard } from "@/components/crm/CaseTagsCard";
 import {
   ArrowLeft,
   CheckCircle2,
@@ -83,6 +78,13 @@ export default function CaseDetail() {
       return data as any as CaseRow;
     },
   });
+
+  // Higienização: caso CRM abre em rota própria.
+  useEffect(() => {
+    if (!caseQ.data?.id) return;
+    if (!caseQ.data.journeys?.is_crm) return;
+    nav(`/crm/cases/${caseQ.data.id}`, { replace: true });
+  }, [caseQ.data?.id, caseQ.data?.journeys?.is_crm, nav]);
 
   const attachmentsQ = useQuery({
     queryKey: ["case_attachments", activeTenantId, id],
@@ -167,8 +169,6 @@ export default function CaseDetail() {
     const phone = fieldsQ.data?.find((f: any) => f.key === "phone")?.value_text;
     return phone as string | undefined;
   }, [fieldsQ.data]);
-
-  const isCrm = Boolean(caseQ.data?.journeys?.is_crm);
 
   const approveAndPrepare = async () => {
     if (!activeTenantId || !id || !caseQ.data) return;
@@ -295,11 +295,6 @@ export default function CaseDetail() {
                 <Badge className="rounded-full border-0 bg-[hsl(var(--byfrost-accent)/0.10)] text-[hsl(var(--byfrost-accent))] hover:bg-[hsl(var(--byfrost-accent)/0.10)]">
                   {c?.status}
                 </Badge>
-                {c?.journeys?.is_crm ? (
-                  <Badge className="rounded-full border-0 bg-indigo-100 text-indigo-900 hover:bg-indigo-100">
-                    CRM
-                  </Badge>
-                ) : null}
                 <span className="truncate">
                   {(c?.vendors?.display_name ?? "Vendedor") +
                     (c?.vendors?.phone_e164 ? ` • ${c?.vendors?.phone_e164}` : "")}
@@ -327,27 +322,6 @@ export default function CaseDetail() {
           <div className="mt-5 grid gap-4 lg:grid-cols-[0.95fr_1.05fr]">
             {/* Left */}
             <div className="space-y-4">
-              {isCrm && activeTenantId && id && (
-                <div className="space-y-4">
-                  <CaseCustomerCard
-                    tenantId={activeTenantId}
-                    caseId={id}
-                    customerId={c?.customer_id ?? null}
-                    assignedVendorId={c?.assigned_vendor_id ?? null}
-                    suggestedPhone={extractedCustomerPhone ?? null}
-                  />
-
-                  <CaseTagsCard tenantId={activeTenantId} caseId={id} />
-
-                  <CaseProductsCard tenantId={activeTenantId} caseId={id} />
-
-                  <div className="grid gap-4 lg:grid-cols-2">
-                    <CaseTasksCard tenantId={activeTenantId} caseId={id} />
-                    <CaseNotesCard tenantId={activeTenantId} caseId={id} userId={user?.id ?? null} />
-                  </div>
-                </div>
-              )}
-
               {/* Pendências */}
               <div className="rounded-[22px] border border-slate-200 bg-white p-4">
                 <div className="flex items-center justify-between">

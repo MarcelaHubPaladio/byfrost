@@ -522,7 +522,7 @@ export default function Crm() {
                         return (
                           <Link
                             key={c.id}
-                            to={`/app/cases/${c.id}`}
+                            to={`/crm/cases/${c.id}`}
                             draggable
                             onDragStart={(e) => {
                               e.dataTransfer.setData("text/caseId", c.id);

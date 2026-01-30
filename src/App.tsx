@@ -17,6 +17,7 @@ import Simulator from "@/pages/Simulator";
 import Settings from "@/pages/Settings";
 import Admin from "@/pages/Admin";
 import Crm from "@/pages/Crm";
+import CrmCaseDetail from "@/pages/CrmCaseDetail";
 
 const queryClient = new QueryClient();
 
@@ -38,7 +39,10 @@ const App = () => (
               <Route path="/app/j/:journeyKey" element={<Dashboard />} />
               <Route path="/app/crm" element={<Crm />} />
 
+              {/* Detalhes */}
               <Route path="/app/cases/:id" element={<CaseDetail />} />
+              <Route path="/crm/cases/:id" element={<CrmCaseDetail />} />
+
               <Route path="/app/simulator" element={<Simulator />} />
               <Route path="/app/settings" element={<Settings />} />
               <Route path="/app/admin" element={<Admin />} />

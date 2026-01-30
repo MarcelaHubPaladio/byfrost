@@ -179,33 +179,39 @@ export function AppShell({ children }: PropsWithChildren) {
       <div className="w-full px-3 py-3 md:px-5 md:py-5">
         <div className="grid gap-3 md:grid-cols-[96px_1fr] md:gap-5">
           {/* Sidebar */}
-          <aside className="rounded-[28px] border border-slate-200 bg-white/65 p-3 shadow-sm backdrop-blur md:sticky md:top-5 md:h-[calc(100vh-40px)]">
-            <div className="flex items-center justify-center">
+          <aside className="overflow-hidden rounded-[28px] border border-slate-200 bg-white/65 shadow-sm backdrop-blur md:sticky md:top-5 md:h-[calc(100vh-40px)]">
+            {/* Top brand block */}
+            <div className="bg-[hsl(var(--byfrost-accent))] px-3 pb-3 pt-2">
               <Link
                 to="/app"
-                className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
+                className="mx-auto flex w-fit flex-col items-center"
                 title={activeTenant?.name ?? "Byfrost"}
               >
-                {logoUrl ? (
-                  <img src={logoUrl} alt="Logo do tenant" className="h-full w-full object-contain p-2" />
-                ) : (
-                  <div className="flex h-full w-full items-center justify-center rounded-2xl bg-[hsl(var(--byfrost-accent))] text-lg font-semibold text-white">
-                    {(activeTenant?.name?.slice(0, 1) ?? "B").toUpperCase()}
-                  </div>
-                )}
+                <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-[22px] bg-white p-2 shadow-sm ring-1 ring-white/40">
+                  {logoUrl ? (
+                    <img
+                      src={logoUrl}
+                      alt="Logo do tenant"
+                      className="h-full w-full object-contain"
+                    />
+                  ) : (
+                    <div className="flex h-full w-full items-center justify-center rounded-[18px] bg-[hsl(var(--byfrost-accent))] text-2xl font-semibold text-white">
+                      {(activeTenant?.name?.slice(0, 1) ?? "B").toUpperCase()}
+                    </div>
+                  )}
+                </div>
+                <div className="mt-2 max-w-[84px] truncate text-center text-[11px] font-semibold tracking-tight text-white/95">
+                  {activeTenant?.name ?? "Byfrost"}
+                </div>
               </Link>
             </div>
 
-            <div className="mt-4 grid gap-2">
-              <NavTile to="/app" icon={LayoutGrid} label="Dashboard" />
-              <NavTile to="/app/simulator" icon={FlaskConical} label="Simulador" />
-              {isSuperAdmin && <NavTile to="/app/admin" icon={Crown} label="Admin" />}
-              <NavTile to="/app/settings" icon={Settings} label="Config" />
-            </div>
-
-            <div className="mt-4 border-t border-slate-200/70 pt-4">
-              <div className="rounded-2xl bg-white/60 px-3 py-2 text-center text-[11px] font-medium text-slate-600">
-                {activeTenant?.name ?? "Byfrost"}
+            <div className="p-3">
+              <div className="grid gap-2">
+                <NavTile to="/app" icon={LayoutGrid} label="Dashboard" />
+                <NavTile to="/app/simulator" icon={FlaskConical} label="Simulador" />
+                {isSuperAdmin && <NavTile to="/app/admin" icon={Crown} label="Admin" />}
+                <NavTile to="/app/settings" icon={Settings} label="Config" />
               </div>
             </div>
           </aside>

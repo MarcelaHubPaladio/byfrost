@@ -3,7 +3,7 @@ import { Link, NavLink, useNavigate } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
 import { useTenant } from "@/providers/TenantProvider";
 import { useSession } from "@/providers/SessionProvider";
-import { LayoutGrid, FlaskConical, Settings, Search, Crown, ArrowLeftRight, LogOut, User2 } from "lucide-react";
+import { LayoutGrid, FlaskConical, Settings, Crown, ArrowLeftRight, LogOut, User2, ShieldCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
@@ -84,6 +84,7 @@ function NavTile({
   return (
     <NavLink
       to={to}
+      end={to === "/app"}
       className={({ isActive }) =>
         cn(
           "group flex w-full flex-col items-center gap-1 rounded-2xl border px-2 py-2 text-center transition",
@@ -189,11 +190,7 @@ export function AppShell({ children }: PropsWithChildren) {
               >
                 <div className="flex h-[74px] w-[74px] items-center justify-center overflow-hidden rounded-[22px] bg-white p-1.5 shadow-sm ring-1 ring-white/40">
                   {logoUrl ? (
-                    <img
-                      src={logoUrl}
-                      alt="Logo do tenant"
-                      className="h-full w-full object-contain"
-                    />
+                    <img src={logoUrl} alt="Logo do tenant" className="h-full w-full object-contain" />
                   ) : (
                     <div className="flex h-full w-full items-center justify-center rounded-[18px] bg-[hsl(var(--byfrost-accent))] text-2xl font-semibold text-white">
                       {(activeTenant?.name?.slice(0, 1) ?? "B").toUpperCase()}
@@ -218,31 +215,43 @@ export function AppShell({ children }: PropsWithChildren) {
 
           {/* Main */}
           <div className="min-w-0">
-            {/* Content header (user dropdown) */}
-            <div className="rounded-[28px] border border-[hsl(var(--byfrost-accent)/0.35)] bg-white/65 px-4 py-3 shadow-sm backdrop-blur">
-              <div className="flex items-center justify-end">
+            {/* Content header (tenant colored) */}
+            <div className="rounded-[28px] bg-[hsl(var(--byfrost-accent))] px-4 py-3 shadow-sm">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex min-w-0 items-center gap-2">
+                  {isSuperAdmin && (
+                    <div className="inline-flex items-center gap-1 rounded-full bg-white/15 px-2 py-1 text-[11px] font-semibold text-white">
+                      <ShieldCheck className="h-3.5 w-3.5" />
+                      super-admin
+                    </div>
+                  )}
+                  <div className="truncate text-xs font-semibold text-white/90">
+                    {activeTenant?.name ?? "Byfrost"}
+                  </div>
+                </div>
+
                 <DropdownMenu open={userMenuOpen} onOpenChange={setUserMenuOpen}>
                   <DropdownMenuTrigger asChild>
                     <button
                       type="button"
-                      className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white/75 px-2.5 py-2 text-left shadow-sm transition hover:bg-white"
+                      className="flex items-center gap-2 rounded-2xl border border-white/20 bg-white/10 px-2.5 py-2 text-left text-white shadow-sm transition hover:bg-white/15"
                       onMouseEnter={() => setUserMenuOpen(true)}
                       onMouseLeave={() => setUserMenuOpen(false)}
                       title={userEmail}
                     >
                       <Avatar className="h-8 w-8 rounded-2xl">
                         <AvatarImage src={avatarUrl ?? undefined} alt={userName} />
-                        <AvatarFallback className="rounded-2xl bg-[hsl(var(--byfrost-accent)/0.12)] text-[hsl(var(--byfrost-accent))]">
+                        <AvatarFallback className="rounded-2xl bg-white/15 text-white">
                           {(userName?.slice(0, 1) ?? "U").toUpperCase()}
                         </AvatarFallback>
                       </Avatar>
                       <div className="hidden sm:block">
-                        <div className="max-w-[180px] truncate text-xs font-semibold text-slate-900">
+                        <div className="max-w-[180px] truncate text-xs font-semibold text-white">
                           {userName}
                         </div>
-                        <div className="max-w-[180px] truncate text-[11px] text-slate-500">{activeTenant?.slug}</div>
+                        <div className="max-w-[180px] truncate text-[11px] text-white/80">{activeTenant?.slug}</div>
                       </div>
-                      <User2 className="hidden h-4 w-4 text-slate-400 sm:block" />
+                      <User2 className="hidden h-4 w-4 text-white/70 sm:block" />
                     </button>
                   </DropdownMenuTrigger>
 
@@ -253,8 +262,17 @@ export function AppShell({ children }: PropsWithChildren) {
                     onMouseLeave={() => setUserMenuOpen(false)}
                   >
                     <DropdownMenuLabel className="px-2 py-2">
-                      <div className="text-xs font-semibold text-slate-900">{userName}</div>
-                      <div className="mt-0.5 text-[11px] font-normal text-slate-600">{userEmail}</div>
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="truncate text-xs font-semibold text-slate-900">{userName}</div>
+                          <div className="mt-0.5 truncate text-[11px] font-normal text-slate-600">{userEmail}</div>
+                        </div>
+                        {isSuperAdmin && (
+                          <div className="shrink-0 rounded-full bg-amber-100 px-2 py-1 text-[10px] font-semibold text-amber-900">
+                            super-admin
+                          </div>
+                        )}
+                      </div>
                     </DropdownMenuLabel>
                     <DropdownMenuSeparator className="bg-slate-200" />
                     <DropdownMenuItem

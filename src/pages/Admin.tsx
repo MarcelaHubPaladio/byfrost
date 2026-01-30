@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { RequireAuth } from "@/components/RequireAuth";
 import { AppShell } from "@/components/AppShell";
@@ -26,7 +26,7 @@ import { cn } from "@/lib/utils";
 import { TenantBrandingPanel } from "@/components/admin/TenantBrandingPanel";
 import { TenantJourneysPanel } from "@/components/admin/TenantJourneysPanel";
 import { JourneyPromptsPanel } from "@/components/admin/JourneyPromptsPanel";
-import { Trash2, PauseCircle, PlayCircle } from "lucide-react";
+import { Trash2, PauseCircle, PlayCircle, ChevronLeft, ChevronRight } from "lucide-react";
 
 function slugify(s: string) {
   return (s ?? "")
@@ -56,6 +56,53 @@ function fmtTs(ts: string) {
   } catch {
     return ts;
   }
+}
+
+function PaginationControls({
+  page,
+  pageSize,
+  count,
+  onPage,
+}: {
+  page: number;
+  pageSize: number;
+  count: number;
+  onPage: (next: number) => void;
+}) {
+  const totalPages = Math.max(1, Math.ceil((count ?? 0) / pageSize));
+  const canPrev = page > 0;
+  const canNext = page < totalPages - 1;
+
+  return (
+    <div className="flex flex-col items-center justify-between gap-2 rounded-2xl border border-slate-200 bg-white/70 px-3 py-2 sm:flex-row">
+      <div className="text-[11px] text-slate-600">
+        Página <span className="font-semibold text-slate-900">{page + 1}</span> de{" "}
+        <span className="font-semibold text-slate-900">{totalPages}</span>
+        <span className="text-slate-400"> • </span>
+        <span className="text-slate-500">{count} itens</span>
+      </div>
+      <div className="flex items-center gap-2">
+        <Button
+          variant="secondary"
+          className="h-9 rounded-2xl"
+          disabled={!canPrev}
+          onClick={() => onPage(Math.max(0, page - 1))}
+        >
+          <ChevronLeft className="mr-1 h-4 w-4" />
+          Anterior
+        </Button>
+        <Button
+          variant="secondary"
+          className="h-9 rounded-2xl"
+          disabled={!canNext}
+          onClick={() => onPage(page + 1)}
+        >
+          Próxima
+          <ChevronRight className="ml-1 h-4 w-4" />
+        </Button>
+      </div>
+    </div>
+  );
 }
 
 export default function Admin() {
@@ -453,49 +500,70 @@ export default function Admin() {
   };
 
   const [monitorInstanceId, setMonitorInstanceId] = useState<string>("");
+  const MONITOR_PAGE_SIZE = 10;
+  const [waMessagesPage, setWaMessagesPage] = useState(0);
+  const [waInboxPage, setWaInboxPage] = useState(0);
+
+  useEffect(() => {
+    setWaMessagesPage(0);
+    setWaInboxPage(0);
+  }, [activeTenantId, monitorInstanceId]);
+
+  // Reset paging when tenant/instance filter changes
+  if (waMessagesPage !== 0 && !monitorInstanceId) {
+    // no-op, keep manual navigation
+  }
 
   const waRecentQ = useQuery({
-    queryKey: ["admin_wa_recent", activeTenantId, monitorInstanceId],
+    queryKey: ["admin_wa_recent", activeTenantId, monitorInstanceId, waMessagesPage],
     enabled: Boolean(isSuperAdmin && activeTenantId),
     queryFn: async () => {
       let q = supabase
         .from("wa_messages")
-        .select("id,instance_id,direction,type,from_phone,to_phone,body_text,media_url,correlation_id,occurred_at,case_id")
+        .select(
+          "id,instance_id,direction,type,from_phone,to_phone,body_text,media_url,correlation_id,occurred_at,case_id",
+          { count: "exact" }
+        )
         .eq("tenant_id", activeTenantId!)
         .order("occurred_at", { ascending: false })
-        .limit(50);
+        .range(
+          waMessagesPage * MONITOR_PAGE_SIZE,
+          waMessagesPage * MONITOR_PAGE_SIZE + MONITOR_PAGE_SIZE - 1
+        );
 
       if (monitorInstanceId) q = q.eq("instance_id", monitorInstanceId);
 
-      const { data, error } = await q;
+      const { data, error, count } = await q;
       if (error) throw error;
-      return data ?? [];
+      return { rows: data ?? [], count: count ?? 0 };
     },
   });
 
   const waInboxQ = useQuery({
-    queryKey: ["admin_wa_inbox", activeTenantId, monitorInstanceId],
+    queryKey: ["admin_wa_inbox", activeTenantId, monitorInstanceId, waInboxPage],
     enabled: Boolean(isSuperAdmin && activeTenantId),
     queryFn: async () => {
       let q = supabase
         .from("wa_webhook_inbox")
-        .select("id,instance_id,ok,http_status,reason,wa_type,from_phone,to_phone,meta_json,received_at")
+        .select("id,instance_id,ok,http_status,reason,wa_type,from_phone,to_phone,meta_json,received_at", {
+          count: "exact",
+        })
         .eq("tenant_id", activeTenantId!)
         .order("received_at", { ascending: false })
-        .limit(50);
+        .range(waInboxPage * MONITOR_PAGE_SIZE, waInboxPage * MONITOR_PAGE_SIZE + MONITOR_PAGE_SIZE - 1);
 
       if (monitorInstanceId) q = q.eq("instance_id", monitorInstanceId);
 
-      const { data, error } = await q;
+      const { data, error, count } = await q;
       if (error) throw error;
-      return data ?? [];
+      return { rows: data ?? [], count: count ?? 0 };
     },
   });
 
   const caseIds = useMemo(() => {
     const ids = new Set<string>();
-    for (const m of waRecentQ.data ?? []) if ((m as any).case_id) ids.add(String((m as any).case_id));
-    for (const it of waInboxQ.data ?? []) {
+    for (const m of waRecentQ.data?.rows ?? []) if ((m as any).case_id) ids.add(String((m as any).case_id));
+    for (const it of waInboxQ.data?.rows ?? []) {
       const cid = (it as any)?.meta_json?.case_id;
       if (cid) ids.add(String(cid));
     }
@@ -1112,7 +1180,11 @@ export default function Admin() {
                             <div className="text-[11px] font-semibold text-slate-700">Instância</div>
                             <select
                               value={monitorInstanceId}
-                              onChange={(e) => setMonitorInstanceId(e.target.value)}
+                              onChange={(e) => {
+                                setMonitorInstanceId(e.target.value);
+                                setWaMessagesPage(0);
+                                setWaInboxPage(0);
+                              }}
                               className="mt-1 h-9 w-full min-w-[260px] rounded-xl border border-slate-200 bg-white px-2 text-sm text-slate-700 outline-none focus:border-[hsl(var(--byfrost-accent)/0.45)]"
                             >
                               <option value="">(todas)</option>
@@ -1127,6 +1199,8 @@ export default function Admin() {
                             variant="secondary"
                             className="h-10 rounded-2xl"
                             onClick={() => {
+                              setWaMessagesPage(0);
+                              setWaInboxPage(0);
                               waRecentQ.refetch();
                               waInboxQ.refetch();
                             }}
@@ -1149,14 +1223,16 @@ export default function Admin() {
                           </div>
 
                           <div className="divide-y divide-slate-200 bg-white">
-                            {(waRecentQ.data ?? []).map((m: any) => {
+                            {(waRecentQ.data?.rows ?? []).map((m: any) => {
                               const inst = instanceById.get(m.instance_id);
                               const summary =
                                 m.type === "image"
-                                  ? (m.media_url ? `Imagem: ${m.media_url}` : "Imagem")
+                                  ? m.media_url
+                                    ? `Imagem: ${m.media_url}`
+                                    : "Imagem"
                                   : m.type === "location"
                                     ? "Localização"
-                                    : (m.body_text ?? "(sem texto)");
+                                    : m.body_text ?? "(sem texto)";
 
                               const c = m.case_id ? casesLookupQ.data?.get(String(m.case_id)) : null;
                               const j = (c as any)?.journeys;
@@ -1209,11 +1285,20 @@ export default function Admin() {
                               </div>
                             )}
 
-                            {(waRecentQ.data ?? []).length === 0 && !waRecentQ.isError && (
+                            {(waRecentQ.data?.rows ?? []).length === 0 && !waRecentQ.isError && (
                               <div className="px-3 py-6 text-center text-sm text-slate-500">
                                 Nenhum evento ainda.
                               </div>
                             )}
+                          </div>
+
+                          <div className="p-3">
+                            <PaginationControls
+                              page={waMessagesPage}
+                              pageSize={MONITOR_PAGE_SIZE}
+                              count={waRecentQ.data?.count ?? 0}
+                              onPage={setWaMessagesPage}
+                            />
                           </div>
                         </div>
 
@@ -1229,7 +1314,7 @@ export default function Admin() {
                           </div>
 
                           <div className="divide-y divide-slate-200 bg-white">
-                            {(waInboxQ.data ?? []).map((it: any) => {
+                            {(waInboxQ.data?.rows ?? []).map((it: any) => {
                               const cid = it?.meta_json?.case_id ? String(it.meta_json.case_id) : "";
                               const c = cid ? casesLookupQ.data?.get(cid) : null;
                               const j = (c as any)?.journeys;
@@ -1281,11 +1366,20 @@ export default function Admin() {
                               </div>
                             )}
 
-                            {(waInboxQ.data ?? []).length === 0 && !waInboxQ.isError && (
+                            {(waInboxQ.data?.rows ?? []).length === 0 && !waInboxQ.isError && (
                               <div className="px-3 py-6 text-center text-sm text-slate-500">
                                 Nenhum diagnóstico ainda.
                               </div>
                             )}
+                          </div>
+
+                          <div className="p-3">
+                            <PaginationControls
+                              page={waInboxPage}
+                              pageSize={MONITOR_PAGE_SIZE}
+                              count={waInboxQ.data?.count ?? 0}
+                              onPage={setWaInboxPage}
+                            />
                           </div>
                         </div>
                       </div>

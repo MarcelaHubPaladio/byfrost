@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -934,154 +935,171 @@ export default function Admin() {
                           <div className="text-xs text-slate-500">{instancesQ.data?.length ?? 0}</div>
                         </div>
 
-                        <div className="mt-3 space-y-2">
-                          {(instancesQ.data ?? []).map((i: any) => {
-                            const pathUrl = `https://pryoirzeghatrgecwrci.supabase.co/functions/v1/webhooks-zapi-inbound/${encodeURIComponent(
-                              i.zapi_instance_id
-                            )}/${encodeURIComponent(i.webhook_secret)}`;
-                            const inboundUrl = `${pathUrl}?dir=inbound`;
-                            const outboundUrl = `${pathUrl}?dir=outbound`;
-                            const isActive = i.status === "active";
-                            const isPaused = i.status === "paused";
-                            const isDisabled = i.status === "disabled";
-                            return (
-                              <div
-                                key={i.id}
-                                className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2"
-                              >
-                                <div className="flex items-start justify-between gap-3">
-                                  <div className="min-w-0">
-                                    <div className="truncate text-sm font-semibold text-slate-900">
-                                      {i.name}
-                                    </div>
-                                    <div className="mt-0.5 text-xs text-slate-500 truncate">
-                                      zapi_instance_id: {i.zapi_instance_id}
-                                    </div>
-                                    <div className="mt-0.5 text-xs text-slate-500 truncate">
-                                      webhook_secret: {i.webhook_secret}
-                                    </div>
-                                  </div>
-                                  <div className="flex items-center gap-2">
-                                    <Badge
-                                      className={cn(
-                                        "rounded-full border-0",
-                                        isActive
-                                          ? "bg-emerald-100 text-emerald-900 hover:bg-emerald-100"
-                                          : isPaused
-                                            ? "bg-amber-100 text-amber-900 hover:bg-amber-100"
-                                            : "bg-slate-200 text-slate-800 hover:bg-slate-200"
-                                      )}
-                                    >
-                                      {isActive ? "ativo" : isPaused ? "inativo" : i.status}
-                                    </Badge>
+                        <div className="mt-3">
+                          <Accordion type="multiple" defaultValue={[]} className="space-y-2">
+                            {(instancesQ.data ?? []).map((i: any) => {
+                              const pathUrl = `https://pryoirzeghatrgecwrci.supabase.co/functions/v1/webhooks-zapi-inbound/${encodeURIComponent(
+                                i.zapi_instance_id
+                              )}/${encodeURIComponent(i.webhook_secret)}`;
+                              const inboundUrl = `${pathUrl}?dir=inbound`;
+                              const outboundUrl = `${pathUrl}?dir=outbound`;
+                              const isActive = i.status === "active";
+                              const isPaused = i.status === "paused";
+                              const isDisabled = i.status === "disabled";
 
-                                    {!isDisabled && (
-                                      <Button
-                                        variant="secondary"
+                              return (
+                                <AccordionItem
+                                  key={i.id}
+                                  value={i.id}
+                                  className="rounded-2xl border border-slate-200 bg-slate-50 px-3"
+                                >
+                                  <AccordionTrigger className="py-3 hover:no-underline">
+                                    <div className="flex w-full items-start justify-between gap-3 pr-2">
+                                      <div className="min-w-0">
+                                        <div className="truncate text-sm font-semibold text-slate-900">{i.name}</div>
+                                        <div className="mt-0.5 truncate text-xs text-slate-500">
+                                          zapi_instance_id: {i.zapi_instance_id}
+                                        </div>
+                                      </div>
+                                      <Badge
                                         className={cn(
-                                          "h-9 rounded-2xl px-3 shadow-sm",
+                                          "mt-0.5 rounded-full border-0",
                                           isActive
-                                            ? "border border-amber-200 bg-amber-50 text-amber-900 hover:bg-amber-100"
-                                            : "border border-emerald-200 bg-emerald-50 text-emerald-900 hover:bg-emerald-100"
+                                            ? "bg-emerald-100 text-emerald-900"
+                                            : isPaused
+                                              ? "bg-amber-100 text-amber-900"
+                                              : "bg-slate-200 text-slate-800"
                                         )}
-                                        disabled={Boolean(updatingInstanceId) || deletingInstanceId === i.id}
-                                        onClick={() => setInstanceStatus(i.id, isActive ? "paused" : "active")}
-                                        title={isActive ? "Inativar instância" : "Ativar instância"}
                                       >
-                                        {isActive ? (
-                                          <PauseCircle className="h-4 w-4" />
-                                        ) : (
-                                          <PlayCircle className="h-4 w-4" />
-                                        )}
-                                      </Button>
-                                    )}
+                                        {isActive ? "ativo" : isPaused ? "inativo" : i.status}
+                                      </Badge>
+                                    </div>
+                                  </AccordionTrigger>
 
-                                    <AlertDialog>
-                                      <AlertDialogTrigger asChild>
-                                        <Button
-                                          variant="secondary"
-                                          className="h-9 rounded-2xl border border-rose-200 bg-rose-50 px-3 text-rose-800 shadow-sm hover:bg-rose-100 hover:text-rose-900"
-                                          disabled={deletingInstanceId === i.id || Boolean(updatingInstanceId)}
-                                          title="Excluir instância"
-                                        >
-                                          <Trash2 className="h-4 w-4" />
-                                        </Button>
-                                      </AlertDialogTrigger>
-                                      <AlertDialogContent className="rounded-[22px]">
-                                        <AlertDialogHeader>
-                                          <AlertDialogTitle>Excluir instância?</AlertDialogTitle>
-                                          <AlertDialogDescription>
-                                            Isso vai remover a instância do painel (soft delete). As mensagens já registradas serão mantidas.
-                                          </AlertDialogDescription>
-                                        </AlertDialogHeader>
-                                        <AlertDialogFooter>
-                                          <AlertDialogCancel className="rounded-2xl">Cancelar</AlertDialogCancel>
-                                          <AlertDialogAction
-                                            className="rounded-2xl bg-rose-600 text-white hover:bg-rose-700"
-                                            onClick={() => deleteInstance(i.id)}
+                                  <AccordionContent className="pb-3">
+                                    <div className="flex items-center justify-between gap-2 rounded-2xl border border-slate-200 bg-white/70 p-2">
+                                      <div className="min-w-0">
+                                        <div className="text-[11px] font-semibold text-slate-700">webhook_secret</div>
+                                        <div className="mt-0.5 truncate text-[11px] text-slate-600">
+                                          {i.webhook_secret}
+                                        </div>
+                                      </div>
+
+                                      <div className="flex items-center gap-2">
+                                        {!isDisabled && (
+                                          <Button
+                                            variant="secondary"
+                                            className={cn(
+                                              "h-9 rounded-2xl px-3 shadow-sm",
+                                              isActive
+                                                ? "border border-amber-200 bg-amber-50 text-amber-900 hover:bg-amber-100"
+                                                : "border border-emerald-200 bg-emerald-50 text-emerald-900 hover:bg-emerald-100"
+                                            )}
+                                            disabled={Boolean(updatingInstanceId) || deletingInstanceId === i.id}
+                                            onClick={() =>
+                                              setInstanceStatus(i.id, isActive ? "paused" : "active")
+                                            }
+                                            title={isActive ? "Inativar instância" : "Ativar instância"}
                                           >
-                                            Excluir
-                                          </AlertDialogAction>
-                                        </AlertDialogFooter>
-                                      </AlertDialogContent>
-                                    </AlertDialog>
-                                  </div>
-                                </div>
+                                            {isActive ? (
+                                              <PauseCircle className="h-4 w-4" />
+                                            ) : (
+                                              <PlayCircle className="h-4 w-4" />
+                                            )}
+                                          </Button>
+                                        )}
 
-                                <div className="mt-3 rounded-2xl border border-slate-200 bg-white/70 p-2">
-                                  <div className="text-[11px] font-semibold text-slate-700">Webhook URL (base)</div>
-                                  <div className="mt-1 rounded-xl bg-slate-50 px-2 py-1 text-[11px] text-slate-700 break-all">
-                                    {pathUrl}
-                                  </div>
-                                  <div className="mt-1 text-[11px] text-slate-500">
-                                    Cole essa URL no Z-API. Ela já carrega <span className="font-medium">instanceId</span> e <span className="font-medium">secret</span> no caminho.
-                                  </div>
-                                </div>
+                                        <AlertDialog>
+                                          <AlertDialogTrigger asChild>
+                                            <Button
+                                              variant="secondary"
+                                              className="h-9 rounded-2xl border border-rose-200 bg-rose-50 px-3 text-rose-800 shadow-sm hover:bg-rose-100 hover:text-rose-900"
+                                              disabled={deletingInstanceId === i.id || Boolean(updatingInstanceId)}
+                                              title="Excluir instância"
+                                            >
+                                              <Trash2 className="h-4 w-4" />
+                                            </Button>
+                                          </AlertDialogTrigger>
+                                          <AlertDialogContent className="rounded-[22px]">
+                                            <AlertDialogHeader>
+                                              <AlertDialogTitle>Excluir instância?</AlertDialogTitle>
+                                              <AlertDialogDescription>
+                                                Isso vai remover a instância do painel (soft delete). As mensagens já registradas serão mantidas.
+                                              </AlertDialogDescription>
+                                            </AlertDialogHeader>
+                                            <AlertDialogFooter>
+                                              <AlertDialogCancel className="rounded-2xl">Cancelar</AlertDialogCancel>
+                                              <AlertDialogAction
+                                                className="rounded-2xl bg-rose-600 text-white hover:bg-rose-700"
+                                                onClick={() => deleteInstance(i.id)}
+                                              >
+                                                Excluir
+                                              </AlertDialogAction>
+                                            </AlertDialogFooter>
+                                          </AlertDialogContent>
+                                        </AlertDialog>
+                                      </div>
+                                    </div>
 
-                                <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                                  <div className="rounded-2xl border border-slate-200 bg-white/70 p-2">
-                                    <div className="text-[11px] font-semibold text-slate-700">Z-API: Ao receber</div>
-                                    <div className="mt-1 rounded-xl bg-slate-50 px-2 py-1 text-[11px] text-slate-700 break-all">
-                                      {inboundUrl}
+                                    <div className="mt-3 rounded-2xl border border-slate-200 bg-white/70 p-2">
+                                      <div className="text-[11px] font-semibold text-slate-700">Webhook URL (base)</div>
+                                      <div className="mt-1 rounded-xl bg-slate-50 px-2 py-1 text-[11px] text-slate-700 break-all">
+                                        {pathUrl}
+                                      </div>
+                                      <div className="mt-1 text-[11px] text-slate-500">
+                                        Cole essa URL no Z-API. Ela já carrega <span className="font-medium">instanceId</span> e{" "}
+                                        <span className="font-medium">secret</span> no caminho.
+                                      </div>
                                     </div>
-                                    <div className="mt-1 text-[11px] text-slate-500">
-                                      Garante que o evento seja tratado como <span className="font-medium">inbound</span>.
-                                    </div>
-                                  </div>
-                                  <div className="rounded-2xl border border-slate-200 bg-white/70 p-2">
-                                    <div className="text-[11px] font-semibold text-slate-700">Z-API: Ao enviar</div>
-                                    <div className="mt-1 rounded-xl bg-slate-50 px-2 py-1 text-[11px] text-slate-700 break-all">
-                                      {outboundUrl}
-                                    </div>
-                                    <div className="mt-1 text-[11px] text-slate-500">
-                                      Garante que o evento seja tratado como <span className="font-medium">outbound</span>.
-                                    </div>
-                                  </div>
-                                </div>
 
-                                <div className="mt-3 rounded-2xl border border-slate-200 bg-white/70 p-2">
-                                  <div className="text-[11px] font-semibold text-slate-700">Roteamento inbound</div>
-                                  <select
-                                    value={i.default_journey_id ?? ""}
-                                    onChange={(e) =>
-                                      setInstanceJourney(i.id, e.target.value ? e.target.value : null)
-                                    }
-                                    className="mt-1 h-9 w-full rounded-xl border border-slate-200 bg-white px-2 text-sm text-slate-700 outline-none focus:border-[hsl(var(--byfrost-accent)/0.45)]"
-                                  >
-                                    <option value="">(fallback)</option>
-                                    {(tenantJourneysQ.data ?? []).map((j) => (
-                                      <option key={j.id} value={j.id}>
-                                        {j.name}
-                                      </option>
-                                    ))}
-                                  </select>
-                                  <div className="mt-1 text-[11px] text-slate-500">
-                                    Define em qual jornada cada nova conversa/caso será criado.
-                                  </div>
-                                </div>
-                              </div>
-                            );
-                          })}
+                                    <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                                      <div className="rounded-2xl border border-slate-200 bg-white/70 p-2">
+                                        <div className="text-[11px] font-semibold text-slate-700">Z-API: Ao receber</div>
+                                        <div className="mt-1 rounded-xl bg-slate-50 px-2 py-1 text-[11px] text-slate-700 break-all">
+                                          {inboundUrl}
+                                        </div>
+                                        <div className="mt-1 text-[11px] text-slate-500">
+                                          Garante que o evento seja tratado como{" "}
+                                          <span className="font-medium">inbound</span>.
+                                        </div>
+                                      </div>
+                                      <div className="rounded-2xl border border-slate-200 bg-white/70 p-2">
+                                        <div className="text-[11px] font-semibold text-slate-700">Z-API: Ao enviar</div>
+                                        <div className="mt-1 rounded-xl bg-slate-50 px-2 py-1 text-[11px] text-slate-700 break-all">
+                                          {outboundUrl}
+                                        </div>
+                                        <div className="mt-1 text-[11px] text-slate-500">
+                                          Garante que o evento seja tratado como{" "}
+                                          <span className="font-medium">outbound</span>.
+                                        </div>
+                                      </div>
+                                    </div>
+
+                                    <div className="mt-3 rounded-2xl border border-slate-200 bg-white/70 p-2">
+                                      <div className="text-[11px] font-semibold text-slate-700">Roteamento inbound</div>
+                                      <select
+                                        value={i.default_journey_id ?? ""}
+                                        onChange={(e) =>
+                                          setInstanceJourney(i.id, e.target.value ? e.target.value : null)
+                                        }
+                                        className="mt-1 h-9 w-full rounded-xl border border-slate-200 bg-white px-2 text-sm text-slate-700 outline-none focus:border-[hsl(var(--byfrost-accent)/0.45)]"
+                                      >
+                                        <option value="">(fallback)</option>
+                                        {(tenantJourneysQ.data ?? []).map((j) => (
+                                          <option key={j.id} value={j.id}>
+                                            {j.name}
+                                          </option>
+                                        ))}
+                                      </select>
+                                      <div className="mt-1 text-[11px] text-slate-500">
+                                        Define em qual jornada cada nova conversa/caso será criado.
+                                      </div>
+                                    </div>
+                                  </AccordionContent>
+                                </AccordionItem>
+                              );
+                            })}
+                          </Accordion>
 
                           {(instancesQ.data ?? []).length === 0 && (
                             <div className="rounded-2xl border border-dashed border-slate-200 bg-white/60 p-4 text-xs text-slate-500">

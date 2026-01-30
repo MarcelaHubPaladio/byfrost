@@ -52,6 +52,70 @@ function extractLocation(payload: any): { lat: number; lng: number } | null {
   }
 }
 
+function pickFirstString(...values: any[]) {
+  for (const v of values) {
+    if (typeof v === "string" && v.trim()) return v;
+  }
+  return null;
+}
+
+function safeJsonParse(s: string) {
+  try {
+    return { ok: true as const, value: JSON.parse(s) };
+  } catch {
+    return { ok: false as const, value: null };
+  }
+}
+
+function getBestText(m: WaMessageRow) {
+  // 1) Prefer body_text when it is already a normal string.
+  const raw = (m.body_text ?? "").trim();
+  if (raw && raw !== "[object Object]") {
+    // Sometimes we accidentally store a JSON-string in body_text.
+    if ((raw.startsWith("{") && raw.endsWith("}")) || (raw.startsWith("[") && raw.endsWith("]"))) {
+      const parsed = safeJsonParse(raw);
+      if (parsed.ok) {
+        const v = parsed.value;
+        // Common shapes
+        if (typeof v === "string") return v;
+        if (Array.isArray(v)) return v.map((x) => (typeof x === "string" ? x : "")).filter(Boolean).join("\n");
+        if (v && typeof v === "object") {
+          return (
+            pickFirstString(
+              v.text,
+              v.body,
+              v.message,
+              v.caption,
+              v.content,
+              v.data?.text,
+              v.data?.body,
+              v.data?.message
+            ) ?? ""
+          );
+        }
+      }
+    }
+
+    return raw;
+  }
+
+  // 2) Fallback: extract from payload_json.
+  const p = m.payload_json ?? {};
+  return (
+    pickFirstString(
+      p.text,
+      p.body,
+      p.message,
+      p.caption,
+      p.data?.text,
+      p.data?.body,
+      p.data?.message,
+      p.message?.text,
+      p.message?.body
+    ) ?? ""
+  );
+}
+
 export function WhatsAppConversation({ caseId, className }: { caseId: string; className?: string }) {
   const qc = useQueryClient();
   const { activeTenantId } = useTenant();
@@ -273,6 +337,8 @@ export function WhatsAppConversation({ caseId, className }: { caseId: string; cl
                 const loc = m.type === "location" ? extractLocation(m.payload_json) : null;
                 const mapsUrl = loc ? `https://www.google.com/maps?q=${loc.lat},${loc.lng}` : null;
 
+                const text = m.type === "text" ? getBestText(m) : "";
+
                 return (
                   <div key={m.id} className={cn("flex items-end gap-2", inbound ? "justify-start" : "justify-end")}>
                     {/* Avatar (only show on inbound to mimic the reference layout) */}
@@ -352,7 +418,7 @@ export function WhatsAppConversation({ caseId, className }: { caseId: string; cl
                           </div>
                         ) : (
                           <div className={cn("text-sm leading-relaxed", inbound ? "text-slate-900" : "text-white")}>
-                            {m.body_text ?? "(sem texto)"}
+                            {text || "(sem texto)"}
                           </div>
                         )}
                       </div>

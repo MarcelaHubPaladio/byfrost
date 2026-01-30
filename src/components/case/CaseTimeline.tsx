@@ -61,10 +61,7 @@ export function CaseTimeline({ events }: { events: CaseTimelineEvent[] }) {
             Sem eventos ainda.
           </div>
         ) : (
-          <ol className="relative pl-10">
-            {/* connector line */}
-            <div className="absolute left-[18px] top-1 bottom-1 w-px bg-slate-200" />
-
+          <ol className="space-y-5">
             {events.map((e, idx) => {
               const Icon = iconFor(e);
               const tone = toneFor(e);
@@ -78,23 +75,31 @@ export function CaseTimeline({ events }: { events: CaseTimelineEvent[] }) {
                     : "border-rose-200 bg-rose-50 text-rose-700";
 
               return (
-                <li key={e.id} className={cn("relative", !isLast ? "pb-6" : "pb-1")}>
-                  <div
-                    className={cn(
-                      "absolute left-[6px] top-0.5 h-6 w-6 rounded-full border grid place-items-center",
-                      ring
-                    )}
-                  >
-                    <Icon className="h-3.5 w-3.5" />
-                  </div>
+                <li key={e.id} className="relative">
+                  {/* Connector line */}
+                  {!isLast && (
+                    <div className="absolute left-[14px] top-7 bottom-[-22px] w-px bg-slate-200" />
+                  )}
 
-                  <div className="min-w-0">
-                    <div className="text-xs text-slate-500">{fmt(e.occurred_at)}</div>
-                    <div className="mt-1 text-sm font-semibold text-slate-900">
-                      {e.message ?? "(sem mensagem)"}
+                  <div className="flex items-start gap-3">
+                    {/* Icon comes first (before date), like the reference */}
+                    <div
+                      className={cn(
+                        "z-10 mt-0.5 h-7 w-7 flex-shrink-0 rounded-full border grid place-items-center",
+                        ring
+                      )}
+                    >
+                      <Icon className="h-4 w-4" />
                     </div>
-                    <div className="mt-1 text-[11px] text-slate-500">
-                      {e.actor_type} • {e.event_type}
+
+                    <div className="min-w-0">
+                      <div className="text-xs text-slate-500">{fmt(e.occurred_at)}</div>
+                      <div className="mt-1 text-sm font-semibold text-slate-900">
+                        {e.message ?? "(sem mensagem)"}
+                      </div>
+                      <div className="mt-1 text-[11px] text-slate-500">
+                        {e.actor_type} • {e.event_type}
+                      </div>
                     </div>
                   </div>
                 </li>

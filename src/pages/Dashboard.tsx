@@ -688,12 +688,15 @@ export default function Dashboard() {
                         const age = minutesAgo(c.updated_at);
                         const isMoving = movingCaseId === c.id;
                         const cust = isCrm ? customersQ.data?.get(String((c as any).customer_id ?? "")) : null;
+
+                        // Para CRM: o título do card vira o nome do cliente; se não tiver,
+                        // usa o WhatsApp relacionado ao case no ato de criação (case_fields/meta_json).
                         const titlePrimary =
                           isCrm
                             ? (cust?.name ??
-                              cust?.phone_e164 ??
-                              getMetaPhone((c as any).meta_json) ??
                               casePhoneQ.data?.get(c.id) ??
+                              getMetaPhone((c as any).meta_json) ??
+                              cust?.phone_e164 ??
                               c.title ??
                               "Caso")
                             : c.title ?? "Caso";
@@ -723,11 +726,6 @@ export default function Dashboard() {
                                   {(c.vendors?.display_name ?? "Vendedor") +
                                     (c.vendors?.phone_e164 ? ` • ${c.vendors.phone_e164}` : "")}
                                 </div>
-                                {isCrm && cust && (
-                                  <div className="mt-1 truncate text-xs text-slate-600">
-                                    Cliente: {cust.name ?? cust.phone_e164 ?? "—"}
-                                  </div>
-                                )}
                               </div>
                               {pend?.open ? (
                                 <Badge className="rounded-full border-0 bg-amber-100 text-amber-900 hover:bg-amber-100">

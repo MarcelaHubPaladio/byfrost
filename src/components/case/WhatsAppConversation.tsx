@@ -131,6 +131,17 @@ function samePhoneLoose(a: string | null | undefined, b: string | null | undefin
   return da === db;
 }
 
+function looksLikeGroupNumber(v: string | null | undefined) {
+  const s = String(v ?? "").trim().toLowerCase();
+  if (!s) return false;
+  if (s.includes("status@broadcast")) return true;
+  if (s.includes("@g.us") || s.includes("g.us")) return true;
+  const digits = s.replace(/\D/g, "");
+  if (!digits) return false;
+  const d = digits.startsWith("55") ? digits.slice(2) : digits;
+  return d.startsWith("1203") && d.length >= 16;
+}
+
 export function WhatsAppConversation({ caseId, className }: { caseId: string; className?: string }) {
   const qc = useQueryClient();
   const { activeTenantId } = useTenant();
@@ -190,8 +201,9 @@ export function WhatsAppConversation({ caseId, className }: { caseId: string; cl
       samePhoneLoose(instancePhone, last.from_phone) ||
       (last.direction === "outbound" && !samePhoneLoose(instancePhone, last.to_phone));
 
-    if (effectiveOutbound) return last.to_phone ?? null;
-    return last.from_phone ?? null;
+    const candidate = effectiveOutbound ? last.to_phone ?? null : last.from_phone ?? null;
+    if (looksLikeGroupNumber(candidate)) return null;
+    return candidate;
   }, [waMsgsQ.data, instancePhone]);
 
   const participants = useMemo(() => {

@@ -19,6 +19,24 @@ function pickFirst<T>(...values: Array<T | null | undefined>): T | null {
   return null;
 }
 
+function looksLikeWhatsAppGroupId(v: any) {
+  const s = String(v ?? "").trim().toLowerCase();
+  if (!s) return false;
+
+  // Common WhatsApp non-user chats
+  if (s.includes("status@broadcast")) return true;
+  if (s.includes("@g.us") || s.includes("g.us")) return true;
+
+  const digits = s.replace(/\D/g, "");
+  if (!digits) return false;
+
+  // Many WA group ids start with 1203... (sometimes prefixed by country)
+  const d = digits.startsWith("55") ? digits.slice(2) : digits;
+  if (d.startsWith("1203") && d.length >= 16) return true;
+
+  return false;
+}
+
 function extractPathAuth(reqUrl: string): { pathInstanceId: string | null; pathSecret: string | null } {
   try {
     const u = new URL(reqUrl);
@@ -456,6 +474,41 @@ serve(async (req) => {
         meta: { forced_direction: forced ?? null, inferred_direction: inferred, strong_outbound: strongOutbound },
       });
       return new Response("Unauthorized", { status: 401, headers: corsHeaders });
+    }
+
+    // Ignore WhatsApp group/broadcast identifiers (we don't open cases from groups).
+    const isGroupMsg =
+      payload?.isGroupMsg === true ||
+      payload?.data?.isGroupMsg === true ||
+      payload?.isGroup === true ||
+      payload?.data?.isGroup === true;
+
+    const groupLike =
+      isGroupMsg ||
+      looksLikeWhatsAppGroupId(pickFirst(payload?.chatId, payload?.data?.chatId)) ||
+      looksLikeWhatsAppGroupId(pickFirst(payload?.to, payload?.data?.to, payload?.toPhone, payload?.data?.toPhone)) ||
+      looksLikeWhatsAppGroupId(pickFirst(payload?.from, payload?.data?.from, payload?.senderId, payload?.data?.senderId)) ||
+      looksLikeWhatsAppGroupId(normalized.to) ||
+      looksLikeWhatsAppGroupId(normalized.from);
+
+    if (groupLike) {
+      await logInbox({
+        instance,
+        ok: true,
+        http_status: 200,
+        reason: "group_ignored",
+        direction,
+        meta: {
+          forced_direction: forced ?? null,
+          inferred_direction: inferred,
+          strong_outbound: strongOutbound,
+          chat_id: pickFirst(payload?.chatId, payload?.data?.chatId),
+        },
+      });
+
+      return new Response(JSON.stringify({ ok: true, ignored: true, reason: "group_ignored" }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
     // Outbound webhook capture (messages sent outside Byfrost):

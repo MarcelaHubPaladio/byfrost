@@ -216,8 +216,7 @@ export function AppShell({ children }: PropsWithChildren) {
           {/* Main */}
           <div className="min-w-0">
             {/* Content header (tenant accent border) */}
-            <div className="rounded-[28px] border border-slate-200 bg-white/65 px-4 py-3 shadow-sm backdrop-blur">
-              <div className="-mx-4 -mt-3 mb-3 h-1 rounded-t-[28px] bg-[hsl(var(--byfrost-accent))]" />
+            <div className="overflow-hidden rounded-[28px] border border-slate-200 border-t-4 border-t-[hsl(var(--byfrost-accent))] bg-white/65 px-4 py-3 shadow-sm backdrop-blur">
               <div className="flex items-center justify-between gap-3">
                 <div className="flex min-w-0 items-center gap-2">
                   {isSuperAdmin && (

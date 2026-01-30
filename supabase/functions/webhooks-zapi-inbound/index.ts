@@ -219,6 +219,24 @@ function readCfg(obj: any, path: string) {
   return cur;
 }
 
+function inferOutboundCounterpart(payload: any) {
+  return normalizePhoneE164Like(
+    pickFirst(
+      payload?.to,
+      payload?.data?.to,
+      payload?.toPhone,
+      payload?.data?.toPhone,
+      // In some providers, chatId is the conversation target (e.g. 5511...@c.us)
+      payload?.chatId,
+      payload?.data?.chatId,
+      payload?.phone,
+      payload?.data?.phone,
+      payload?.recipient,
+      payload?.data?.recipient
+    )
+  );
+}
+
 serve(async (req) => {
   const fn = "webhooks-zapi-inbound";
   try {
@@ -329,7 +347,16 @@ serve(async (req) => {
     // - We DO NOT create cases here.
     // - We try to link to the latest existing case by vendor phone or by extracted customer phone.
     if (direction === "outbound") {
-      const counterpart = normalized.to;
+      const instPhone = normalizePhoneE164Like(instance.phone_number ?? null);
+
+      // Some providers don't send an explicit `to`, only chatId/phone.
+      let counterpart = normalized.to ?? inferOutboundCounterpart(payload);
+
+      // If normalization picked chatId as `from` (common), use it as counterpart.
+      if ((!counterpart || (instPhone && counterpart === instPhone)) && normalized.from && normalized.from !== instPhone) {
+        counterpart = normalized.from;
+      }
+
       if (!counterpart) {
         await logInbox({
           instance,
@@ -341,6 +368,9 @@ serve(async (req) => {
         });
         return new Response("Missing to", { status: 400, headers: corsHeaders });
       }
+
+      // Pick the best sender phone (prefer instance phone for outbound)
+      const fromPhone = instPhone ?? normalized.from ?? null;
 
       // Heuristic dedupe: same message content to same phone within 20s.
       const { data: possibleDup } = await supabase
@@ -372,41 +402,43 @@ serve(async (req) => {
       }
 
       // Link to an existing case:
-      // 1) if 'counterpart' is a vendor phone => latest case assigned to this vendor
-      // 2) else, best-effort: last case where extracted 'phone' field matches this number (customer)
+      // 1) if sender is a vendor phone => latest case assigned to this vendor
+      // 2) else, best-effort: last case where extracted 'phone' field matches counterpart (customer)
       let caseId: string | null = null;
 
-      const { data: vendor } = await supabase
-        .from("vendors")
-        .select("id")
-        .eq("tenant_id", instance.tenant_id)
-        .eq("phone_e164", counterpart)
-        .maybeSingle();
-
-      if (vendor?.id) {
-        const { data: c } = await supabase
-          .from("cases")
+      if (fromPhone) {
+        const { data: senderVendor } = await supabase
+          .from("vendors")
           .select("id")
           .eq("tenant_id", instance.tenant_id)
-          .eq("assigned_vendor_id", vendor.id)
-          .is("deleted_at", null)
-          .order("created_at", { ascending: false })
-          .limit(1)
+          .eq("phone_e164", fromPhone)
           .maybeSingle();
-        caseId = (c as any)?.id ?? null;
-      }
 
-      if (!caseId) {
-        const { data: cByMeta } = await supabase
-          .from("cases")
-          .select("id")
-          .eq("tenant_id", instance.tenant_id)
-          .eq("meta_json->>vendor_phone", counterpart)
-          .is("deleted_at", null)
-          .order("created_at", { ascending: false })
-          .limit(1)
-          .maybeSingle();
-        caseId = (cByMeta as any)?.id ?? null;
+        if (senderVendor?.id) {
+          const { data: c } = await supabase
+            .from("cases")
+            .select("id")
+            .eq("tenant_id", instance.tenant_id)
+            .eq("assigned_vendor_id", senderVendor.id)
+            .is("deleted_at", null)
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          caseId = (c as any)?.id ?? null;
+        }
+
+        if (!caseId) {
+          const { data: cByMeta } = await supabase
+            .from("cases")
+            .select("id")
+            .eq("tenant_id", instance.tenant_id)
+            .eq("meta_json->>vendor_phone", fromPhone)
+            .is("deleted_at", null)
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          caseId = (cByMeta as any)?.id ?? null;
+        }
       }
 
       if (!caseId) {
@@ -430,7 +462,7 @@ serve(async (req) => {
         tenant_id: instance.tenant_id,
         instance_id: instance.id,
         direction: "outbound",
-        from_phone: normalized.from ?? instance.phone_number ?? null,
+        from_phone: fromPhone,
         to_phone: counterpart,
         type: normalized.type,
         body_text: normalized.text,

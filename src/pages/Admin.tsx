@@ -1041,17 +1041,6 @@ export default function Admin() {
                                       </div>
                                     </div>
 
-                                    <div className="mt-3 rounded-2xl border border-slate-200 bg-white/70 p-2">
-                                      <div className="text-[11px] font-semibold text-slate-700">Webhook URL (base)</div>
-                                      <div className="mt-1 rounded-xl bg-slate-50 px-2 py-1 text-[11px] text-slate-700 break-all">
-                                        {pathUrl}
-                                      </div>
-                                      <div className="mt-1 text-[11px] text-slate-500">
-                                        Cole essa URL no Z-API. Ela já carrega <span className="font-medium">instanceId</span> e{" "}
-                                        <span className="font-medium">secret</span> no caminho.
-                                      </div>
-                                    </div>
-
                                     <div className="mt-3 grid gap-2 sm:grid-cols-2">
                                       <div className="rounded-2xl border border-slate-200 bg-white/70 p-2">
                                         <div className="text-[11px] font-semibold text-slate-700">Z-API: Ao receber</div>

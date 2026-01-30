@@ -215,43 +215,41 @@ export function AppShell({ children }: PropsWithChildren) {
 
           {/* Main */}
           <div className="min-w-0">
-            {/* Content header (tenant colored) */}
-            <div className="rounded-[28px] bg-[hsl(var(--byfrost-accent))] px-4 py-3 shadow-sm">
+            {/* Content header (tenant accent border) */}
+            <div className="rounded-[28px] border border-slate-200 bg-white/65 px-4 py-3 shadow-sm backdrop-blur">
+              <div className="-mx-4 -mt-3 mb-3 h-1 rounded-t-[28px] bg-[hsl(var(--byfrost-accent))]" />
               <div className="flex items-center justify-between gap-3">
                 <div className="flex min-w-0 items-center gap-2">
                   {isSuperAdmin && (
-                    <div className="inline-flex items-center gap-1 rounded-full bg-white/15 px-2 py-1 text-[11px] font-semibold text-white">
+                    <div className="inline-flex items-center gap-1 rounded-full bg-[hsl(var(--byfrost-accent)/0.10)] px-2 py-1 text-[11px] font-semibold text-[hsl(var(--byfrost-accent))]">
                       <ShieldCheck className="h-3.5 w-3.5" />
                       super-admin
                     </div>
                   )}
-                  <div className="truncate text-xs font-semibold text-white/90">
-                    {activeTenant?.name ?? "Byfrost"}
-                  </div>
                 </div>
 
                 <DropdownMenu open={userMenuOpen} onOpenChange={setUserMenuOpen}>
                   <DropdownMenuTrigger asChild>
                     <button
                       type="button"
-                      className="flex items-center gap-2 rounded-2xl border border-white/20 bg-white/10 px-2.5 py-2 text-left text-white shadow-sm transition hover:bg-white/15"
+                      className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white/75 px-2.5 py-2 text-left text-slate-900 shadow-sm transition hover:bg-white"
                       onMouseEnter={() => setUserMenuOpen(true)}
                       onMouseLeave={() => setUserMenuOpen(false)}
                       title={userEmail}
                     >
                       <Avatar className="h-8 w-8 rounded-2xl">
                         <AvatarImage src={avatarUrl ?? undefined} alt={userName} />
-                        <AvatarFallback className="rounded-2xl bg-white/15 text-white">
+                        <AvatarFallback className="rounded-2xl bg-[hsl(var(--byfrost-accent)/0.12)] text-[hsl(var(--byfrost-accent))]">
                           {(userName?.slice(0, 1) ?? "U").toUpperCase()}
                         </AvatarFallback>
                       </Avatar>
                       <div className="hidden sm:block">
-                        <div className="max-w-[180px] truncate text-xs font-semibold text-white">
+                        <div className="max-w-[180px] truncate text-xs font-semibold text-slate-900">
                           {userName}
                         </div>
-                        <div className="max-w-[180px] truncate text-[11px] text-white/80">{activeTenant?.slug}</div>
+                        <div className="max-w-[180px] truncate text-[11px] text-slate-500">{activeTenant?.slug}</div>
                       </div>
-                      <User2 className="hidden h-4 w-4 text-white/70 sm:block" />
+                      <User2 className="hidden h-4 w-4 text-slate-400 sm:block" />
                     </button>
                   </DropdownMenuTrigger>
 

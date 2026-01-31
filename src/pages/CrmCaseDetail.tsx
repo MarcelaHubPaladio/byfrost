@@ -357,6 +357,12 @@ export default function CrmCaseDetail() {
                   CRM
                 </Badge>
 
+                {c?.meta_json?.lead_source === "csv_import" ? (
+                  <Badge className="rounded-full border-0 bg-[hsl(var(--byfrost-accent)/0.12)] text-[hsl(var(--byfrost-accent))] hover:bg-[hsl(var(--byfrost-accent)/0.12)]">
+                    Lead importado
+                  </Badge>
+                ) : null}
+
                 <div className="flex items-center gap-2 rounded-full border border-slate-200 bg-white/70 px-2 py-1 shadow-sm">
                   <span className="text-[11px] font-semibold text-slate-700">Estado</span>
                   <Select value={c?.state ?? ""} onValueChange={updateState} disabled={!c || updatingState}>

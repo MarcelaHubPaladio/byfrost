@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/command";
 import { showError, showSuccess } from "@/utils/toast";
 import { Check, Clock, MapPin, RefreshCw, Search, Tags, UsersRound } from "lucide-react";
+import { ImportLeadsDialog } from "@/components/crm/ImportLeadsDialog";
 
 type CaseRow = {
   id: string;
@@ -594,6 +595,10 @@ export default function Crm() {
               </PopoverContent>
             </Popover>
 
+            {activeTenantId && selectedJourney ? (
+              <ImportLeadsDialog tenantId={activeTenantId} journey={selectedJourney as any} actorUserId={user?.id ?? null} />
+            ) : null}
+
             <Button type="button" variant="secondary" className="h-11 rounded-2xl" onClick={refresh}>
               <RefreshCw className="mr-2 h-4 w-4" /> Atualizar
             </Button>
@@ -683,6 +688,12 @@ export default function Crm() {
                                     title="Mensagem nova"
                                     aria-label="Mensagem nova"
                                   />
+                                ) : null}
+
+                                {(c as any)?.meta_json?.lead_source === "csv_import" ? (
+                                  <Badge className="rounded-full border-0 bg-indigo-100 text-indigo-900 hover:bg-indigo-100">
+                                    importado
+                                  </Badge>
                                 ) : null}
 
                                 {pend?.open ? (

@@ -51,6 +51,8 @@ type ChatCaseLite = {
   customer_id: string | null;
   assigned_vendor_id: string | null;
   meta_json?: any;
+  deleted_at?: string | null;
+  updated_at?: string;
 };
 
 type NonChatCaseLite = {
@@ -437,7 +439,8 @@ export function ImportLeadsDialog({
         ? customers.find((c) => samePhoneLoose(c.phone_e164, normalizedPhone)) ?? null
         : null;
 
-      const existingChatCase = !existingCustomer && normalizedPhone ? findChatCaseByPhone(normalizedPhone) : null;
+      // IMPORTANTE: mesmo que exista customer, ainda queremos detectar um case de chat pelo número
+      const existingChatCase = normalizedPhone ? findChatCaseByPhone(normalizedPhone) : null;
 
       const ownerEmail = r.ownerEmail.trim().toLowerCase();
       const ownerUser = ownerEmail ? userByEmail.get(ownerEmail) ?? null : null;
@@ -454,7 +457,7 @@ export function ImportLeadsDialog({
 
       // Regras:
       // - Duplicado dentro do CSV: nunca cria case 2x; vira "atualizar"
-      // - Se já existe chat para esse número => atualizar/vincular (não criar case novo)
+      // - Se já existe chat para esse número => atualizar/vincular (será promovido no confirmar)
       // - Se existe customer e só existe lead soft-deleted => reativar
       // - Se existe customer e já existe lead ativo => apenas atualizar
       // - Caso contrário => criar case
@@ -542,13 +545,12 @@ export function ImportLeadsDialog({
       .limit(20_000);
     if (ncErr) throw ncErr;
 
-    // Chat cases (para reconhecer lead já existente mesmo se só chat)
+    // Chat cases (inclui soft-deleted, pois queremos reativar/promover)
     const { data: chatCases, error: ccErr } = await supabase
       .from("cases")
-      .select("id,customer_id,assigned_vendor_id,meta_json")
+      .select("id,customer_id,assigned_vendor_id,meta_json,deleted_at,updated_at")
       .eq("tenant_id", tenantId)
       .eq("is_chat", true)
-      .is("deleted_at", null)
       .limit(5000);
     if (ccErr) throw ccErr;
 
@@ -730,12 +732,14 @@ export function ImportLeadsDialog({
     // transforma um case "chat" em um case do CRM, no estado inicial do fluxo
     const { data: existing, error: selErr } = await supabase
       .from("cases")
-      .select("id,meta_json")
+      .select("id,meta_json,deleted_at")
       .eq("tenant_id", tenantId)
       .eq("id", p.chatCaseId)
       .maybeSingle();
     if (selErr) throw selErr;
     if (!existing?.id) throw new Error("Chat não encontrado para promover.");
+
+    const wasDeleted = Boolean((existing as any).deleted_at);
 
     const mergedMeta = {
       ...(existing as any).meta_json,
@@ -748,11 +752,13 @@ export function ImportLeadsDialog({
       lead_whatsapp_raw: p.leadWhatsappRaw,
       lead_whatsapp_e164: p.leadWhatsappE164,
       promoted_from_chat: true,
+      ...(wasDeleted ? { reactivated_from_soft_delete: true } : {}),
     };
 
     const { error: updErr } = await supabase
       .from("cases")
       .update({
+        deleted_at: null,
         is_chat: false,
         journey_id: journey.id,
         state: firstState,
@@ -771,14 +777,81 @@ export function ImportLeadsDialog({
       event_type: "lead_imported",
       actor_type: "admin",
       actor_id: actorUserId,
-      message: "Lead importado via planilha (promovido de chat para CRM).",
-      meta_json: { source: "csv_import", promoted_from_chat: true },
+      message: wasDeleted
+        ? "Lead reativado e promovido de chat para CRM via planilha."
+        : "Lead importado via planilha (promovido de chat para CRM).",
+      meta_json: { source: "csv_import", promoted_from_chat: true, ...(wasDeleted ? { reactivated: true } : {}) },
       occurred_at: new Date().toISOString(),
     });
 
     if (tlErr) throw tlErr;
 
     return p.chatCaseId;
+  };
+
+  const mergeDuplicateLeadCases = async (p: { customerId: string }) => {
+    // Mantém SEMPRE o case ativo mais recente (updated_at) e soft-delete os demais ativos na mesma jornada.
+    const { data: all, error: err } = await supabase
+      .from("cases")
+      .select("id,deleted_at,updated_at,meta_json")
+      .eq("tenant_id", tenantId)
+      .eq("journey_id", journey.id)
+      .eq("is_chat", false)
+      .eq("customer_id", p.customerId)
+      .order("updated_at", { ascending: false })
+      .limit(50);
+
+    if (err) throw err;
+
+    const rows = (all ?? []) as any[];
+    const keep = rows.find((r) => !r.deleted_at) ?? null;
+    if (!keep?.id) return { merged: 0, keptCaseId: null as string | null };
+
+    const toDelete = rows
+      .filter((c) => String(c.id) !== String(keep.id) && !c.deleted_at)
+      .map((c) => ({ id: String(c.id), meta_json: (c as any).meta_json ?? {} }));
+
+    if (!toDelete.length) return { merged: 0, keptCaseId: String(keep.id) };
+
+    const now = new Date().toISOString();
+    for (const row of toDelete) {
+      const mergedMeta = { ...(row.meta_json ?? {}), merged_into_case_id: String(keep.id) };
+
+      const { error: updErr } = await supabase
+        .from("cases")
+        .update({
+          deleted_at: now,
+          meta_json: mergedMeta,
+        } as any)
+        .eq("tenant_id", tenantId)
+        .eq("id", row.id);
+      if (updErr) throw updErr;
+
+      // registra no case antigo também (para auditoria)
+      await supabase.from("timeline_events").insert({
+        tenant_id: tenantId,
+        case_id: row.id,
+        event_type: "lead_merged",
+        actor_type: "admin",
+        actor_id: actorUserId,
+        message: `Lead mesclado automaticamente no case ${keep.id}.`,
+        meta_json: { merged_into_case_id: keep.id },
+        occurred_at: new Date().toISOString(),
+      });
+    }
+
+    await supabase.from("timeline_events").insert({
+      tenant_id: tenantId,
+      case_id: keep.id,
+      event_type: "lead_merged",
+      actor_type: "admin",
+      actor_id: actorUserId,
+      message: `Leads duplicados mesclados automaticamente (${toDelete.length}).`,
+      meta_json: { merged_case_ids: toDelete.map((x) => x.id) },
+      occurred_at: new Date().toISOString(),
+    });
+
+    return { merged: toDelete.length, keptCaseId: String(keep.id) };
   };
 
   const touchLatestLeadCaseForCustomer = async (p: {
@@ -892,62 +965,6 @@ export function ImportLeadsDialog({
     if (tlErr) throw tlErr;
 
     return p.caseId;
-  };
-
-  const mergeDuplicateLeadCases = async (p: { customerId: string; keepCaseId: string }) => {
-    // Mantém o case mais recente (keepCaseId) e soft-delete os demais ativos na mesma jornada.
-    const { data: all, error: err } = await supabase
-      .from("cases")
-      .select("id,deleted_at")
-      .eq("tenant_id", tenantId)
-      .eq("journey_id", journey.id)
-      .eq("is_chat", false)
-      .eq("customer_id", p.customerId)
-      .order("updated_at", { ascending: false })
-      .limit(50);
-
-    if (err) throw err;
-
-    const toDelete = (all ?? []).filter((c: any) => c.id !== p.keepCaseId && !c.deleted_at).map((c: any) => String(c.id));
-    if (!toDelete.length) return 0;
-
-    const now = new Date().toISOString();
-    for (const id of toDelete) {
-      const { error: updErr } = await supabase
-        .from("cases")
-        .update({
-          deleted_at: now,
-          meta_json: { merged_into_case_id: p.keepCaseId },
-        } as any)
-        .eq("tenant_id", tenantId)
-        .eq("id", id);
-      if (updErr) throw updErr;
-
-      // registra no case antigo também (para auditoria)
-      await supabase.from("timeline_events").insert({
-        tenant_id: tenantId,
-        case_id: id,
-        event_type: "lead_merged",
-        actor_type: "admin",
-        actor_id: actorUserId,
-        message: `Lead mesclado automaticamente no case ${p.keepCaseId}.`,
-        meta_json: { merged_into_case_id: p.keepCaseId },
-        occurred_at: new Date().toISOString(),
-      });
-    }
-
-    await supabase.from("timeline_events").insert({
-      tenant_id: tenantId,
-      case_id: p.keepCaseId,
-      event_type: "lead_merged",
-      actor_type: "admin",
-      actor_id: actorUserId,
-      message: `Leads duplicados mesclados automaticamente (${toDelete.length}).`,
-      meta_json: { merged_case_ids: toDelete },
-      occurred_at: new Date().toISOString(),
-    });
-
-    return toDelete.length;
   };
 
   const createCase = async (p: {
@@ -1119,7 +1136,7 @@ export function ImportLeadsDialog({
             });
             updatedCustomers += 1;
 
-            const keepId = await reactivateLeadCase({
+            await reactivateLeadCase({
               caseId: row.reactivateCaseId,
               customerId: row.existingCustomerId,
               assignedVendorId: ownerVendorId,
@@ -1132,7 +1149,8 @@ export function ImportLeadsDialog({
             });
             reactivatedCases += 1;
 
-            mergedCases += await mergeDuplicateLeadCases({ customerId: row.existingCustomerId, keepCaseId: keepId });
+            const m = await mergeDuplicateLeadCases({ customerId: row.existingCustomerId });
+            mergedCases += m.merged;
             continue;
           }
 
@@ -1140,6 +1158,33 @@ export function ImportLeadsDialog({
             // update_only só faz sentido com telefone (para localizar registros)
             if (!phone) continue;
             if (phoneKey) processedPhoneKeys.add(phoneKey);
+
+            // Se existe chat para o número, sempre promove (e depois mescla)
+            if (row.existingChatCaseId) {
+              const { customer } = await ensureCustomerByPhoneTail(phone);
+              await updateCustomer(customer.id, {
+                name: row.name.trim() || null,
+                email: row.email.trim() || null,
+                assigned_vendor_id: ownerVendorId,
+              });
+
+              await promoteChatToCrm({
+                chatCaseId: row.existingChatCaseId,
+                customerId: customer.id,
+                assignedVendorId: ownerVendorId,
+                ownerEmail,
+                rowNo: row.rowNo,
+                leadName: row.name.trim() || null,
+                leadEmail: row.email.trim() || null,
+                leadWhatsappRaw: row.whatsapp.trim() || null,
+                leadWhatsappE164: phone,
+              });
+
+              linkedFromChat += 1;
+              const m = await mergeDuplicateLeadCases({ customerId: customer.id });
+              mergedCases += m.merged;
+              continue;
+            }
 
             // 1) já existe customer => atualiza cadastro e "toca" o case para aparecer no funil (sem criar duplicado)
             if (row.existingCustomerId) {
@@ -1162,47 +1207,9 @@ export function ImportLeadsDialog({
               });
               if (touched) touchedCases += 1;
 
-              // mescla duplicados (mantém o mais recente)
-              const { data: keep, error: keepErr } = await supabase
-                .from("cases")
-                .select("id")
-                .eq("tenant_id", tenantId)
-                .eq("journey_id", journey.id)
-                .eq("is_chat", false)
-                .eq("customer_id", row.existingCustomerId)
-                .is("deleted_at", null)
-                .order("updated_at", { ascending: false })
-                .limit(1)
-                .maybeSingle();
-              if (keepErr) throw keepErr;
-              if (keep?.id) mergedCases += await mergeDuplicateLeadCases({ customerId: row.existingCustomerId, keepCaseId: keep.id });
+              const m = await mergeDuplicateLeadCases({ customerId: row.existingCustomerId });
+              mergedCases += m.merged;
 
-              continue;
-            }
-
-            // 2) já existe apenas como chat => cria/vincula customer e PROMOVE o chat para CRM (não cria case novo)
-            if (row.existingChatCaseId) {
-              const { customer } = await ensureCustomerByPhoneTail(phone);
-              await updateCustomer(customer.id, {
-                name: row.name.trim() || null,
-                email: row.email.trim() || null,
-                assigned_vendor_id: ownerVendorId,
-              });
-
-              const keepId = await promoteChatToCrm({
-                chatCaseId: row.existingChatCaseId,
-                customerId: customer.id,
-                assignedVendorId: ownerVendorId,
-                ownerEmail,
-                rowNo: row.rowNo,
-                leadName: row.name.trim() || null,
-                leadEmail: row.email.trim() || null,
-                leadWhatsappRaw: row.whatsapp.trim() || null,
-                leadWhatsappE164: phone,
-              });
-
-              linkedFromChat += 1;
-              mergedCases += await mergeDuplicateLeadCases({ customerId: customer.id, keepCaseId: keepId });
               continue;
             }
 
@@ -1215,6 +1222,33 @@ export function ImportLeadsDialog({
             if (phoneKey) processedPhoneKeys.add(phoneKey);
 
             const { customer } = await ensureCustomerByPhoneTail(phone);
+
+            // Se existir chat para o número, promove ele e mescla (não cria case novo)
+            if (row.existingChatCaseId) {
+              await updateCustomer(customer.id, {
+                name: row.name.trim() || null,
+                email: row.email.trim() || null,
+                assigned_vendor_id: ownerVendorId,
+              });
+              updatedCustomers += 1;
+
+              await promoteChatToCrm({
+                chatCaseId: row.existingChatCaseId,
+                customerId: customer.id,
+                assignedVendorId: ownerVendorId,
+                ownerEmail,
+                rowNo: row.rowNo,
+                leadName: row.name.trim() || null,
+                leadEmail: row.email.trim() || null,
+                leadWhatsappRaw: row.whatsapp.trim() || null,
+                leadWhatsappE164: phone,
+              });
+              linkedFromChat += 1;
+
+              const m = await mergeDuplicateLeadCases({ customerId: customer.id });
+              mergedCases += m.merged;
+              continue;
+            }
 
             // Se existir algum case soft-deleted nessa jornada para este customer, reativa ao invés de criar.
             const { data: del, error: delErr } = await supabase
@@ -1237,9 +1271,8 @@ export function ImportLeadsDialog({
               assigned_vendor_id: ownerVendorId,
             });
 
-            let keepId: string;
             if (del?.id) {
-              keepId = await reactivateLeadCase({
+              await reactivateLeadCase({
                 caseId: del.id,
                 customerId: customer.id,
                 assignedVendorId: ownerVendorId,
@@ -1253,7 +1286,7 @@ export function ImportLeadsDialog({
               reactivatedCases += 1;
             } else {
               const title = row.name.trim() || phone;
-              keepId = await createCase({
+              await createCase({
                 customerId: customer.id,
                 title,
                 assignedVendorId: ownerVendorId,
@@ -1265,19 +1298,27 @@ export function ImportLeadsDialog({
                 leadWhatsappE164: phone,
               });
               createdCases += 1;
-
-              // Atualiza cache local de cases da jornada para o preview/run atual
-              setNonChatCasesCache((prev) =>
-                prev
-                  ? [{ id: keepId, customer_id: customer.id, deleted_at: null, updated_at: new Date().toISOString() }, ...prev]
-                  : [{ id: keepId, customer_id: customer.id, deleted_at: null, updated_at: new Date().toISOString() }]
-              );
             }
 
-            mergedCases += await mergeDuplicateLeadCases({ customerId: customer.id, keepCaseId: keepId });
+            const m = await mergeDuplicateLeadCases({ customerId: customer.id });
+            mergedCases += m.merged;
 
+            // se não houver dono, cria pendência no case ativo mais recente
             if (!ownerVendorId) {
-              await createMissingOwnerPendency(keepId, ownerEmail);
+              // tenta achar o case ativo mais recente
+              const { data: keep, error: keepErr } = await supabase
+                .from("cases")
+                .select("id")
+                .eq("tenant_id", tenantId)
+                .eq("journey_id", journey.id)
+                .eq("is_chat", false)
+                .eq("customer_id", customer.id)
+                .is("deleted_at", null)
+                .order("updated_at", { ascending: false })
+                .limit(1)
+                .maybeSingle();
+              if (keepErr) throw keepErr;
+              if (keep?.id) await createMissingOwnerPendency(keep.id, ownerEmail);
             }
             continue;
           }

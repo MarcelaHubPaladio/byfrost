@@ -974,13 +974,20 @@ export function ImportLeadsDialog({
 
           setRowFailures((prev) => {
             const next = [...prev, { rowNo: row.rowNo, name: row.name, message: msg }];
-            // mantém a UI leve
             next.sort((a, b) => a.rowNo - b.rowNo);
             return next.slice(0, 50);
           });
         } finally {
           setProgress({ done: i + 1, total: previewRows.length });
         }
+      }
+
+      if (errors > 0) {
+        showError(
+          `Algumas linhas falharam (${errors}). Veja os detalhes abaixo em "Falhas na importação".`
+        );
+        // Mantém o modal aberto para o usuário ver os erros.
+        return;
       }
 
       showSuccess(
@@ -999,10 +1006,6 @@ export function ImportLeadsDialog({
     } finally {
       setImporting(false);
       setProgress(null);
-
-      if (errors) {
-        showError(`Algumas linhas falharam: ${errors}. Veja os detalhes no preview.`);
-      }
     }
   };
 

@@ -782,8 +782,8 @@ serve(async (req) => {
     const cfgLocationNextState = (readCfg(cfg, "automation.on_location.next_state") as string | undefined) ?? null;
 
     // Conversations: by default we DO NOT assume the sender is a "vendor".
-    // This will be configurable in the panel; for legacy "sales_order" we default to true.
-    const defaultSenderIsVendor = journey.key === "sales_order";
+    // This should be configured in the panel per-journey/instance.
+    const defaultSenderIsVendor = false;
 
     // Vendor rules (raw config)
     const cfgAutoCreateVendorRaw =
@@ -802,7 +802,47 @@ serve(async (req) => {
     const cfgAutoCreateVendor = cfgSenderIsVendor ? cfgAutoCreateVendorRaw : false;
     const cfgRequireVendor = cfgSenderIsVendor ? cfgRequireVendorRaw : false;
 
-    const contactLabel = inferContactLabel(payload, normalized.from);
+    // Contact label:
+    // 1) wa_contacts.name (if stored)
+    // 2) payload sender name
+    // 3) phone
+    let waContactName: string | null = null;
+    if (normalized.from) {
+      const { data: waContact } = await supabase
+        .from("wa_contacts")
+        .select("name")
+        .eq("tenant_id", instance.tenant_id)
+        .eq("phone_e164", normalized.from)
+        .is("deleted_at", null)
+        .maybeSingle();
+      waContactName = (waContact as any)?.name ? String((waContact as any).name).trim() : null;
+    }
+
+    const payloadLabel = inferContactLabel(payload, normalized.from);
+    const contactLabel = (waContactName && waContactName.trim()) ? waContactName : payloadLabel;
+
+    // Upsert WA contact (best-effort)
+    if (normalized.from) {
+      const incomingName = typeof payloadLabel === "string" ? payloadLabel.trim() : "";
+      const nextName = incomingName && incomingName !== normalized.from ? incomingName : waContactName;
+      await supabase
+        .from("wa_contacts")
+        .upsert(
+          {
+            tenant_id: instance.tenant_id,
+            phone_e164: normalized.from,
+            name: nextName ?? null,
+            role_hint: cfgSenderIsVendor ? "vendor" : "customer",
+            meta_json: {
+              last_seen_at: new Date().toISOString(),
+              instance_id: instance.id,
+              zapi_instance_id: effectiveInstanceId,
+            },
+          },
+          { onConflict: "tenant_id,phone_e164" }
+        )
+        .then(() => null);
+    }
 
     // Vendor identification (by WhatsApp number) — only when configured.
     let vendorId: string | null = null;
@@ -827,6 +867,36 @@ serve(async (req) => {
           .single();
         if (vErr) console.error(`[${fn}] Failed to create vendor`, { vErr });
         vendorId = createdVendor?.id ?? null;
+      }
+    }
+
+    // CRM: if this journey is CRM and the sender is a customer, ensure a customer_accounts row.
+    let customerId: string | null = null;
+    if (journey.is_crm && !cfgSenderIsVendor && normalized.from) {
+      const { data: existingCustomer, error: custErr } = await supabase
+        .from("customer_accounts")
+        .select("id,name")
+        .eq("tenant_id", instance.tenant_id)
+        .eq("phone_e164", normalized.from)
+        .is("deleted_at", null)
+        .maybeSingle();
+      if (custErr) console.error(`[${fn}] Failed to load customer_accounts`, { custErr });
+
+      if (existingCustomer?.id) {
+        customerId = existingCustomer.id;
+      } else {
+        const { data: createdCustomer, error: createCustErr } = await supabase
+          .from("customer_accounts")
+          .insert({
+            tenant_id: instance.tenant_id,
+            phone_e164: normalized.from,
+            name: contactLabel && contactLabel !== normalized.from ? contactLabel : null,
+            meta_json: { source: "whatsapp", correlation_id: correlationId },
+          })
+          .select("id")
+          .single();
+        if (createCustErr) console.error(`[${fn}] Failed to create customer_accounts`, { createCustErr });
+        customerId = createdCustomer?.id ?? null;
       }
     }
 
@@ -913,12 +983,13 @@ serve(async (req) => {
         .insert({
           tenant_id: instance.tenant_id,
           journey_id: journey!.id,
+          customer_id: customerId,
           case_type: "order",
           status: "open",
           state: initial,
           created_by_channel: "whatsapp",
-          created_by_vendor_id: vendorId,
-          assigned_vendor_id: vendorId,
+          created_by_vendor_id: cfgSenderIsVendor ? vendorId : null,
+          assigned_vendor_id: cfgSenderIsVendor ? vendorId : null,
           title,
           meta_json: {
             correlation_id: correlationId,
@@ -939,6 +1010,18 @@ serve(async (req) => {
       if (cErr || !createdCase?.id) {
         console.error(`[${fn}] Failed to create case`, { cErr });
         return { caseId: null as any, created: false as const, skippedReason: "create_case_failed" };
+      }
+
+      // If CRM case and we have a customer name, make the case title match the client name.
+      if (journey.is_crm && customerId) {
+        const desiredTitle = contactLabel && contactLabel !== normalized.from ? contactLabel : null;
+        if (desiredTitle) {
+          await supabase
+            .from("cases")
+            .update({ title: desiredTitle })
+            .eq("tenant_id", instance.tenant_id)
+            .eq("id", createdCase.id);
+        }
       }
 
       await supabase.from("timeline_events").insert({

@@ -350,19 +350,49 @@ serve(async (req) => {
           // Build a pendency list message
           const { data: c } = await supabase
             .from("cases")
-            .select("assigned_vendor_id")
+            .select("assigned_vendor_id, meta_json")
             .eq("id", caseId)
             .maybeSingle();
 
-          if (!c?.assigned_vendor_id) throw new Error("Case has no assigned_vendor_id");
+          const meta = (c as any)?.meta_json ?? {};
 
-          const { data: vendor } = await supabase
-            .from("vendors")
-            .select("phone_e164")
-            .eq("id", c.assigned_vendor_id)
-            .maybeSingle();
+          // Prefer sending to vendor when assigned; otherwise fallback to customer/counterpart phone.
+          let toPhone: string | null = null;
 
-          if (!vendor?.phone_e164) throw new Error("Vendor has no phone_e164");
+          if (c?.assigned_vendor_id) {
+            const { data: vendor } = await supabase
+              .from("vendors")
+              .select("phone_e164")
+              .eq("id", c.assigned_vendor_id)
+              .maybeSingle();
+
+            toPhone = (vendor as any)?.phone_e164 ?? null;
+          }
+
+          if (!toPhone) {
+            const fallback =
+              (meta?.customer_phone as string | undefined) ??
+              (meta?.counterpart_phone as string | undefined) ??
+              (meta?.phone as string | undefined) ??
+              null;
+            toPhone = fallback && String(fallback).trim() ? String(fallback).trim() : null;
+          }
+
+          if (!toPhone) {
+            // Last resort: look for an extracted phone field
+            const { data: cf } = await supabase
+              .from("case_fields")
+              .select("value_text")
+              .eq("tenant_id", tenantId)
+              .eq("case_id", caseId)
+              .in("key", ["whatsapp", "phone", "customer_phone"])
+              .order("updated_at", { ascending: false })
+              .limit(1)
+              .maybeSingle();
+            toPhone = (cf as any)?.value_text ? String((cf as any).value_text).trim() : null;
+          }
+
+          if (!toPhone) throw new Error("Case has no recipient phone (vendor/customer)");
 
           const { data: pends } = await supabase
             .from("pendencies")
@@ -401,7 +431,7 @@ serve(async (req) => {
               case_id: caseId,
               direction: "outbound",
               from_phone: inst.phone_number ?? null,
-              to_phone: vendor.phone_e164,
+              to_phone: toPhone,
               type: "text",
               body_text: msg,
               payload_json: { kind: "pendency_list", case_id: caseId },
@@ -424,8 +454,8 @@ serve(async (req) => {
             case_id: caseId,
             event_type: "pendencies_asked",
             actor_type: "ai",
-            message: "Pendências enviadas ao vendedor (lista).",
-            meta_json: { count: pends.length },
+            message: "Pendências enviadas (lista).",
+            meta_json: { count: pends.length, to: toPhone },
             occurred_at: new Date().toISOString(),
           });
 
@@ -435,7 +465,7 @@ serve(async (req) => {
             agent_id: agentIdByKey.get("comms_agent") ?? null,
             input_summary: "Pendências abertas",
             output_summary: "Lista de perguntas preparada e registrada na outbox",
-            reasoning_public: "Mantemos a conversa com o vendedor sempre em formato de lista para reduzir ambiguidades.",
+            reasoning_public: "Mantemos a conversa sempre em formato de lista para reduzir ambiguidades.",
             why_json: { pendency_count: pends.length },
             confidence_json: { overall: 0.8 },
             occurred_at: new Date().toISOString(),

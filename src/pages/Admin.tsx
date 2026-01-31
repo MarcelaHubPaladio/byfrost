@@ -34,9 +34,10 @@ import { cn } from "@/lib/utils";
 import { TenantBrandingPanel } from "@/components/admin/TenantBrandingPanel";
 import { TenantJourneysPanel } from "@/components/admin/TenantJourneysPanel";
 import { JourneyPromptsPanel } from "@/components/admin/JourneyPromptsPanel";
+import { AccessMatrixPanel } from "@/components/admin/AccessMatrixPanel";
 import { Trash2, PauseCircle, PlayCircle, ChevronLeft, ChevronRight, UsersRound, Smartphone } from "lucide-react";
 
-type UserRole = "admin" | "supervisor" | "manager" | "vendor" | "leader";
+type UserRole = string;
 
 type TenantUserRow = {
   user_id: string;
@@ -141,6 +142,7 @@ function PaginationControls({
 }
 
 function roleLabel(r: UserRole) {
+  // Fallback para roles customizados
   if (r === "admin") return "Admin";
   if (r === "manager") return "Gerente";
   if (r === "supervisor") return "Supervisor";
@@ -300,6 +302,29 @@ export default function Admin() {
     list.sort((a, b) => a.label.localeCompare(b.label));
     return list;
   }, [usersQ.data]);
+
+  const tenantRolesQ = useQuery({
+    queryKey: ["admin_tenant_roles", activeTenantId],
+    enabled: Boolean(isSuperAdmin && activeTenantId),
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("tenant_roles")
+        .select("role_id, roles(key,name)")
+        .eq("tenant_id", activeTenantId!)
+        .eq("enabled", true)
+        .limit(500);
+      if (error) throw error;
+      const rows = (data ?? []) as any[];
+      const mapped = rows
+        .map((r) => ({
+          key: String(r.roles?.key ?? ""),
+          name: String(r.roles?.name ?? ""),
+        }))
+        .filter((r) => Boolean(r.key));
+      mapped.sort((a, b) => a.name.localeCompare(b.name));
+      return mapped as { key: string; name: string }[];
+    },
+  });
 
   const [invEmail, setInvEmail] = useState("");
   const [invName, setInvName] = useState("");
@@ -739,6 +764,9 @@ export default function Admin() {
                 <TabsTrigger value="users" className="rounded-xl">
                   Usuários
                 </TabsTrigger>
+                <TabsTrigger value="access" className="rounded-xl">
+                  Acessos
+                </TabsTrigger>
                 <TabsTrigger value="whatsapp" className="rounded-xl">
                   WhatsApp
                 </TabsTrigger>
@@ -879,9 +907,15 @@ export default function Admin() {
                               <SelectValue placeholder="Selecionar" />
                             </SelectTrigger>
                             <SelectContent className="rounded-2xl">
-                              {(["admin", "manager", "supervisor", "leader", "vendor"] as UserRole[]).map((r) => (
-                                <SelectItem key={r} value={r} className="rounded-xl">
-                                  {roleLabel(r)}
+                              {(tenantRolesQ.data ?? ([
+                                { key: "admin", name: "Admin" },
+                                { key: "manager", name: "Gerente" },
+                                { key: "supervisor", name: "Supervisor" },
+                                { key: "leader", name: "Líder" },
+                                { key: "vendor", name: "Vendedor" },
+                              ] as any)).map((r: any) => (
+                                <SelectItem key={r.key} value={r.key} className="rounded-xl">
+                                  {r.name}
                                 </SelectItem>
                               ))}
                             </SelectContent>
@@ -963,9 +997,15 @@ export default function Admin() {
                                     <SelectValue />
                                   </SelectTrigger>
                                   <SelectContent className="rounded-2xl">
-                                    {(["admin", "manager", "supervisor", "leader", "vendor"] as UserRole[]).map((r) => (
-                                      <SelectItem key={r} value={r} className="rounded-xl">
-                                        {roleLabel(r)}
+                                    {(tenantRolesQ.data ?? ([
+                                      { key: "admin", name: "Admin" },
+                                      { key: "manager", name: "Gerente" },
+                                      { key: "supervisor", name: "Supervisor" },
+                                      { key: "leader", name: "Líder" },
+                                      { key: "vendor", name: "Vendedor" },
+                                    ] as any)).map((r: any) => (
+                                      <SelectItem key={r.key} value={r.key} className="rounded-xl">
+                                        {r.name}
                                       </SelectItem>
                                     ))}
                                   </SelectContent>
@@ -1026,6 +1066,10 @@ export default function Admin() {
                     </div>
                   </div>
                 )}
+              </TabsContent>
+
+              <TabsContent value="access" className="mt-4">
+                <AccessMatrixPanel />
               </TabsContent>
 
               <TabsContent value="whatsapp" className="mt-4">

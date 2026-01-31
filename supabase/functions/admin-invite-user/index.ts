@@ -2,7 +2,7 @@ import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { corsHeaders } from "../_shared/cors.ts";
 import { createSupabaseAdmin } from "../_shared/supabaseAdmin.ts";
 
-type Role = "admin" | "supervisor" | "manager" | "vendor" | "leader";
+type RoleKey = string;
 
 function normalizePhone(v: any): string | null {
   const s = String(v ?? "").trim();
@@ -62,14 +62,37 @@ serve(async (req) => {
 
     const tenantId = String(body.tenantId ?? "").trim();
     const email = String(body.email ?? "").trim().toLowerCase();
-    const role = String(body.role ?? "").trim() as Role;
+    const role = String(body.role ?? "").trim() as RoleKey;
     const displayName = String(body.displayName ?? "").trim() || null;
     const phoneE164 = normalizePhone(body.phoneE164);
 
-    const allowedRoles: Role[] = ["admin", "supervisor", "manager", "vendor", "leader"];
-
-    if (!tenantId || !email || !allowedRoles.includes(role)) {
+    if (!tenantId || !email || !role) {
       return new Response(JSON.stringify({ ok: false, error: "Missing tenantId/email/role" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Validate that the role exists and is enabled for the tenant
+    const { data: roleRow, error: roleErr } = await supabase
+      .from("tenant_roles")
+      .select("role_id, enabled, roles(key)")
+      .eq("tenant_id", tenantId)
+      .eq("enabled", true)
+      .eq("roles.key", role)
+      .limit(1)
+      .maybeSingle();
+
+    if (roleErr) {
+      console.error(`[${fn}] role validation failed`, { roleErr });
+      return new Response(JSON.stringify({ ok: false, error: roleErr.message }), {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (!roleRow?.role_id) {
+      return new Response(JSON.stringify({ ok: false, error: "Invalid role for tenant" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -92,7 +115,7 @@ serve(async (req) => {
         {
           user_id: userId,
           tenant_id: tenantId,
-          role,
+          role, // users_profile.role guarda a key do cargo
           display_name: displayName,
           phone_e164: phoneE164,
           email,
@@ -112,26 +135,15 @@ serve(async (req) => {
     // Back-compat: keep vendors/leaders tables in sync when role is vendor/leader.
     if (phoneE164 && (role === "vendor" || role === "leader")) {
       const table = role === "vendor" ? "vendors" : "leaders";
-      const payload =
-        role === "vendor"
-          ? {
-              tenant_id: tenantId,
-              phone_e164: phoneE164,
-              display_name: displayName,
-              active: true,
-              deleted_at: null,
-            }
-          : {
-              tenant_id: tenantId,
-              phone_e164: phoneE164,
-              display_name: displayName,
-              active: true,
-              deleted_at: null,
-            };
+      const payload = {
+        tenant_id: tenantId,
+        phone_e164: phoneE164,
+        display_name: displayName,
+        active: true,
+        deleted_at: null,
+      };
 
-      const { error: upErr } = await supabase
-        .from(table)
-        .upsert(payload as any, { onConflict: "tenant_id,phone_e164" });
+      const { error: upErr } = await supabase.from(table).upsert(payload as any, { onConflict: "tenant_id,phone_e164" });
 
       if (upErr) {
         console.warn(`[${fn}] ${table} upsert failed (ignored)`, { upErr });

@@ -1,13 +1,11 @@
 import { Navigate, useLocation } from "react-router-dom";
 import { useTenant } from "@/providers/TenantProvider";
 
-export type TenantRole = "admin" | "supervisor" | "manager" | "vendor" | "leader";
-
 export function RequireTenantRole({
   roles,
   children,
 }: {
-  roles: TenantRole[];
+  roles: string[];
   children: React.ReactNode;
 }) {
   const { activeTenantId, activeTenant, loading, isSuperAdmin } = useTenant();
@@ -21,7 +19,7 @@ export function RequireTenantRole({
 
   if (isSuperAdmin) return <>{children}</>;
 
-  if (roles.includes(activeTenant.role as TenantRole)) return <>{children}</>;
+  if (roles.includes(String(activeTenant.role))) return <>{children}</>;
 
   return <Navigate to="/app" replace />;
 }

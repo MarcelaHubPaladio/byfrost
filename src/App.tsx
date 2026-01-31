@@ -7,6 +7,7 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { SessionProvider } from "@/providers/SessionProvider";
 import { TenantProvider } from "@/providers/TenantProvider";
 import { RequireTenantRole } from "@/components/RequireTenantRole";
+import { RequireRouteAccess } from "@/components/RequireRouteAccess";
 
 import Index from "@/pages/Index";
 import NotFound from "@/pages/NotFound";
@@ -37,47 +38,82 @@ const App = () => (
               <Route path="/tenants" element={<TenantSelect />} />
 
               {/* Dashboard por jornada (slug = journeys.key) */}
-              <Route path="/app" element={<Dashboard />} />
-              <Route path="/app/j/:journeyKey" element={<Dashboard />} />
+              <Route
+                path="/app"
+                element={
+                  <RequireRouteAccess routeKey="app.dashboard">
+                    <Dashboard />
+                  </RequireRouteAccess>
+                }
+              />
+              <Route
+                path="/app/j/:journeyKey"
+                element={
+                  <RequireRouteAccess routeKey="app.dashboard">
+                    <Dashboard />
+                  </RequireRouteAccess>
+                }
+              />
 
               <Route
                 path="/app/crm"
                 element={
-                  <RequireTenantRole roles={["admin", "manager", "supervisor", "leader"]}>
+                  <RequireRouteAccess routeKey="app.crm">
                     <Crm />
-                  </RequireTenantRole>
+                  </RequireRouteAccess>
                 }
               />
 
-              <Route path="/app/chat" element={<Chats />} />
-              <Route path="/app/chat/:id" element={<Chats />} />
+              <Route
+                path="/app/chat"
+                element={
+                  <RequireRouteAccess routeKey="app.chat">
+                    <Chats />
+                  </RequireRouteAccess>
+                }
+              />
+              <Route
+                path="/app/chat/:id"
+                element={
+                  <RequireRouteAccess routeKey="app.chat">
+                    <Chats />
+                  </RequireRouteAccess>
+                }
+              />
 
               {/* Detalhes */}
-              <Route path="/app/cases/:id" element={<CaseDetail />} />
+              <Route
+                path="/app/cases/:id"
+                element={
+                  <RequireRouteAccess routeKey="app.case_detail">
+                    <CaseDetail />
+                  </RequireRouteAccess>
+                }
+              />
               <Route
                 path="/crm/cases/:id"
                 element={
-                  <RequireTenantRole roles={["admin", "manager", "supervisor", "leader"]}>
+                  <RequireRouteAccess routeKey="crm.case_detail">
                     <CrmCaseDetail />
-                  </RequireTenantRole>
+                  </RequireRouteAccess>
                 }
               />
 
               <Route
                 path="/app/simulator"
                 element={
-                  <RequireTenantRole roles={["admin", "manager", "supervisor"]}>
+                  <RequireRouteAccess routeKey="app.simulator">
                     <Simulator />
-                  </RequireTenantRole>
+                  </RequireRouteAccess>
                 }
               />
 
               <Route
                 path="/app/settings"
                 element={
-                  <RequireTenantRole roles={["admin", "manager", "supervisor"]}>
+                  <RequireRouteAccess routeKey="app.settings">
                     <Settings />
-                  </RequireTenantRole>
+                  </RequireRouteAccess>
                 }
               />
 

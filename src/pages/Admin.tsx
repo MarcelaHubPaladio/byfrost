@@ -166,6 +166,7 @@ export default function Admin() {
   const [debug, setDebug] = useState<any>(null);
   const [deletingInstanceId, setDeletingInstanceId] = useState<string | null>(null);
   const [updatingInstanceId, setUpdatingInstanceId] = useState<string | null>(null);
+  const [deletingUserId, setDeletingUserId] = useState<string | null>(null);
 
   const ensureFreshTokenForRls = async () => {
     try {
@@ -375,6 +376,38 @@ export default function Admin() {
       await qc.invalidateQueries({ queryKey: ["admin_tenant_users", activeTenantId] });
     } catch (e: any) {
       showError(`Falha ao atualizar usuário: ${e?.message ?? "erro"}`);
+    }
+  };
+
+  const removeUserFromTenant = async (u: TenantUserRow) => {
+    if (!activeTenantId) return;
+    setDeletingUserId(u.user_id);
+    try {
+      await ensureFreshTokenForRls();
+
+      // 1) Remove acesso do tenant (soft delete)
+      const { error: profErr } = await supabase
+        .from("users_profile")
+        .update({ deleted_at: new Date().toISOString() })
+        .eq("tenant_id", activeTenantId)
+        .eq("user_id", u.user_id);
+      if (profErr) throw profErr;
+
+      // 2) Se ele estava responsável por instâncias, desatribui
+      const { error: instErr } = await supabase
+        .from("wa_instances")
+        .update({ assigned_user_id: null })
+        .eq("tenant_id", activeTenantId)
+        .eq("assigned_user_id", u.user_id);
+      if (instErr) throw instErr;
+
+      showSuccess("Usuário removido do tenant.");
+      await qc.invalidateQueries({ queryKey: ["admin_tenant_users", activeTenantId] });
+      await qc.invalidateQueries({ queryKey: ["admin_instances", activeTenantId] });
+    } catch (e: any) {
+      showError(`Falha ao excluir usuário: ${e?.message ?? "erro"}`);
+    } finally {
+      setDeletingUserId(null);
     }
   };
 
@@ -938,10 +971,40 @@ export default function Admin() {
                                   </SelectContent>
                                 </Select>
                               </div>
-                              <div className="flex items-end justify-end">
+                              <div className="flex items-end justify-end gap-2">
                                 <div className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-[11px] text-slate-600">
                                   id: <span className="font-medium text-slate-900">{u.user_id.slice(0, 8)}…</span>
                                 </div>
+
+                                <AlertDialog>
+                                  <AlertDialogTrigger asChild>
+                                    <Button
+                                      variant="secondary"
+                                      className="h-10 rounded-2xl border border-rose-200 bg-rose-50 px-3 text-rose-800 shadow-sm hover:bg-rose-100 hover:text-rose-900"
+                                      disabled={deletingUserId === u.user_id}
+                                      title="Excluir usuário do tenant"
+                                    >
+                                      <Trash2 className="h-4 w-4" />
+                                    </Button>
+                                  </AlertDialogTrigger>
+                                  <AlertDialogContent className="rounded-[22px]">
+                                    <AlertDialogHeader>
+                                      <AlertDialogTitle>Excluir usuário deste tenant?</AlertDialogTitle>
+                                      <AlertDialogDescription>
+                                        Isso remove o acesso do usuário ao tenant (soft delete). Não apaga a conta do Supabase Auth.
+                                      </AlertDialogDescription>
+                                    </AlertDialogHeader>
+                                    <AlertDialogFooter>
+                                      <AlertDialogCancel className="rounded-2xl">Cancelar</AlertDialogCancel>
+                                      <AlertDialogAction
+                                        className="rounded-2xl bg-rose-600 text-white hover:bg-rose-700"
+                                        onClick={() => removeUserFromTenant(u)}
+                                      >
+                                        Excluir
+                                      </AlertDialogAction>
+                                    </AlertDialogFooter>
+                                  </AlertDialogContent>
+                                </AlertDialog>
                               </div>
                             </div>
 

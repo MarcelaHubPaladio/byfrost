@@ -6,6 +6,7 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 
 import { SessionProvider } from "@/providers/SessionProvider";
 import { TenantProvider } from "@/providers/TenantProvider";
+import { RequireTenantRole } from "@/components/RequireTenantRole";
 
 import Index from "@/pages/Index";
 import NotFound from "@/pages/NotFound";
@@ -38,17 +39,57 @@ const App = () => (
               {/* Dashboard por jornada (slug = journeys.key) */}
               <Route path="/app" element={<Dashboard />} />
               <Route path="/app/j/:journeyKey" element={<Dashboard />} />
-              <Route path="/app/crm" element={<Crm />} />
+
+              <Route
+                path="/app/crm"
+                element={
+                  <RequireTenantRole roles={["admin", "manager", "supervisor", "leader"]}>
+                    <Crm />
+                  </RequireTenantRole>
+                }
+              />
+
               <Route path="/app/chat" element={<Chats />} />
               <Route path="/app/chat/:id" element={<Chats />} />
 
               {/* Detalhes */}
               <Route path="/app/cases/:id" element={<CaseDetail />} />
-              <Route path="/crm/cases/:id" element={<CrmCaseDetail />} />
+              <Route
+                path="/crm/cases/:id"
+                element={
+                  <RequireTenantRole roles={["admin", "manager", "supervisor", "leader"]}>
+                    <CrmCaseDetail />
+                  </RequireTenantRole>
+                }
+              />
 
-              <Route path="/app/simulator" element={<Simulator />} />
-              <Route path="/app/settings" element={<Settings />} />
-              <Route path="/app/admin" element={<Admin />} />
+              <Route
+                path="/app/simulator"
+                element={
+                  <RequireTenantRole roles={["admin", "manager", "supervisor"]}>
+                    <Simulator />
+                  </RequireTenantRole>
+                }
+              />
+
+              <Route
+                path="/app/settings"
+                element={
+                  <RequireTenantRole roles={["admin", "manager", "supervisor"]}>
+                    <Settings />
+                  </RequireTenantRole>
+                }
+              />
+
+              {/* Super-admin only */}
+              <Route
+                path="/app/admin"
+                element={
+                  <RequireTenantRole roles={["admin"]}>
+                    <Admin />
+                  </RequireTenantRole>
+                }
+              />
 
               {/* Back-compat */}
               <Route path="/dashboard" element={<Navigate to="/app" replace />} />

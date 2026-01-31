@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { RequireAuth } from "@/components/RequireAuth";
 import { AppShell } from "@/components/AppShell";
 import { useTenant } from "@/providers/TenantProvider";
+import { useSession } from "@/providers/SessionProvider";
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,12 +22,46 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { showError, showSuccess } from "@/utils/toast";
 import { cn } from "@/lib/utils";
 import { TenantBrandingPanel } from "@/components/admin/TenantBrandingPanel";
 import { TenantJourneysPanel } from "@/components/admin/TenantJourneysPanel";
 import { JourneyPromptsPanel } from "@/components/admin/JourneyPromptsPanel";
-import { Trash2, PauseCircle, PlayCircle, ChevronLeft, ChevronRight } from "lucide-react";
+import { Trash2, PauseCircle, PlayCircle, ChevronLeft, ChevronRight, UsersRound, Smartphone } from "lucide-react";
+
+type UserRole = "admin" | "supervisor" | "manager" | "vendor" | "leader";
+
+type TenantUserRow = {
+  user_id: string;
+  tenant_id: string;
+  role: UserRole;
+  display_name: string | null;
+  phone_e164: string | null;
+  email: string | null;
+  created_at: string;
+  deleted_at: string | null;
+};
+
+type JourneyOpt = { id: string; name: string; key: string };
+
+type WaInstanceRow = {
+  id: string;
+  name: string;
+  status: "active" | "paused" | "disabled";
+  zapi_instance_id: string | null;
+  phone_number: string | null;
+  webhook_secret: string;
+  default_journey_id: string | null;
+  assigned_user_id: string | null;
+  created_at: string;
+};
 
 function slugify(s: string) {
   return (s ?? "")
@@ -105,19 +140,44 @@ function PaginationControls({
   );
 }
 
+function roleLabel(r: UserRole) {
+  if (r === "admin") return "Admin";
+  if (r === "manager") return "Gerente";
+  if (r === "supervisor") return "Supervisor";
+  if (r === "vendor") return "Vendedor";
+  if (r === "leader") return "Líder";
+  return r;
+}
+
+function normalizePhoneLoose(v: string) {
+  const s = (v ?? "").trim();
+  if (!s) return "";
+  if (s.startsWith("+")) return s;
+  const digits = s.replace(/\D/g, "");
+  return digits ? `+${digits}` : "";
+}
+
 export default function Admin() {
   const qc = useQueryClient();
   const { activeTenantId, activeTenant, isSuperAdmin } = useTenant();
+  const { user } = useSession();
 
   const [refreshingSession, setRefreshingSession] = useState(false);
   const [debug, setDebug] = useState<any>(null);
   const [deletingInstanceId, setDeletingInstanceId] = useState<string | null>(null);
   const [updatingInstanceId, setUpdatingInstanceId] = useState<string | null>(null);
 
+  const ensureFreshTokenForRls = async () => {
+    try {
+      await supabase.auth.refreshSession();
+    } catch {
+      // ignore
+    }
+  };
+
   const refreshSession = async () => {
     setRefreshingSession(true);
     try {
-      // Important: RLS checks JWT claims. After changing app_metadata, you must refresh the access token.
       const { data, error } = await supabase.auth.refreshSession();
       if (error) throw error;
       const accessToken = data.session?.access_token ?? null;
@@ -133,14 +193,6 @@ export default function Admin() {
       showError(`Falha ao atualizar sessão: ${e?.message ?? "erro"}`);
     } finally {
       setRefreshingSession(false);
-    }
-  };
-
-  const ensureFreshTokenForRls = async () => {
-    try {
-      await supabase.auth.refreshSession();
-    } catch {
-      // ignore
     }
   };
 
@@ -161,7 +213,6 @@ export default function Admin() {
     queryKey: ["admin_tenants"],
     enabled: isSuperAdmin,
     queryFn: async () => {
-      // As super-admin, we can see all tenants. Show soft-deleted too (for restore).
       const { data, error } = await supabase
         .from("tenants")
         .select("id,name,slug,status,created_at,deleted_at")
@@ -210,10 +261,7 @@ export default function Admin() {
   const restoreTenant = async (tenantId: string) => {
     try {
       await ensureFreshTokenForRls();
-      const { error } = await supabase
-        .from("tenants")
-        .update({ deleted_at: null })
-        .eq("id", tenantId);
+      const { error } = await supabase.from("tenants").update({ deleted_at: null }).eq("id", tenantId);
       if (error) throw error;
       showSuccess("Tenant restaurado.");
       await qc.invalidateQueries({ queryKey: ["admin_tenants"] });
@@ -222,39 +270,115 @@ export default function Admin() {
     }
   };
 
-  // --------------- Vendors / Leaders / Instances (per active tenant) ---------------
-  const vendorsQ = useQuery({
-    queryKey: ["admin_vendors", activeTenantId],
+  // ---------------- Users (per active tenant) ----------------
+  const usersQ = useQuery({
+    queryKey: ["admin_tenant_users", activeTenantId],
     enabled: Boolean(isSuperAdmin && activeTenantId),
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("vendors")
-        .select("id,phone_e164,display_name,active,created_at")
+        .from("users_profile")
+        .select("user_id,tenant_id,role,display_name,phone_e164,email,created_at,deleted_at")
         .eq("tenant_id", activeTenantId!)
         .is("deleted_at", null)
         .order("created_at", { ascending: false })
         .limit(500);
       if (error) throw error;
-      return data ?? [];
+      return (data ?? []) as TenantUserRow[];
     },
   });
 
-  const leadersQ = useQuery({
-    queryKey: ["admin_leaders", activeTenantId],
-    enabled: Boolean(isSuperAdmin && activeTenantId),
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("leaders")
-        .select("id,phone_e164,display_name,active,created_at")
-        .eq("tenant_id", activeTenantId!)
-        .is("deleted_at", null)
-        .order("created_at", { ascending: false })
-        .limit(500);
+  const userOptions = useMemo(() => {
+    const list = (usersQ.data ?? []).map((u) => ({
+      id: u.user_id,
+      label: u.display_name || u.email || `${u.user_id.slice(0, 8)}…`,
+      role: u.role,
+      phone: u.phone_e164,
+      email: u.email,
+    }));
+
+    list.sort((a, b) => a.label.localeCompare(b.label));
+    return list;
+  }, [usersQ.data]);
+
+  const [invEmail, setInvEmail] = useState("");
+  const [invName, setInvName] = useState("");
+  const [invPhone, setInvPhone] = useState("+55");
+  const [invRole, setInvRole] = useState<UserRole>("vendor");
+  const [inviting, setInviting] = useState(false);
+
+  const inviteUser = async () => {
+    if (!activeTenantId) return;
+    const email = invEmail.trim().toLowerCase();
+    if (!email.includes("@")) {
+      showError("Informe um email válido.");
+      return;
+    }
+
+    setInviting(true);
+    try {
+      const { data: sess } = await supabase.auth.getSession();
+      const token = sess.session?.access_token ?? null;
+      if (!token) throw new Error("Sessão inválida");
+
+      const url = "https://pryoirzeghatrgecwrci.supabase.co/functions/v1/admin-invite-user";
+      const res = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          tenantId: activeTenantId,
+          email,
+          role: invRole,
+          displayName: invName.trim() || null,
+          phoneE164: normalizePhoneLoose(invPhone),
+        }),
+      });
+
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.ok) {
+        throw new Error(json?.error || `HTTP ${res.status}`);
+      }
+
+      showSuccess("Convite enviado e usuário registrado no tenant.");
+      setInvEmail("");
+      setInvName("");
+      setInvPhone("+55");
+      setInvRole("vendor");
+
+      await qc.invalidateQueries({ queryKey: ["admin_tenant_users", activeTenantId] });
+    } catch (e: any) {
+      showError(`Falha ao convidar usuário: ${e?.message ?? "erro"}`);
+    } finally {
+      setInviting(false);
+    }
+  };
+
+  const updateUserProfile = async (u: TenantUserRow, patch: Partial<TenantUserRow>) => {
+    if (!activeTenantId) return;
+    try {
+      await ensureFreshTokenForRls();
+      const { error } = await supabase
+        .from("users_profile")
+        .update({
+          display_name: patch.display_name ?? u.display_name,
+          email: patch.email ?? u.email,
+          phone_e164: patch.phone_e164 ?? u.phone_e164,
+          role: (patch.role ?? u.role) as any,
+        })
+        .eq("tenant_id", activeTenantId)
+        .eq("user_id", u.user_id);
       if (error) throw error;
-      return data ?? [];
-    },
-  });
 
+      showSuccess("Usuário atualizado.");
+      await qc.invalidateQueries({ queryKey: ["admin_tenant_users", activeTenantId] });
+    } catch (e: any) {
+      showError(`Falha ao atualizar usuário: ${e?.message ?? "erro"}`);
+    }
+  };
+
+  // ---------------- Journeys (for WA routing) ----------------
   const tenantJourneysQ = useQuery({
     queryKey: ["admin_tenant_journeys_enabled", activeTenantId],
     enabled: Boolean(isSuperAdmin && activeTenantId),
@@ -273,10 +397,11 @@ export default function Admin() {
         .map((j: any) => ({ id: j.id as string, name: j.name as string, key: j.key as string }));
 
       opts.sort((a, b) => a.name.localeCompare(b.name));
-      return opts;
+      return opts as JourneyOpt[];
     },
   });
 
+  // ---------------- WhatsApp instances ----------------
   const instancesQ = useQuery({
     queryKey: ["admin_instances", activeTenantId],
     enabled: Boolean(isSuperAdmin && activeTenantId),
@@ -284,14 +409,14 @@ export default function Admin() {
       const { data, error } = await supabase
         .from("wa_instances")
         .select(
-          "id,name,status,zapi_instance_id,phone_number,webhook_secret,default_journey_id,created_at"
+          "id,name,status,zapi_instance_id,phone_number,webhook_secret,default_journey_id,assigned_user_id,created_at"
         )
         .eq("tenant_id", activeTenantId!)
         .is("deleted_at", null)
         .order("created_at", { ascending: false })
         .limit(200);
       if (error) throw error;
-      return data ?? [];
+      return (data ?? []) as WaInstanceRow[];
     },
   });
 
@@ -309,6 +434,23 @@ export default function Admin() {
       await qc.invalidateQueries({ queryKey: ["admin_instances", activeTenantId] });
     } catch (e: any) {
       showError(`Falha ao salvar roteamento: ${e?.message ?? "erro"}`);
+    }
+  };
+
+  const setInstanceAssignee = async (instanceId: string, userId: string | null) => {
+    if (!activeTenantId) return;
+    try {
+      await ensureFreshTokenForRls();
+      const { error } = await supabase
+        .from("wa_instances")
+        .update({ assigned_user_id: userId })
+        .eq("tenant_id", activeTenantId)
+        .eq("id", instanceId);
+      if (error) throw error;
+      showSuccess("Usuário responsável atualizado.");
+      await qc.invalidateQueries({ queryKey: ["admin_instances", activeTenantId] });
+    } catch (e: any) {
+      showError(`Falha ao atualizar usuário responsável: ${e?.message ?? "erro"}`);
     }
   };
 
@@ -353,114 +495,13 @@ export default function Admin() {
     }
   };
 
-  const [vendorPhone, setVendorPhone] = useState("+55");
-  const [vendorName, setVendorName] = useState("");
-  const [savingVendor, setSavingVendor] = useState(false);
-
-  const addVendor = async () => {
-    if (!activeTenantId) return;
-    setSavingVendor(true);
-    try {
-      await ensureFreshTokenForRls();
-
-      const { error } = await supabase.from("vendors").insert({
-        tenant_id: activeTenantId,
-        phone_e164: vendorPhone.trim(),
-        display_name: vendorName.trim() || null,
-        active: true,
-      });
-      if (error) throw error;
-      showSuccess("Vendedor cadastrado.");
-      setVendorPhone("+55");
-      setVendorName("");
-      await qc.invalidateQueries({ queryKey: ["admin_vendors", activeTenantId] });
-    } catch (e: any) {
-      const msg = String(e?.message ?? "erro");
-      if (msg.toLowerCase().includes("row-level security")) {
-        showError("Sem permissão (RLS). Atualize sessão ou faça logout/login.");
-      } else {
-        showError(`Falha ao cadastrar vendedor: ${msg}`);
-      }
-      await captureDebug();
-    } finally {
-      setSavingVendor(false);
-    }
-  };
-
-  const toggleVendor = async (id: string, active: boolean) => {
-    if (!activeTenantId) return;
-    try {
-      await ensureFreshTokenForRls();
-
-      const { error } = await supabase
-        .from("vendors")
-        .update({ active })
-        .eq("tenant_id", activeTenantId)
-        .eq("id", id);
-      if (error) throw error;
-      await qc.invalidateQueries({ queryKey: ["admin_vendors", activeTenantId] });
-    } catch (e: any) {
-      showError(`Falha ao atualizar vendedor: ${e?.message ?? "erro"}`);
-    }
-  };
-
-  const [leaderPhone, setLeaderPhone] = useState("+55");
-  const [leaderName, setLeaderName] = useState("");
-  const [savingLeader, setSavingLeader] = useState(false);
-
-  const addLeader = async () => {
-    if (!activeTenantId) return;
-    setSavingLeader(true);
-    try {
-      await ensureFreshTokenForRls();
-
-      const { error } = await supabase.from("leaders").insert({
-        tenant_id: activeTenantId,
-        phone_e164: leaderPhone.trim(),
-        display_name: leaderName.trim() || null,
-        active: true,
-      });
-      if (error) throw error;
-      showSuccess("Líder cadastrado.");
-      setLeaderPhone("+55");
-      setLeaderName("");
-      await qc.invalidateQueries({ queryKey: ["admin_leaders", activeTenantId] });
-    } catch (e: any) {
-      const msg = String(e?.message ?? "erro");
-      if (msg.toLowerCase().includes("row-level security")) {
-        showError("Sem permissão (RLS). Atualize sessão ou faça logout/login.");
-      } else {
-        showError(`Falha ao cadastrar líder: ${msg}`);
-      }
-      await captureDebug();
-    } finally {
-      setSavingLeader(false);
-    }
-  };
-
-  const toggleLeader = async (id: string, active: boolean) => {
-    if (!activeTenantId) return;
-    try {
-      await ensureFreshTokenForRls();
-
-      const { error } = await supabase
-        .from("leaders")
-        .update({ active })
-        .eq("tenant_id", activeTenantId)
-        .eq("id", id);
-      if (error) throw error;
-      await qc.invalidateQueries({ queryKey: ["admin_leaders", activeTenantId] });
-    } catch (e: any) {
-      showError(`Falha ao atualizar líder: ${e?.message ?? "erro"}`);
-    }
-  };
-
   const [instName, setInstName] = useState("Principal");
   const [instPhone, setInstPhone] = useState("+55");
   const [instZapiId, setInstZapiId] = useState("");
   const [instToken, setInstToken] = useState("");
   const [instSecret, setInstSecret] = useState("");
   const [instJourneyId, setInstJourneyId] = useState<string>("");
+  const [instAssignedUserId, setInstAssignedUserId] = useState<string>("");
   const [savingInst, setSavingInst] = useState(false);
 
   const addInstance = async () => {
@@ -478,6 +519,7 @@ export default function Admin() {
         phone_number: instPhone.trim() || null,
         webhook_secret: instSecret.trim() || crypto.randomUUID(),
         default_journey_id: instJourneyId || null,
+        assigned_user_id: instAssignedUserId || null,
       });
       if (error) throw error;
       showSuccess("Instância cadastrada.");
@@ -485,6 +527,7 @@ export default function Admin() {
       setInstToken("");
       setInstSecret("");
       setInstJourneyId("");
+      setInstAssignedUserId("");
       await qc.invalidateQueries({ queryKey: ["admin_instances", activeTenantId] });
     } catch (e: any) {
       const msg = String(e?.message ?? "erro");
@@ -499,6 +542,7 @@ export default function Admin() {
     }
   };
 
+  // ---------------- Monitor ----------------
   const [monitorInstanceId, setMonitorInstanceId] = useState<string>("");
   const MONITOR_PAGE_SIZE = 10;
   const [waMessagesPage, setWaMessagesPage] = useState(0);
@@ -508,11 +552,6 @@ export default function Admin() {
     setWaMessagesPage(0);
     setWaInboxPage(0);
   }, [activeTenantId, monitorInstanceId]);
-
-  // Reset paging when tenant/instance filter changes
-  if (waMessagesPage !== 0 && !monitorInstanceId) {
-    // no-op, keep manual navigation
-  }
 
   const waRecentQ = useQuery({
     queryKey: ["admin_wa_recent", activeTenantId, monitorInstanceId, waMessagesPage],
@@ -526,10 +565,7 @@ export default function Admin() {
         )
         .eq("tenant_id", activeTenantId!)
         .order("occurred_at", { ascending: false })
-        .range(
-          waMessagesPage * MONITOR_PAGE_SIZE,
-          waMessagesPage * MONITOR_PAGE_SIZE + MONITOR_PAGE_SIZE - 1
-        );
+        .range(waMessagesPage * MONITOR_PAGE_SIZE, waMessagesPage * MONITOR_PAGE_SIZE + MONITOR_PAGE_SIZE - 1);
 
       if (monitorInstanceId) q = q.eq("instance_id", monitorInstanceId);
 
@@ -601,10 +637,16 @@ export default function Admin() {
   const deletedCount = (tenantsQ.data ?? []).filter((t: any) => t.deleted_at).length;
 
   const instanceById = useMemo(() => {
-    const m = new Map<string, any>();
+    const m = new Map<string, WaInstanceRow>();
     for (const it of instancesQ.data ?? []) m.set(it.id, it);
     return m;
   }, [instancesQ.data]);
+
+  const userById = useMemo(() => {
+    const m = new Map<string, { label: string; role: string }>();
+    for (const u of userOptions) m.set(u.id, { label: u.label, role: u.role });
+    return m;
+  }, [userOptions]);
 
   return (
     <RequireAuth>
@@ -613,9 +655,7 @@ export default function Admin() {
           <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
             <div>
               <h2 className="text-lg font-semibold tracking-tight text-slate-900">Admin</h2>
-              <p className="mt-1 text-sm text-slate-600">
-                Gestão do microsaas (super-admin): tenants, pessoas e integrações.
-              </p>
+              <p className="mt-1 text-sm text-slate-600">Gestão do microsaas: tenants, usuários e integrações.</p>
             </div>
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
               <Button
@@ -654,21 +694,31 @@ export default function Admin() {
           <div className="mt-5">
             <Tabs defaultValue="tenants">
               <TabsList className="rounded-2xl bg-white/70 p-1">
-                <TabsTrigger value="tenants" className="rounded-xl">Tenants</TabsTrigger>
-                <TabsTrigger value="journeys" className="rounded-xl">Jornadas</TabsTrigger>
-                <TabsTrigger value="prompts" className="rounded-xl">Prompts</TabsTrigger>
-                <TabsTrigger value="people" className="rounded-xl">Vendedores & Líderes</TabsTrigger>
-                <TabsTrigger value="whatsapp" className="rounded-xl">WhatsApp</TabsTrigger>
-                <TabsTrigger value="branding" className="rounded-xl">Branding</TabsTrigger>
+                <TabsTrigger value="tenants" className="rounded-xl">
+                  Tenants
+                </TabsTrigger>
+                <TabsTrigger value="journeys" className="rounded-xl">
+                  Jornadas
+                </TabsTrigger>
+                <TabsTrigger value="prompts" className="rounded-xl">
+                  Prompts
+                </TabsTrigger>
+                <TabsTrigger value="users" className="rounded-xl">
+                  Usuários
+                </TabsTrigger>
+                <TabsTrigger value="whatsapp" className="rounded-xl">
+                  WhatsApp
+                </TabsTrigger>
+                <TabsTrigger value="branding" className="rounded-xl">
+                  Branding
+                </TabsTrigger>
               </TabsList>
 
               <TabsContent value="tenants" className="mt-4">
                 <div className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
                   <div className="rounded-[22px] border border-slate-200 bg-white p-4">
                     <div className="text-sm font-semibold text-slate-900">Criar tenant</div>
-                    <div className="mt-1 text-xs text-slate-500">
-                      Para o MVP, o super-admin pode criar tenants diretamente.
-                    </div>
+                    <div className="mt-1 text-xs text-slate-500">Para o MVP, o super-admin pode criar tenants diretamente.</div>
 
                     <div className="mt-4 grid gap-3">
                       <div>
@@ -682,11 +732,7 @@ export default function Admin() {
                       </div>
                       <div>
                         <Label className="text-xs">Slug (auto)</Label>
-                        <Input
-                          value={tenantSlug}
-                          readOnly
-                          className="mt-1 rounded-2xl bg-slate-50"
-                        />
+                        <Input value={tenantSlug} readOnly className="mt-1 rounded-2xl bg-slate-50" />
                       </div>
                       <Button
                         onClick={createTenant}
@@ -714,9 +760,7 @@ export default function Admin() {
                             key={t.id}
                             className={cn(
                               "flex items-center justify-between gap-3 rounded-2xl border px-3 py-2",
-                              softDeleted
-                                ? "border-rose-200 bg-rose-50"
-                                : "border-slate-200 bg-slate-50"
+                              softDeleted ? "border-rose-200 bg-rose-50" : "border-slate-200 bg-slate-50"
                             )}
                           >
                             <div className="min-w-0">
@@ -725,27 +769,19 @@ export default function Admin() {
                             </div>
                             <div className="flex items-center gap-2">
                               {softDeleted ? (
-                                <Badge className="rounded-full border-0 bg-rose-100 text-rose-900 hover:bg-rose-100">
-                                  deletado
-                                </Badge>
+                                <Badge className="rounded-full border-0 bg-rose-100 text-rose-900 hover:bg-rose-100">deletado</Badge>
                               ) : (
                                 <Badge
                                   className={cn(
                                     "rounded-full border-0",
-                                    t.status === "active"
-                                      ? "bg-emerald-100 text-emerald-900"
-                                      : "bg-slate-100 text-slate-700"
+                                    t.status === "active" ? "bg-emerald-100 text-emerald-900" : "bg-slate-100 text-slate-700"
                                   )}
                                 >
                                   {t.status}
                                 </Badge>
                               )}
                               {softDeleted && (
-                                <Button
-                                  variant="secondary"
-                                  className="h-9 rounded-2xl"
-                                  onClick={() => restoreTenant(t.id)}
-                                >
+                                <Button variant="secondary" className="h-9 rounded-2xl" onClick={() => restoreTenant(t.id)}>
                                   Restaurar
                                 </Button>
                               )}
@@ -755,9 +791,7 @@ export default function Admin() {
                       })}
 
                       {(tenantsQ.data ?? []).length === 0 && (
-                        <div className="rounded-2xl border border-dashed border-slate-200 bg-white/60 p-4 text-xs text-slate-500">
-                          Nenhum tenant encontrado.
-                        </div>
+                        <div className="rounded-2xl border border-dashed border-slate-200 bg-white/60 p-4 text-xs text-slate-500">Nenhum tenant encontrado.</div>
                       )}
                     </div>
                   </div>
@@ -772,134 +806,157 @@ export default function Admin() {
                 <JourneyPromptsPanel />
               </TabsContent>
 
-              <TabsContent value="people" className="mt-4">
+              <TabsContent value="users" className="mt-4">
                 {!activeTenantId ? (
                   <div className="rounded-[22px] border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-                    Selecione um tenant (botão "Trocar") para cadastrar vendedores e líderes.
+                    Selecione um tenant (botão "Trocar") para gerenciar usuários.
                   </div>
                 ) : (
-                  <div className="grid gap-4 lg:grid-cols-2">
+                  <div className="grid gap-4">
                     <div className="rounded-[22px] border border-slate-200 bg-white p-4">
-                      <div className="text-sm font-semibold text-slate-900">Vendedores</div>
-                      <div className="mt-1 text-xs text-slate-500">
-                        Identificação do vendedor é pelo número WhatsApp (E.164).
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex items-center gap-2">
+                          <div className="grid h-10 w-10 place-items-center rounded-2xl bg-[hsl(var(--byfrost-accent)/0.12)] text-[hsl(var(--byfrost-accent))]">
+                            <UsersRound className="h-5 w-5" />
+                          </div>
+                          <div>
+                            <div className="text-sm font-semibold text-slate-900">Convidar usuário</div>
+                            <div className="mt-0.5 text-[11px] text-slate-500">Cria acesso e define cargo/rotas para o tenant.</div>
+                          </div>
+                        </div>
                       </div>
 
-                      <div className="mt-4 grid gap-3">
+                      <div className="mt-4 grid gap-3 lg:grid-cols-[1.2fr_1fr_0.9fr_0.9fr_auto]">
                         <div>
-                          <Label className="text-xs">Telefone (E.164)</Label>
-                          <Input
-                            value={vendorPhone}
-                            onChange={(e) => setVendorPhone(e.target.value)}
-                            className="mt-1 rounded-2xl"
-                            placeholder="+5511999999999"
-                          />
+                          <Label className="text-xs">Nome</Label>
+                          <Input value={invName} onChange={(e) => setInvName(e.target.value)} className="mt-1 rounded-2xl" placeholder="Ex: João" />
                         </div>
                         <div>
-                          <Label className="text-xs">Nome (opcional)</Label>
-                          <Input
-                            value={vendorName}
-                            onChange={(e) => setVendorName(e.target.value)}
-                            className="mt-1 rounded-2xl"
-                            placeholder="Ex: João"
-                          />
+                          <Label className="text-xs">Email</Label>
+                          <Input value={invEmail} onChange={(e) => setInvEmail(e.target.value)} className="mt-1 rounded-2xl" placeholder="joao@empresa.com" />
                         </div>
-                        <Button
-                          onClick={addVendor}
-                          disabled={savingVendor || vendorPhone.trim().length < 8}
-                          className="h-11 rounded-2xl bg-[hsl(var(--byfrost-accent))] text-white hover:bg-[hsl(var(--byfrost-accent)/0.92)]"
-                        >
-                          {savingVendor ? "Salvando…" : "Cadastrar vendedor"}
-                        </Button>
-                      </div>
-
-                      <div className="mt-4 space-y-2">
-                        {(vendorsQ.data ?? []).map((v: any) => (
-                          <div
-                            key={v.id}
-                            className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2"
+                        <div>
+                          <Label className="text-xs">WhatsApp</Label>
+                          <Input value={invPhone} onChange={(e) => setInvPhone(e.target.value)} className="mt-1 rounded-2xl" placeholder="+5511999999999" />
+                        </div>
+                        <div>
+                          <Label className="text-xs">Cargo</Label>
+                          <Select value={invRole} onValueChange={(v) => setInvRole(v as UserRole)}>
+                            <SelectTrigger className="mt-1 h-10 rounded-2xl">
+                              <SelectValue placeholder="Selecionar" />
+                            </SelectTrigger>
+                            <SelectContent className="rounded-2xl">
+                              {(["admin", "manager", "supervisor", "leader", "vendor"] as UserRole[]).map((r) => (
+                                <SelectItem key={r} value={r} className="rounded-xl">
+                                  {roleLabel(r)}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="flex items-end">
+                          <Button
+                            onClick={inviteUser}
+                            disabled={inviting || !invEmail.trim()}
+                            className="h-10 rounded-2xl bg-[hsl(var(--byfrost-accent))] px-4 text-white hover:bg-[hsl(var(--byfrost-accent)/0.92)]"
                           >
-                            <div className="min-w-0">
-                              <div className="truncate text-sm font-semibold text-slate-900">
-                                {v.display_name ?? "(sem nome)"}
-                              </div>
-                              <div className="mt-0.5 truncate text-xs text-slate-500">{v.phone_e164}</div>
-                            </div>
-                            <Button
-                              variant="secondary"
-                              className="h-9 rounded-2xl"
-                              onClick={() => toggleVendor(v.id, !v.active)}
-                            >
-                              {v.active ? "Desativar" : "Ativar"}
-                            </Button>
-                          </div>
-                        ))}
-                        {(vendorsQ.data ?? []).length === 0 && (
-                          <div className="rounded-2xl border border-dashed border-slate-200 bg-white/60 p-4 text-xs text-slate-500">
-                            Nenhum vendedor cadastrado.
-                          </div>
-                        )}
+                            {inviting ? "Enviando…" : "Convidar"}
+                          </Button>
+                        </div>
+                      </div>
+
+                      <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-3 text-[11px] text-slate-600">
+                        O convite vai por email do Supabase. O usuário entra e já cai com permissão no tenant.
                       </div>
                     </div>
 
                     <div className="rounded-[22px] border border-slate-200 bg-white p-4">
-                      <div className="text-sm font-semibold text-slate-900">Líderes</div>
-                      <div className="mt-1 text-xs text-slate-500">
-                        Recebem escalonamento quando pendência do vendedor estoura SLA.
+                      <div className="flex items-center justify-between">
+                        <div className="text-sm font-semibold text-slate-900">Usuários do tenant</div>
+                        <div className="text-xs text-slate-500">{usersQ.data?.length ?? 0}</div>
                       </div>
 
-                      <div className="mt-4 grid gap-3">
-                        <div>
-                          <Label className="text-xs">Telefone (E.164)</Label>
-                          <Input
-                            value={leaderPhone}
-                            onChange={(e) => setLeaderPhone(e.target.value)}
-                            className="mt-1 rounded-2xl"
-                            placeholder="+5511999990000"
-                          />
-                        </div>
-                        <div>
-                          <Label className="text-xs">Nome (opcional)</Label>
-                          <Input
-                            value={leaderName}
-                            onChange={(e) => setLeaderName(e.target.value)}
-                            className="mt-1 rounded-2xl"
-                            placeholder="Ex: Maria"
-                          />
-                        </div>
-                        <Button
-                          onClick={addLeader}
-                          disabled={savingLeader || leaderPhone.trim().length < 8}
-                          className="h-11 rounded-2xl bg-[hsl(var(--byfrost-accent))] text-white hover:bg-[hsl(var(--byfrost-accent)/0.92)]"
-                        >
-                          {savingLeader ? "Salvando…" : "Cadastrar líder"}
-                        </Button>
-                      </div>
-
-                      <div className="mt-4 space-y-2">
-                        {(leadersQ.data ?? []).map((l: any) => (
-                          <div
-                            key={l.id}
-                            className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2"
-                          >
-                            <div className="min-w-0">
-                              <div className="truncate text-sm font-semibold text-slate-900">
-                                {l.display_name ?? "(sem nome)"}
+                      <div className="mt-3 grid gap-2">
+                        {(usersQ.data ?? []).map((u) => (
+                          <div key={u.user_id} className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                            <div className="grid gap-2 lg:grid-cols-[1.1fr_1fr_0.8fr_0.6fr_auto]">
+                              <div>
+                                <Label className="text-[11px]">Nome</Label>
+                                <Input
+                                  defaultValue={u.display_name ?? ""}
+                                  className="mt-1 h-10 rounded-2xl bg-white"
+                                  onBlur={(e) => {
+                                    const v = e.target.value.trim() || null;
+                                    if (v === (u.display_name ?? null)) return;
+                                    updateUserProfile(u, { display_name: v } as any);
+                                  }}
+                                />
                               </div>
-                              <div className="mt-0.5 truncate text-xs text-slate-500">{l.phone_e164}</div>
+                              <div>
+                                <Label className="text-[11px]">Email</Label>
+                                <Input
+                                  defaultValue={u.email ?? ""}
+                                  className="mt-1 h-10 rounded-2xl bg-white"
+                                  onBlur={(e) => {
+                                    const v = e.target.value.trim().toLowerCase() || null;
+                                    if (v === (u.email ?? null)) return;
+                                    updateUserProfile(u, { email: v } as any);
+                                  }}
+                                />
+                              </div>
+                              <div>
+                                <Label className="text-[11px]">WhatsApp</Label>
+                                <Input
+                                  defaultValue={u.phone_e164 ?? ""}
+                                  className="mt-1 h-10 rounded-2xl bg-white"
+                                  onBlur={(e) => {
+                                    const v = normalizePhoneLoose(e.target.value);
+                                    const next = v || null;
+                                    if (next === (u.phone_e164 ?? null)) return;
+                                    updateUserProfile(u, { phone_e164: next } as any);
+                                  }}
+                                />
+                              </div>
+                              <div>
+                                <Label className="text-[11px]">Cargo</Label>
+                                <Select
+                                  value={u.role}
+                                  onValueChange={(v) => {
+                                    if (v === u.role) return;
+                                    updateUserProfile(u, { role: v as any } as any);
+                                  }}
+                                >
+                                  <SelectTrigger className="mt-1 h-10 rounded-2xl bg-white">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent className="rounded-2xl">
+                                    {(["admin", "manager", "supervisor", "leader", "vendor"] as UserRole[]).map((r) => (
+                                      <SelectItem key={r} value={r} className="rounded-xl">
+                                        {roleLabel(r)}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                              <div className="flex items-end justify-end">
+                                <div className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-[11px] text-slate-600">
+                                  id: <span className="font-medium text-slate-900">{u.user_id.slice(0, 8)}…</span>
+                                </div>
+                              </div>
                             </div>
-                            <Button
-                              variant="secondary"
-                              className="h-9 rounded-2xl"
-                              onClick={() => toggleLeader(l.id, !l.active)}
-                            >
-                              {l.active ? "Desativar" : "Ativar"}
-                            </Button>
+
+                            <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
+                              <Badge className="rounded-full border-0 bg-slate-100 text-slate-700 hover:bg-slate-100">
+                                {roleLabel(u.role)}
+                              </Badge>
+                              <span>criado em {fmtTs(u.created_at)}</span>
+                            </div>
                           </div>
                         ))}
-                        {(leadersQ.data ?? []).length === 0 && (
+
+                        {(usersQ.data ?? []).length === 0 && (
                           <div className="rounded-2xl border border-dashed border-slate-200 bg-white/60 p-4 text-xs text-slate-500">
-                            Nenhum líder cadastrado.
+                            Nenhum usuário cadastrado para este tenant.
                           </div>
                         )}
                       </div>
@@ -917,73 +974,68 @@ export default function Admin() {
                   <div className="grid gap-4">
                     <div className="grid gap-4 lg:grid-cols-[0.95fr_1.05fr]">
                       <div className="rounded-[22px] border border-slate-200 bg-white p-4">
-                        <div className="text-sm font-semibold text-slate-900">Cadastrar instância</div>
+                        <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+                          <Smartphone className="h-4 w-4 text-slate-500" /> Cadastrar instância
+                        </div>
                         <div className="mt-1 text-xs text-slate-500">
-                          Defina a jornada padrão para onde o webhook vai rotear mensagens inbound.
+                          A instância fica atrelada à jornada (roteamento inbound) e pode ser atribuída a um usuário do painel.
                         </div>
 
                         <div className="mt-4 grid gap-3">
                           <div>
                             <Label className="text-xs">Nome</Label>
-                            <Input
-                              value={instName}
-                              onChange={(e) => setInstName(e.target.value)}
-                              className="mt-1 rounded-2xl"
-                            />
+                            <Input value={instName} onChange={(e) => setInstName(e.target.value)} className="mt-1 rounded-2xl" />
                           </div>
                           <div>
                             <Label className="text-xs">Phone number (opcional)</Label>
-                            <Input
-                              value={instPhone}
-                              onChange={(e) => setInstPhone(e.target.value)}
-                              className="mt-1 rounded-2xl"
-                              placeholder="+5511888888888"
-                            />
+                            <Input value={instPhone} onChange={(e) => setInstPhone(e.target.value)} className="mt-1 rounded-2xl" placeholder="+5511888888888" />
                           </div>
                           <div>
                             <Label className="text-xs">Z-API instance id</Label>
-                            <Input
-                              value={instZapiId}
-                              onChange={(e) => setInstZapiId(e.target.value)}
-                              className="mt-1 rounded-2xl"
-                              placeholder="abc123"
-                            />
+                            <Input value={instZapiId} onChange={(e) => setInstZapiId(e.target.value)} className="mt-1 rounded-2xl" placeholder="abc123" />
                           </div>
                           <div>
                             <Label className="text-xs">Z-API token</Label>
-                            <Input
-                              value={instToken}
-                              onChange={(e) => setInstToken(e.target.value)}
-                              className="mt-1 rounded-2xl"
-                              placeholder="token"
-                            />
+                            <Input value={instToken} onChange={(e) => setInstToken(e.target.value)} className="mt-1 rounded-2xl" placeholder="token" />
                           </div>
                           <div>
                             <Label className="text-xs">Webhook secret</Label>
-                            <Input
-                              value={instSecret}
-                              onChange={(e) => setInstSecret(e.target.value)}
-                              className="mt-1 rounded-2xl"
-                              placeholder="secreto (ou deixe vazio para gerar)"
-                            />
+                            <Input value={instSecret} onChange={(e) => setInstSecret(e.target.value)} className="mt-1 rounded-2xl" placeholder="secreto (ou deixe vazio para gerar)" />
                           </div>
 
-                          <div>
-                            <Label className="text-xs">Jornada padrão (inbound)</Label>
-                            <select
-                              value={instJourneyId}
-                              onChange={(e) => setInstJourneyId(e.target.value)}
-                              className="mt-1 h-10 w-full rounded-2xl border border-slate-200 bg-white px-3 text-sm text-slate-700 shadow-sm focus:border-[hsl(var(--byfrost-accent)/0.45)] outline-none"
-                            >
-                              <option value="">(fallback)</option>
-                              {(tenantJourneysQ.data ?? []).map((j) => (
-                                <option key={j.id} value={j.id}>
-                                  {j.name}
-                                </option>
-                              ))}
-                            </select>
-                            <div className="mt-1 text-[11px] text-slate-500">
-                              Se vazio, o webhook tenta usar a primeira jornada habilitada do tenant; se não existir, usa sales_order.
+                          <div className="grid gap-3 lg:grid-cols-2">
+                            <div>
+                              <Label className="text-xs">Jornada padrão (inbound)</Label>
+                              <select
+                                value={instJourneyId}
+                                onChange={(e) => setInstJourneyId(e.target.value)}
+                                className="mt-1 h-10 w-full rounded-2xl border border-slate-200 bg-white px-3 text-sm text-slate-700 shadow-sm focus:border-[hsl(var(--byfrost-accent)/0.45)] outline-none"
+                              >
+                                <option value="">(fallback)</option>
+                                {(tenantJourneysQ.data ?? []).map((j) => (
+                                  <option key={j.id} value={j.id}>
+                                    {j.name}
+                                  </option>
+                                ))}
+                              </select>
+                              <div className="mt-1 text-[11px] text-slate-500">Define em qual fluxo cada conversa/caso será criado.</div>
+                            </div>
+
+                            <div>
+                              <Label className="text-xs">Usuário responsável (painel)</Label>
+                              <select
+                                value={instAssignedUserId}
+                                onChange={(e) => setInstAssignedUserId(e.target.value)}
+                                className="mt-1 h-10 w-full rounded-2xl border border-slate-200 bg-white px-3 text-sm text-slate-700 shadow-sm focus:border-[hsl(var(--byfrost-accent)/0.45)] outline-none"
+                              >
+                                <option value="">(sem atribuição)</option>
+                                {userOptions.map((u) => (
+                                  <option key={u.id} value={u.id}>
+                                    {u.label} • {roleLabel(u.role as any)}
+                                  </option>
+                                ))}
+                              </select>
+                              <div className="mt-1 text-[11px] text-slate-500">Ao enviar mensagens pelo painel, essa instância será priorizada para o usuário.</div>
                             </div>
                           </div>
 
@@ -1005,38 +1057,32 @@ export default function Admin() {
 
                         <div className="mt-3">
                           <Accordion type="multiple" defaultValue={[]} className="space-y-2">
-                            {(instancesQ.data ?? []).map((i: any) => {
+                            {(instancesQ.data ?? []).map((i) => {
                               const pathUrl = `https://pryoirzeghatrgecwrci.supabase.co/functions/v1/webhooks-zapi-inbound/${encodeURIComponent(
-                                i.zapi_instance_id
+                                i.zapi_instance_id ?? ""
                               )}/${encodeURIComponent(i.webhook_secret)}`;
                               const inboundUrl = `${pathUrl}?dir=inbound`;
                               const outboundUrl = `${pathUrl}?dir=outbound`;
                               const isActive = i.status === "active";
                               const isPaused = i.status === "paused";
                               const isDisabled = i.status === "disabled";
+                              const assignee = i.assigned_user_id ? userById.get(i.assigned_user_id) : null;
 
                               return (
-                                <AccordionItem
-                                  key={i.id}
-                                  value={i.id}
-                                  className="rounded-2xl border border-slate-200 bg-slate-50 px-3"
-                                >
+                                <AccordionItem key={i.id} value={i.id} className="rounded-2xl border border-slate-200 bg-slate-50 px-3">
                                   <AccordionTrigger className="py-3 hover:no-underline">
                                     <div className="flex w-full items-start justify-between gap-3 pr-2">
                                       <div className="min-w-0">
                                         <div className="truncate text-sm font-semibold text-slate-900">{i.name}</div>
-                                        <div className="mt-0.5 truncate text-xs text-slate-500">
-                                          zapi_instance_id: {i.zapi_instance_id}
+                                        <div className="mt-0.5 truncate text-xs text-slate-500">zapi_instance_id: {i.zapi_instance_id}</div>
+                                        <div className="mt-0.5 truncate text-[11px] text-slate-500">
+                                          responsável: <span className="font-medium text-slate-700">{assignee?.label ?? "(não definido)"}</span>
                                         </div>
                                       </div>
                                       <Badge
                                         className={cn(
                                           "mt-0.5 rounded-full border-0",
-                                          isActive
-                                            ? "bg-emerald-100 text-emerald-900"
-                                            : isPaused
-                                              ? "bg-amber-100 text-amber-900"
-                                              : "bg-slate-200 text-slate-800"
+                                          isActive ? "bg-emerald-100 text-emerald-900" : isPaused ? "bg-amber-100 text-amber-900" : "bg-slate-200 text-slate-800"
                                         )}
                                       >
                                         {isActive ? "ativo" : isPaused ? "inativo" : i.status}
@@ -1048,9 +1094,7 @@ export default function Admin() {
                                     <div className="flex items-center justify-between gap-2 rounded-2xl border border-slate-200 bg-white/70 p-2">
                                       <div className="min-w-0">
                                         <div className="text-[11px] font-semibold text-slate-700">webhook_secret</div>
-                                        <div className="mt-0.5 truncate text-[11px] text-slate-600">
-                                          {i.webhook_secret}
-                                        </div>
+                                        <div className="mt-0.5 truncate text-[11px] text-slate-600">{i.webhook_secret}</div>
                                       </div>
 
                                       <div className="flex items-center gap-2">
@@ -1064,16 +1108,10 @@ export default function Admin() {
                                                 : "border border-emerald-200 bg-emerald-50 text-emerald-900 hover:bg-emerald-100"
                                             )}
                                             disabled={Boolean(updatingInstanceId) || deletingInstanceId === i.id}
-                                            onClick={() =>
-                                              setInstanceStatus(i.id, isActive ? "paused" : "active")
-                                            }
+                                            onClick={() => setInstanceStatus(i.id, isActive ? "paused" : "active")}
                                             title={isActive ? "Inativar instância" : "Ativar instância"}
                                           >
-                                            {isActive ? (
-                                              <PauseCircle className="h-4 w-4" />
-                                            ) : (
-                                              <PlayCircle className="h-4 w-4" />
-                                            )}
+                                            {isActive ? <PauseCircle className="h-4 w-4" /> : <PlayCircle className="h-4 w-4" />}
                                           </Button>
                                         )}
 
@@ -1112,44 +1150,53 @@ export default function Admin() {
                                     <div className="mt-3 grid gap-2 sm:grid-cols-2">
                                       <div className="rounded-2xl border border-slate-200 bg-white/70 p-2">
                                         <div className="text-[11px] font-semibold text-slate-700">Z-API: Ao receber</div>
-                                        <div className="mt-1 rounded-xl bg-slate-50 px-2 py-1 text-[11px] text-slate-700 break-all">
-                                          {inboundUrl}
-                                        </div>
+                                        <div className="mt-1 rounded-xl bg-slate-50 px-2 py-1 text-[11px] text-slate-700 break-all">{inboundUrl}</div>
                                         <div className="mt-1 text-[11px] text-slate-500">
-                                          Garante que o evento seja tratado como{" "}
-                                          <span className="font-medium">inbound</span>.
+                                          Garante que o evento seja tratado como <span className="font-medium">inbound</span>.
                                         </div>
                                       </div>
                                       <div className="rounded-2xl border border-slate-200 bg-white/70 p-2">
                                         <div className="text-[11px] font-semibold text-slate-700">Z-API: Ao enviar</div>
-                                        <div className="mt-1 rounded-xl bg-slate-50 px-2 py-1 text-[11px] text-slate-700 break-all">
-                                          {outboundUrl}
-                                        </div>
+                                        <div className="mt-1 rounded-xl bg-slate-50 px-2 py-1 text-[11px] text-slate-700 break-all">{outboundUrl}</div>
                                         <div className="mt-1 text-[11px] text-slate-500">
-                                          Garante que o evento seja tratado como{" "}
-                                          <span className="font-medium">outbound</span>.
+                                          Garante que o evento seja tratado como <span className="font-medium">outbound</span>.
                                         </div>
                                       </div>
                                     </div>
 
-                                    <div className="mt-3 rounded-2xl border border-slate-200 bg-white/70 p-2">
-                                      <div className="text-[11px] font-semibold text-slate-700">Roteamento inbound</div>
-                                      <select
-                                        value={i.default_journey_id ?? ""}
-                                        onChange={(e) =>
-                                          setInstanceJourney(i.id, e.target.value ? e.target.value : null)
-                                        }
-                                        className="mt-1 h-9 w-full rounded-xl border border-slate-200 bg-white px-2 text-sm text-slate-700 outline-none focus:border-[hsl(var(--byfrost-accent)/0.45)]"
-                                      >
-                                        <option value="">(fallback)</option>
-                                        {(tenantJourneysQ.data ?? []).map((j) => (
-                                          <option key={j.id} value={j.id}>
-                                            {j.name}
-                                          </option>
-                                        ))}
-                                      </select>
-                                      <div className="mt-1 text-[11px] text-slate-500">
-                                        Define em qual jornada cada nova conversa/caso será criado.
+                                    <div className="mt-3 grid gap-2 lg:grid-cols-2">
+                                      <div className="rounded-2xl border border-slate-200 bg-white/70 p-2">
+                                        <div className="text-[11px] font-semibold text-slate-700">Roteamento inbound</div>
+                                        <select
+                                          value={i.default_journey_id ?? ""}
+                                          onChange={(e) => setInstanceJourney(i.id, e.target.value ? e.target.value : null)}
+                                          className="mt-1 h-9 w-full rounded-xl border border-slate-200 bg-white px-2 text-sm text-slate-700 outline-none focus:border-[hsl(var(--byfrost-accent)/0.45)]"
+                                        >
+                                          <option value="">(fallback)</option>
+                                          {(tenantJourneysQ.data ?? []).map((j) => (
+                                            <option key={j.id} value={j.id}>
+                                              {j.name}
+                                            </option>
+                                          ))}
+                                        </select>
+                                        <div className="mt-1 text-[11px] text-slate-500">Define em qual jornada cada conversa/caso será criado.</div>
+                                      </div>
+
+                                      <div className="rounded-2xl border border-slate-200 bg-white/70 p-2">
+                                        <div className="text-[11px] font-semibold text-slate-700">Usuário responsável</div>
+                                        <select
+                                          value={i.assigned_user_id ?? ""}
+                                          onChange={(e) => setInstanceAssignee(i.id, e.target.value ? e.target.value : null)}
+                                          className="mt-1 h-9 w-full rounded-xl border border-slate-200 bg-white px-2 text-sm text-slate-700 outline-none focus:border-[hsl(var(--byfrost-accent)/0.45)]"
+                                        >
+                                          <option value="">(sem atribuição)</option>
+                                          {userOptions.map((u) => (
+                                            <option key={u.id} value={u.id}>
+                                              {u.label} • {roleLabel(u.role as any)}
+                                            </option>
+                                          ))}
+                                        </select>
+                                        <div className="mt-1 text-[11px] text-slate-500">Usado como prioridade na hora de enviar mensagens via painel.</div>
                                       </div>
                                     </div>
                                   </AccordionContent>
@@ -1159,9 +1206,7 @@ export default function Admin() {
                           </Accordion>
 
                           {(instancesQ.data ?? []).length === 0 && (
-                            <div className="rounded-2xl border border-dashed border-slate-200 bg-white/60 p-4 text-xs text-slate-500">
-                              Nenhuma instância cadastrada.
-                            </div>
+                            <div className="rounded-2xl border border-dashed border-slate-200 bg-white/60 p-4 text-xs text-slate-500">Nenhuma instância cadastrada.</div>
                           )}
                         </div>
                       </div>
@@ -1188,7 +1233,7 @@ export default function Admin() {
                               className="mt-1 h-9 w-full min-w-[260px] rounded-xl border border-slate-200 bg-white px-2 text-sm text-slate-700 outline-none focus:border-[hsl(var(--byfrost-accent)/0.45)]"
                             >
                               <option value="">(todas)</option>
-                              {(instancesQ.data ?? []).map((i: any) => (
+                              {(instancesQ.data ?? []).map((i) => (
                                 <option key={i.id} value={i.id}>
                                   {i.name}
                                 </option>
@@ -1212,9 +1257,7 @@ export default function Admin() {
 
                       <div className="mt-4 grid gap-4 lg:grid-cols-2">
                         <div className="overflow-hidden rounded-[18px] border border-slate-200">
-                          <div className="bg-slate-50 px-3 py-2 text-[11px] font-semibold text-slate-700">
-                            wa_messages (armazenamento)
-                          </div>
+                          <div className="bg-slate-50 px-3 py-2 text-[11px] font-semibold text-slate-700">wa_messages (armazenamento)</div>
                           <div className="grid grid-cols-[140px_96px_110px_1fr] gap-0 bg-slate-50/60 px-3 py-2 text-[11px] font-semibold text-slate-600">
                             <div>Quando</div>
                             <div>Direção</div>
@@ -1238,10 +1281,7 @@ export default function Admin() {
                               const j = (c as any)?.journeys;
 
                               return (
-                                <div
-                                  key={m.id}
-                                  className="grid grid-cols-[140px_96px_110px_1fr] items-start gap-0 px-3 py-2"
-                                >
+                                <div key={m.id} className="grid grid-cols-[140px_96px_110px_1fr] items-start gap-0 px-3 py-2">
                                   <div className="text-[11px] text-slate-600">
                                     <div className="font-medium text-slate-900">{fmtTs(m.occurred_at)}</div>
                                     <div className="mt-0.5 text-slate-500 truncate">{inst?.name ?? "—"}</div>
@@ -1251,9 +1291,7 @@ export default function Admin() {
                                     <Badge
                                       className={cn(
                                         "rounded-full border-0",
-                                        m.direction === "inbound"
-                                          ? "bg-indigo-100 text-indigo-900 hover:bg-indigo-100"
-                                          : "bg-emerald-100 text-emerald-900 hover:bg-emerald-100"
+                                        m.direction === "inbound" ? "bg-indigo-100 text-indigo-900" : "bg-emerald-100 text-emerald-900"
                                       )}
                                     >
                                       {m.direction}
@@ -1261,9 +1299,7 @@ export default function Admin() {
                                   </div>
 
                                   <div className="pt-0.5">
-                                    <Badge className="rounded-full border-0 bg-slate-100 text-slate-700 hover:bg-slate-100">
-                                      {m.type}
-                                    </Badge>
+                                    <Badge className="rounded-full border-0 bg-slate-100 text-slate-700">{m.type}</Badge>
                                   </div>
 
                                   <div className="min-w-0">
@@ -1280,32 +1316,21 @@ export default function Admin() {
                             })}
 
                             {waRecentQ.isError && (
-                              <div className="px-3 py-3 text-sm text-rose-700">
-                                Erro ao carregar wa_messages: {(waRecentQ.error as any)?.message ?? ""}
-                              </div>
+                              <div className="px-3 py-3 text-sm text-rose-700">Erro ao carregar wa_messages: {(waRecentQ.error as any)?.message ?? ""}</div>
                             )}
 
                             {(waRecentQ.data?.rows ?? []).length === 0 && !waRecentQ.isError && (
-                              <div className="px-3 py-6 text-center text-sm text-slate-500">
-                                Nenhum evento ainda.
-                              </div>
+                              <div className="px-3 py-6 text-center text-sm text-slate-500">Nenhum evento ainda.</div>
                             )}
                           </div>
 
                           <div className="p-3">
-                            <PaginationControls
-                              page={waMessagesPage}
-                              pageSize={MONITOR_PAGE_SIZE}
-                              count={waRecentQ.data?.count ?? 0}
-                              onPage={setWaMessagesPage}
-                            />
+                            <PaginationControls page={waMessagesPage} pageSize={MONITOR_PAGE_SIZE} count={waRecentQ.data?.count ?? 0} onPage={setWaMessagesPage} />
                           </div>
                         </div>
 
                         <div className="overflow-hidden rounded-[18px] border border-slate-200">
-                          <div className="bg-slate-50 px-3 py-2 text-[11px] font-semibold text-slate-700">
-                            wa_webhook_inbox (diagnóstico do roteamento)
-                          </div>
+                          <div className="bg-slate-50 px-3 py-2 text-[11px] font-semibold text-slate-700">wa_webhook_inbox (diagnóstico do roteamento)</div>
                           <div className="grid grid-cols-[120px_70px_90px_1fr] gap-0 bg-slate-50/60 px-3 py-2 text-[11px] font-semibold text-slate-600">
                             <div>Quando</div>
                             <div>OK</div>
@@ -1321,30 +1346,20 @@ export default function Admin() {
                               const reason = it.reason ? String(it.reason) : "";
 
                               return (
-                                <div
-                                  key={it.id}
-                                  className="grid grid-cols-[120px_70px_90px_1fr] items-start gap-0 px-3 py-2"
-                                >
+                                <div key={it.id} className="grid grid-cols-[120px_70px_90px_1fr] items-start gap-0 px-3 py-2">
                                   <div className="text-[11px] text-slate-600">
                                     <div className="font-medium text-slate-900">{fmtTs(it.received_at)}</div>
                                     <div className="mt-0.5 text-slate-500 truncate">{it.http_status ?? ""}</div>
                                   </div>
 
                                   <div className="pt-0.5">
-                                    <Badge
-                                      className={cn(
-                                        "rounded-full border-0",
-                                        it.ok ? "bg-emerald-100 text-emerald-900" : "bg-rose-100 text-rose-900"
-                                      )}
-                                    >
+                                    <Badge className={cn("rounded-full border-0", it.ok ? "bg-emerald-100 text-emerald-900" : "bg-rose-100 text-rose-900")}>
                                       {it.ok ? "ok" : "fail"}
                                     </Badge>
                                   </div>
 
                                   <div className="pt-0.5">
-                                    <Badge className="rounded-full border-0 bg-slate-100 text-slate-700">
-                                      {it.wa_type ?? "—"}
-                                    </Badge>
+                                    <Badge className="rounded-full border-0 bg-slate-100 text-slate-700">{it.wa_type ?? "—"}</Badge>
                                   </div>
 
                                   <div className="min-w-0">
@@ -1352,34 +1367,23 @@ export default function Admin() {
                                       {cid ? `case ${cid.slice(0, 8)}…` : "sem case"}
                                       {j?.key ? ` • ${j.key}` : ""}
                                     </div>
-                                    <div className="mt-0.5 text-[11px] text-slate-500 truncate">
-                                      {reason ? `motivo: ${reason}` : ""}
-                                    </div>
+                                    <div className="mt-0.5 text-[11px] text-slate-500 truncate">{reason ? `motivo: ${reason}` : ""}</div>
                                   </div>
                                 </div>
                               );
                             })}
 
                             {waInboxQ.isError && (
-                              <div className="px-3 py-3 text-sm text-rose-700">
-                                Erro ao carregar wa_webhook_inbox: {(waInboxQ.error as any)?.message ?? ""}
-                              </div>
+                              <div className="px-3 py-3 text-sm text-rose-700">Erro ao carregar wa_webhook_inbox: {(waInboxQ.error as any)?.message ?? ""}</div>
                             )}
 
                             {(waInboxQ.data?.rows ?? []).length === 0 && !waInboxQ.isError && (
-                              <div className="px-3 py-6 text-center text-sm text-slate-500">
-                                Nenhum diagnóstico ainda.
-                              </div>
+                              <div className="px-3 py-6 text-center text-sm text-slate-500">Nenhum diagnóstico ainda.</div>
                             )}
                           </div>
 
                           <div className="p-3">
-                            <PaginationControls
-                              page={waInboxPage}
-                              pageSize={MONITOR_PAGE_SIZE}
-                              count={waInboxQ.data?.count ?? 0}
-                              onPage={setWaInboxPage}
-                            />
+                            <PaginationControls page={waInboxPage} pageSize={MONITOR_PAGE_SIZE} count={waInboxQ.data?.count ?? 0} onPage={setWaInboxPage} />
                           </div>
                         </div>
                       </div>

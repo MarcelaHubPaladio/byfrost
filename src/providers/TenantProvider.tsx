@@ -2,12 +2,14 @@ import React, { createContext, useContext, useEffect, useMemo, useState } from "
 import { supabase } from "@/lib/supabase";
 import { useSession } from "@/providers/SessionProvider";
 
+type TenantRole = "admin" | "supervisor" | "manager" | "vendor" | "leader";
+
 type TenantInfo = {
   id: string;
   name: string;
   slug: string;
   branding_json?: any;
-  role: "admin" | "supervisor" | "manager";
+  role: TenantRole;
 };
 
 type TenantState = {
@@ -111,7 +113,7 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
         name: row.tenants?.name ?? "Tenant",
         slug: row.tenants?.slug ?? "tenant",
         branding_json: row.tenants?.branding_json ?? {},
-        role: row.role,
+        role: row.role as TenantRole,
       }))
       .filter((t: any) => Boolean(t.id));
 

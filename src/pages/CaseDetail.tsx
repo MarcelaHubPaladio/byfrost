@@ -383,7 +383,20 @@ export default function CaseDetail() {
           occurred_at: new Date().toISOString(),
         });
       } else {
-        const { data: inst } = await supabase
+        // Prefer instance assigned to this user (if configured)
+        const instAssigned = user?.id
+          ? await supabase
+              .from("wa_instances")
+              .select("id, phone_number")
+              .eq("tenant_id", activeTenantId)
+              .eq("status", "active")
+              .eq("assigned_user_id", user.id)
+              .order("created_at", { ascending: true })
+              .limit(1)
+              .maybeSingle()
+          : null;
+
+        const { data: inst } = (instAssigned && (instAssigned as any).data) ? (instAssigned as any) : await supabase
           .from("wa_instances")
           .select("id, phone_number")
           .eq("tenant_id", activeTenantId)

@@ -1,0 +1,150 @@
+import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
+import { corsHeaders } from "../_shared/cors.ts";
+import { createSupabaseAdmin } from "../_shared/supabaseAdmin.ts";
+
+type Role = "admin" | "supervisor" | "manager" | "vendor" | "leader";
+
+function normalizePhone(v: any): string | null {
+  const s = String(v ?? "").trim();
+  if (!s) return null;
+  if (s.startsWith("+")) return s;
+  const digits = s.replace(/\D/g, "");
+  return digits ? `+${digits}` : null;
+}
+
+serve(async (req) => {
+  const fn = "admin-invite-user";
+
+  try {
+    if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+    if (req.method !== "POST") return new Response("Method not allowed", { status: 405, headers: corsHeaders });
+
+    // Manual auth handling (verify_jwt is false)
+    const authHeader = req.headers.get("Authorization") ?? "";
+    const token = authHeader.toLowerCase().startsWith("bearer ") ? authHeader.slice(7) : "";
+    if (!token) {
+      return new Response(JSON.stringify({ ok: false, error: "Unauthorized" }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const supabase = createSupabaseAdmin();
+
+    const { data: authData, error: authErr } = await supabase.auth.getUser(token);
+    if (authErr || !authData?.user) {
+      console.error(`[${fn}] auth.getUser failed`, { authErr });
+      return new Response(JSON.stringify({ ok: false, error: "Unauthorized" }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const caller = authData.user;
+    const isSuperAdmin = Boolean(
+      (caller.app_metadata as any)?.byfrost_super_admin || (caller.app_metadata as any)?.super_admin
+    );
+
+    if (!isSuperAdmin) {
+      return new Response(JSON.stringify({ ok: false, error: "Forbidden" }), {
+        status: 403,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const body = await req.json().catch(() => null);
+    if (!body) {
+      return new Response(JSON.stringify({ ok: false, error: "Invalid JSON" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const tenantId = String(body.tenantId ?? "").trim();
+    const email = String(body.email ?? "").trim().toLowerCase();
+    const role = String(body.role ?? "").trim() as Role;
+    const displayName = String(body.displayName ?? "").trim() || null;
+    const phoneE164 = normalizePhone(body.phoneE164);
+
+    const allowedRoles: Role[] = ["admin", "supervisor", "manager", "vendor", "leader"];
+
+    if (!tenantId || !email || !allowedRoles.includes(role)) {
+      return new Response(JSON.stringify({ ok: false, error: "Missing tenantId/email/role" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const { data: invited, error: inviteErr } = await supabase.auth.admin.inviteUserByEmail(email);
+    if (inviteErr || !invited?.user) {
+      console.error(`[${fn}] inviteUserByEmail failed`, { inviteErr });
+      return new Response(JSON.stringify({ ok: false, error: inviteErr?.message ?? "Invite failed" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const userId = invited.user.id;
+
+    const { error: profErr } = await supabase
+      .from("users_profile")
+      .upsert(
+        {
+          user_id: userId,
+          tenant_id: tenantId,
+          role,
+          display_name: displayName,
+          phone_e164: phoneE164,
+          email,
+          deleted_at: null,
+        } as any,
+        { onConflict: "user_id,tenant_id" }
+      );
+
+    if (profErr) {
+      console.error(`[${fn}] users_profile upsert failed`, { profErr });
+      return new Response(JSON.stringify({ ok: false, error: profErr.message }), {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Back-compat: keep vendors/leaders tables in sync when role is vendor/leader.
+    if (phoneE164 && (role === "vendor" || role === "leader")) {
+      const table = role === "vendor" ? "vendors" : "leaders";
+      const payload =
+        role === "vendor"
+          ? {
+              tenant_id: tenantId,
+              phone_e164: phoneE164,
+              display_name: displayName,
+              active: true,
+              deleted_at: null,
+            }
+          : {
+              tenant_id: tenantId,
+              phone_e164: phoneE164,
+              display_name: displayName,
+              active: true,
+              deleted_at: null,
+            };
+
+      const { error: upErr } = await supabase
+        .from(table)
+        .upsert(payload as any, { onConflict: "tenant_id,phone_e164" });
+
+      if (upErr) {
+        console.warn(`[${fn}] ${table} upsert failed (ignored)`, { upErr });
+      }
+    }
+
+    console.log(`[${fn}] invited user`, { tenantId, userId, role, email });
+
+    return new Response(JSON.stringify({ ok: true, userId }), {
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  } catch (e) {
+    console.error(`[admin-invite-user] Unhandled error`, { e });
+    return new Response("Internal error", { status: 500, headers: corsHeaders });
+  }
+});

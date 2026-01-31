@@ -203,10 +203,26 @@ export function WhatsAppConversation({ caseId, className }: { caseId: string; cl
   const counterpartRoleLabel = senderIsVendor ? "vendedor" : "cliente";
 
   const instanceQ = useQuery({
-    queryKey: ["wa_instance_active_first", activeTenantId],
+    queryKey: ["wa_instance_active_for_user", activeTenantId, user?.id],
     enabled: Boolean(activeTenantId),
     staleTime: 30_000,
     queryFn: async () => {
+      // Prefer a WhatsApp instance explicitly assigned to this user.
+      if (user?.id) {
+        const { data, error } = await supabase
+          .from("wa_instances")
+          .select("id,phone_number")
+          .eq("tenant_id", activeTenantId!)
+          .eq("status", "active")
+          .eq("assigned_user_id", user.id)
+          .order("created_at", { ascending: true })
+          .limit(1)
+          .maybeSingle();
+        if (error) throw error;
+        if (data?.id) return data as WaInstanceRow;
+      }
+
+      // Fallback: first active instance of the tenant.
       const { data, error } = await supabase
         .from("wa_instances")
         .select("id,phone_number")

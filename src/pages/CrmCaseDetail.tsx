@@ -10,6 +10,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -44,7 +51,7 @@ type CaseRow = {
   meta_json?: any;
   is_chat?: boolean;
   vendors?: { display_name: string | null; phone_e164: string | null } | null;
-  journeys?: { key: string | null; name: string | null; is_crm?: boolean } | null;
+  journeys?: { key: string | null; name: string | null; is_crm?: boolean; default_state_machine_json?: any } | null;
 };
 
 function getMetaPhone(meta: any): string | null {
@@ -85,6 +92,7 @@ export default function CrmCaseDetail() {
   const [chatOnly, setChatOnly] = useState(false);
   const [updatingChatOnly, setUpdatingChatOnly] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [updatingState, setUpdatingState] = useState(false);
 
   const caseQ = useQuery({
     queryKey: ["case", activeTenantId, id],
@@ -93,7 +101,7 @@ export default function CrmCaseDetail() {
       const { data, error } = await supabase
         .from("cases")
         .select(
-          "id,tenant_id,customer_id,title,status,state,created_at,updated_at,assigned_vendor_id,meta_json,is_chat,vendors:vendors!cases_assigned_vendor_id_fkey(display_name,phone_e164),journeys:journeys!cases_journey_id_fkey(key,name,is_crm)"
+          "id,tenant_id,customer_id,title,status,state,created_at,updated_at,assigned_vendor_id,meta_json,is_chat,vendors:vendors!cases_assigned_vendor_id_fkey(display_name,phone_e164),journeys:journeys!cases_journey_id_fkey(key,name,is_crm,default_state_machine_json)"
         )
         .eq("tenant_id", activeTenantId!)
         .eq("id", id!)
@@ -189,6 +197,44 @@ export default function CrmCaseDetail() {
       showError(`Falha ao excluir: ${e?.message ?? "erro"}`);
     } finally {
       setDeleting(false);
+    }
+  };
+
+  const states = useMemo(() => {
+    const st = (caseQ.data?.journeys as any)?.default_state_machine_json?.states;
+    const arr = Array.isArray(st) ? st.map((x: any) => String(x)).filter(Boolean) : [];
+    const fallback = caseQ.data?.state ? [caseQ.data.state] : [];
+    return Array.from(new Set([...(arr.length ? arr : fallback)]));
+  }, [caseQ.data?.journeys, caseQ.data?.state]);
+
+  const updateState = async (next: string) => {
+    if (!activeTenantId || !id) return;
+    if (updatingState) return;
+    const prev = caseQ.data?.state ?? null;
+    if (!next || next === prev) return;
+
+    setUpdatingState(true);
+    try {
+      const { error } = await supabase
+        .from("cases")
+        .update({ state: next })
+        .eq("tenant_id", activeTenantId)
+        .eq("id", id);
+      if (error) throw error;
+
+      // timeline é registrada automaticamente via trigger no banco
+      showSuccess(`Estado atualizado para: ${next}`);
+
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["case", activeTenantId, id] }),
+        qc.invalidateQueries({ queryKey: ["timeline", activeTenantId, id] }),
+        qc.invalidateQueries({ queryKey: ["crm_cases_by_tenant", activeTenantId] }),
+        qc.invalidateQueries({ queryKey: ["cases_by_tenant", activeTenantId] }),
+      ]);
+    } catch (e: any) {
+      showError(`Falha ao atualizar estado: ${e?.message ?? "erro"}`);
+    } finally {
+      setUpdatingState(false);
     }
   };
 
@@ -310,9 +356,23 @@ export default function CrmCaseDetail() {
                 <Badge className="rounded-full border-0 bg-indigo-100 text-indigo-900 hover:bg-indigo-100">
                   CRM
                 </Badge>
-                <Badge className="rounded-full border-0 bg-slate-100 text-slate-700 hover:bg-slate-100">
-                  {c?.state}
-                </Badge>
+
+                <div className="flex items-center gap-2 rounded-full border border-slate-200 bg-white/70 px-2 py-1 shadow-sm">
+                  <span className="text-[11px] font-semibold text-slate-700">Estado</span>
+                  <Select value={c?.state ?? ""} onValueChange={updateState} disabled={!c || updatingState}>
+                    <SelectTrigger className="h-7 w-[180px] rounded-full border-slate-200 bg-white px-3 text-xs">
+                      <SelectValue placeholder="Selecionar…" />
+                    </SelectTrigger>
+                    <SelectContent className="rounded-2xl">
+                      {states.map((s) => (
+                        <SelectItem key={s} value={s} className="rounded-xl">
+                          {s}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
                 <Badge className="rounded-full border-0 bg-[hsl(var(--byfrost-accent)/0.10)] text-[hsl(var(--byfrost-accent))] hover:bg-[hsl(var(--byfrost-accent)/0.10)]">
                   {c?.status}
                 </Badge>

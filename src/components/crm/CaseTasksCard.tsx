@@ -75,7 +75,8 @@ export function CaseTasksCard(props: { tenantId: string; caseId: string }) {
         case_id: props.caseId,
         title: t,
         status: "open",
-        created_by: "panel",
+        // CHECK constraint do banco: created_by in ('system','ai','admin')
+        created_by: "admin",
         meta_json: {},
       });
       if (error) throw error;

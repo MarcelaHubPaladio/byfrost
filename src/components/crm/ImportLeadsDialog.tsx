@@ -749,7 +749,8 @@ export function ImportLeadsDialog({
         customer_id: p.customerId,
         title: p.title,
         is_chat: false,
-        created_by_channel: "crm_import",
+        // NOTE: não setamos created_by_channel aqui para respeitar o CHECK constraint do banco.
+        // O default do banco (ex.: 'whatsapp') será aplicado.
         assigned_vendor_id: p.assignedVendorId,
         state: firstState,
         meta_json: {

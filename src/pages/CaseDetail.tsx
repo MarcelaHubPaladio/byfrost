@@ -9,6 +9,17 @@ import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { WhatsAppConversation } from "@/components/case/WhatsAppConversation";
 import { CaseTimeline, type CaseTimelineEvent } from "@/components/case/CaseTimeline";
 import {
@@ -19,6 +30,7 @@ import {
   ShieldCheck,
   Send,
   MessagesSquare,
+  Trash2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { showError, showSuccess } from "@/utils/toast";
@@ -65,6 +77,7 @@ export default function CaseDetail() {
   const [sending, setSending] = useState(false);
   const [chatOnly, setChatOnly] = useState(false);
   const [updatingChatOnly, setUpdatingChatOnly] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const caseQ = useQuery({
     queryKey: ["case", activeTenantId, id],
@@ -115,6 +128,35 @@ export default function CaseDetail() {
       showError(`Falha ao atualizar: ${e?.message ?? "erro"}`);
     } finally {
       setUpdatingChatOnly(false);
+    }
+  };
+
+  const deleteCase = async () => {
+    if (!activeTenantId || !id) return;
+    if (deleting) return;
+    setDeleting(true);
+    try {
+      const { error } = await supabase
+        .from("cases")
+        .update({ deleted_at: new Date().toISOString() })
+        .eq("tenant_id", activeTenantId)
+        .eq("id", id);
+      if (error) throw error;
+
+      showSuccess("Caso excluído.");
+
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["case", activeTenantId, id] }),
+        qc.invalidateQueries({ queryKey: ["cases_by_tenant", activeTenantId] }),
+        qc.invalidateQueries({ queryKey: ["crm_cases_by_tenant", activeTenantId] }),
+        qc.invalidateQueries({ queryKey: ["chat_cases", activeTenantId] }),
+      ]);
+
+      nav("/app", { replace: true });
+    } catch (e: any) {
+      showError(`Falha ao excluir: ${e?.message ?? "erro"}`);
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -386,6 +428,43 @@ export default function CaseDetail() {
                   ) : null}
                 </div>
               </div>
+
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    className={cn(
+                      "h-11 rounded-2xl border-rose-200 bg-rose-50 text-rose-800 hover:bg-rose-100",
+                      deleting ? "opacity-60" : ""
+                    )}
+                    disabled={!c || deleting}
+                    title="Excluir caso"
+                  >
+                    <Trash2 className="mr-2 h-4 w-4" /> Excluir
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent className="rounded-[22px]">
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Excluir este caso?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      Esta ação remove o caso das listas (Dashboard/CRM/Chat). As mensagens continuam no histórico do banco.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel className="rounded-2xl">Cancelar</AlertDialogCancel>
+                    <AlertDialogAction
+                      className="rounded-2xl bg-rose-600 text-white hover:bg-rose-700"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        deleteCase();
+                      }}
+                    >
+                      Excluir
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
 
               <Button
                 onClick={approveAndPrepare}

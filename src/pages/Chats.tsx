@@ -1,6 +1,6 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AppShell } from "@/components/AppShell";
 import { RequireAuth } from "@/components/RequireAuth";
 import { useTenant } from "@/providers/TenantProvider";
@@ -9,8 +9,20 @@ import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { WhatsAppConversation } from "@/components/case/WhatsAppConversation";
-import { Clock, MessagesSquare, Search, UserRound } from "lucide-react";
+import { showError, showSuccess } from "@/utils/toast";
+import { Clock, MessagesSquare, Search, Trash2, UserRound } from "lucide-react";
 
 type CaseRow = {
   id: string;
@@ -80,8 +92,11 @@ export default function Chats() {
   const { id } = useParams<{ id?: string }>();
   const nav = useNavigate();
   const loc = useLocation();
+  const qc = useQueryClient();
   const { activeTenantId } = useTenant();
   const { user } = useSession();
+
+  const [deleting, setDeleting] = useState(false);
 
   const q = useMemo(() => {
     const sp = new URLSearchParams(loc.search);
@@ -299,6 +314,36 @@ export default function Chats() {
 
   const activeCaseId = id ?? null;
 
+  const deleteCase = async () => {
+    if (!activeTenantId || !activeCaseId) return;
+    if (deleting) return;
+    setDeleting(true);
+    try {
+      const { error } = await supabase
+        .from("cases")
+        .update({ deleted_at: new Date().toISOString() })
+        .eq("tenant_id", activeTenantId)
+        .eq("id", activeCaseId);
+      if (error) throw error;
+
+      showSuccess("Conversa excluída.");
+
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["chat_cases", activeTenantId] }),
+        qc.invalidateQueries({ queryKey: ["cases_by_tenant", activeTenantId] }),
+        qc.invalidateQueries({ queryKey: ["crm_cases_by_tenant", activeTenantId] }),
+        qc.invalidateQueries({ queryKey: ["case", activeTenantId, activeCaseId] }),
+        qc.invalidateQueries({ queryKey: ["wa_messages_case", activeTenantId, activeCaseId] }),
+      ]);
+
+      nav("/app/chat" + (loc.search || ""), { replace: true });
+    } catch (e: any) {
+      showError(`Falha ao excluir: ${e?.message ?? "erro"}`);
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   // Default selection: if /app/chat without id, jump to the first chat.
   useEffect(() => {
     if (activeCaseId) return;
@@ -471,14 +516,54 @@ export default function Chats() {
                       <div className="truncate text-sm font-semibold text-slate-900">{activeTitle}</div>
                       <div className="mt-0.5 text-[11px] text-slate-500">WhatsApp • conversa</div>
                     </div>
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      className="h-10 rounded-2xl md:hidden"
-                      onClick={() => nav("/app/chat" + (loc.search || ""))}
-                    >
-                      Voltar
-                    </Button>
+
+                    <div className="flex items-center gap-2">
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            className={cn(
+                              "h-10 rounded-2xl border-rose-200 bg-rose-50 text-rose-800 hover:bg-rose-100",
+                              deleting ? "opacity-60" : ""
+                            )}
+                            disabled={deleting}
+                            title="Excluir conversa"
+                          >
+                            <Trash2 className="mr-2 h-4 w-4" /> Excluir
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent className="rounded-[22px]">
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Excluir esta conversa?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              Esta ação remove o caso do inbox de Chat. As mensagens continuam no histórico do banco.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel className="rounded-2xl">Cancelar</AlertDialogCancel>
+                            <AlertDialogAction
+                              className="rounded-2xl bg-rose-600 text-white hover:bg-rose-700"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                deleteCase();
+                              }}
+                            >
+                              Excluir
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        className="h-10 rounded-2xl md:hidden"
+                        onClick={() => nav("/app/chat" + (loc.search || ""))}
+                      >
+                        Voltar
+                      </Button>
+                    </div>
                   </div>
 
                   <div className="flex-1 px-3 pb-4 md:px-4">

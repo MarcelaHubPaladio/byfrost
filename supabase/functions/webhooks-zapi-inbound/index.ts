@@ -11,6 +11,7 @@ type JourneyInfo = {
   id: string;
   key: string;
   name?: string;
+  is_crm?: boolean;
   default_state_machine_json?: any;
 };
 
@@ -253,6 +254,17 @@ function inferOutboundCounterpart(payload: any) {
       payload?.data?.recipient
     )
   );
+}
+
+function inferContactLabel(payload: any, fallbackPhone: string | null) {
+  const name =
+    (payload?.senderName as string | undefined) ??
+    (payload?.sender?.name as string | undefined) ??
+    (payload?.data?.senderName as string | undefined) ??
+    (payload?.data?.sender?.name as string | undefined) ??
+    null;
+  const clean = typeof name === "string" ? name.trim() : "";
+  return clean ? clean : fallbackPhone;
 }
 
 serve(async (req) => {
@@ -690,7 +702,7 @@ serve(async (req) => {
       // Note: algumas instalações não têm deleted_at em journeys. Evite filtrar por deleted_at aqui.
       const { data: j, error: jErr } = await supabase
         .from("journeys")
-        .select("id,key,name,default_state_machine_json")
+        .select("id,key,name,is_crm,default_state_machine_json")
         .eq("id", instance.default_journey_id)
         .maybeSingle();
       if (jErr) {
@@ -710,7 +722,7 @@ serve(async (req) => {
     if (!journey) {
       const { data: tj, error: tjErr } = await supabase
         .from("tenant_journeys")
-        .select("journey_id, journeys(id,key,name,default_state_machine_json)")
+        .select("journey_id, journeys(id,key,name,is_crm,default_state_machine_json)")
         .eq("tenant_id", instance.tenant_id)
         .eq("enabled", true)
         .order("created_at", { ascending: true })
@@ -723,7 +735,7 @@ serve(async (req) => {
     if (!journey) {
       const { data: j, error: jErr } = await supabase
         .from("journeys")
-        .select("id,key,name,default_state_machine_json")
+        .select("id,key,name,is_crm,default_state_machine_json")
         .eq("key", "sales_order")
         .maybeSingle();
       if (jErr) console.error(`[${fn}] Failed to load fallback journey sales_order`, { jErr });
@@ -760,10 +772,6 @@ serve(async (req) => {
     const cfgPendenciesOnImage = Boolean(readCfg(cfg, "automation.on_image.create_default_pendencies"));
     const cfgInitialStateOnImage = (readCfg(cfg, "automation.on_image.initial_state") as string | undefined) ?? null;
 
-    // Conversations / vendor rules (panel-configurable)
-    const cfgAutoCreateVendor = (readCfg(cfg, "automation.conversations.auto_create_vendor") as boolean | undefined) ?? true;
-    const cfgRequireVendor = Boolean(readCfg(cfg, "automation.conversations.require_vendor"));
-
     // Default: create case on text unless explicitly disabled.
     const cfgCreateCaseOnText = (readCfg(cfg, "automation.on_text.create_case") as boolean | undefined) ?? true;
     const cfgInitialStateOnText = (readCfg(cfg, "automation.on_text.initial_state") as string | undefined) ?? null;
@@ -773,9 +781,32 @@ serve(async (req) => {
       (readCfg(cfg, "automation.on_location.initial_state") as string | undefined) ?? null;
     const cfgLocationNextState = (readCfg(cfg, "automation.on_location.next_state") as string | undefined) ?? null;
 
-    // Vendor identification (by WhatsApp number)
+    // Conversations: by default we DO NOT assume the sender is a "vendor".
+    // This will be configurable in the panel; for legacy "sales_order" we default to true.
+    const defaultSenderIsVendor = journey.key === "sales_order";
+
+    // Vendor rules (raw config)
+    const cfgAutoCreateVendorRaw =
+      (readCfg(cfg, "automation.conversations.auto_create_vendor") as boolean | undefined) ?? false;
+    const cfgRequireVendorRaw = Boolean(readCfg(cfg, "automation.conversations.require_vendor"));
+
+    // If sender_is_vendor is not explicitly set, keep backward-compat with existing configs
+    // that already rely on vendor identification.
+    const cfgSenderIsVendorExplicit = readCfg(cfg, "automation.conversations.sender_is_vendor") as
+      | boolean
+      | undefined;
+    const cfgSenderIsVendor =
+      cfgSenderIsVendorExplicit ?? (defaultSenderIsVendor || cfgAutoCreateVendorRaw || cfgRequireVendorRaw);
+
+    // Vendor rules (only applied when sender_is_vendor=true)
+    const cfgAutoCreateVendor = cfgSenderIsVendor ? cfgAutoCreateVendorRaw : false;
+    const cfgRequireVendor = cfgSenderIsVendor ? cfgRequireVendorRaw : false;
+
+    const contactLabel = inferContactLabel(payload, normalized.from);
+
+    // Vendor identification (by WhatsApp number) — only when configured.
     let vendorId: string | null = null;
-    if (normalized.from) {
+    if (cfgSenderIsVendor && normalized.from) {
       const { data: vendor } = await supabase
         .from("vendors")
         .select("id")
@@ -789,7 +820,7 @@ serve(async (req) => {
           .insert({
             tenant_id: instance.tenant_id,
             phone_e164: normalized.from,
-            display_name: payload?.senderName ?? payload?.sender?.name ?? null,
+            display_name: contactLabel,
             active: true,
           })
           .select("id")
@@ -815,7 +846,7 @@ serve(async (req) => {
     };
 
     const findLatestActiveCase = async () => {
-      // Prefer vendor_id; fallback to phone stored in meta_json.
+      // Prefer vendor assignment (legacy flows)
       if (vendorId) {
         const { data } = await supabase
           .from("cases")
@@ -830,13 +861,14 @@ serve(async (req) => {
         return (data as any) ?? null;
       }
 
+      // Default chat-like behavior: reuse case by counterpart (phone)
       if (!normalized.from) return null;
       const { data } = await supabase
         .from("cases")
         .select("id,state,status")
         .eq("tenant_id", instance.tenant_id)
         .eq("journey_id", journey!.id)
-        .eq("meta_json->>vendor_phone", normalized.from)
+        .eq("meta_json->>counterpart_phone", normalized.from)
         .is("deleted_at", null)
         .order("created_at", { ascending: false })
         .limit(1)
@@ -869,14 +901,10 @@ serve(async (req) => {
         mode === "image" ? cfgInitialStateOnImage : mode === "location" ? cfgInitialStateOnLocation : cfgInitialStateOnText;
       const initial = pickInitialState(journey!, initialHint);
 
-      const title =
-        mode === "image"
-          ? journey!.key === "sales_order"
-            ? "Pedido (foto recebida)"
-            : `Novo caso (${journey!.name ?? journey!.key})`
-          : journey!.key === "sales_order"
-            ? "Conversa (WhatsApp)"
-            : `Conversa (${journey!.name ?? journey!.key})`;
+      // Title rule:
+      // - general cases: phone or contact name (editable later)
+      // - CRM cases: client name (fallback: phone)
+      const title = contactLabel ?? normalized.from;
 
       // IMPORTANT: The current DB schema enforces a status check constraint.
       // Use the default/expected status "open".
@@ -897,8 +925,12 @@ serve(async (req) => {
             journey_key: journey!.key,
             zapi_instance: effectiveInstanceId,
             opened_by: mode,
-            vendor_phone: normalized.from,
-            vendor_required: cfgRequireVendor,
+            counterpart_phone: normalized.from,
+            contact_label: contactLabel,
+            sender_is_vendor: cfgSenderIsVendor,
+            ...(cfgSenderIsVendor
+              ? { vendor_phone: normalized.from, vendor_required: cfgRequireVendor }
+              : { customer_phone: normalized.from }),
           },
         })
         .select("id")
@@ -1016,6 +1048,7 @@ serve(async (req) => {
         journey_key: journey.key,
         default_journey_id: instance.default_journey_id ?? null,
         create_case_on_text: cfgCreateCaseOnText,
+        sender_is_vendor: cfgSenderIsVendor,
         require_vendor: cfgRequireVendor,
         auto_create_vendor: cfgAutoCreateVendor,
         vendor_id: vendorId,
@@ -1045,7 +1078,7 @@ serve(async (req) => {
           tenant_id: instance.tenant_id,
           case_id: caseId,
           event_type: "inbound_image",
-          actor_type: "vendor",
+          actor_type: cfgSenderIsVendor ? "vendor" : "customer",
           actor_id: vendorId,
           message: cfgOcrEnabled
             ? "Imagem recebida. OCR será executado conforme configuração do fluxo."
@@ -1137,7 +1170,7 @@ serve(async (req) => {
           value_json: normalized.location,
           value_text: `${normalized.location.lat},${normalized.location.lng}`,
           confidence: 1,
-          source: "vendor",
+          source: cfgSenderIsVendor ? "vendor" : "customer",
           last_updated_by: "whatsapp_location",
         });
 
@@ -1154,7 +1187,7 @@ serve(async (req) => {
         tenant_id: instance.tenant_id,
         case_id: caseId,
         event_type: "location_received",
-        actor_type: "vendor",
+        actor_type: cfgSenderIsVendor ? "vendor" : "customer",
         actor_id: vendorId,
         message: "Localização recebida via WhatsApp.",
         meta_json: { correlation_id: correlationId, ...normalized.location, journey_key: journey.key },
@@ -1202,10 +1235,10 @@ serve(async (req) => {
       await supabase.from("timeline_events").insert({
         tenant_id: instance.tenant_id,
         case_id: caseId,
-        event_type: "vendor_reply",
-        actor_type: "vendor",
+        event_type: cfgSenderIsVendor ? "vendor_reply" : "customer_reply",
+        actor_type: cfgSenderIsVendor ? "vendor" : "customer",
         actor_id: vendorId,
-        message: `Mensagem do vendedor recebida${normalized.type === "audio" ? " (áudio)" : ""}.`,
+        message: `Mensagem recebida${normalized.type === "audio" ? " (áudio)" : ""}.`,
         meta_json: { correlation_id: correlationId, journey_key: journey.key },
         occurred_at: new Date().toISOString(),
       });

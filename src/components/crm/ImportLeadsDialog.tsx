@@ -75,6 +75,7 @@ type PreviewRow = ParsedRow & {
   ownerVendorId: string | null;
   ownerResolved: boolean;
   error: string | null;
+  duplicateInFile: boolean;
 };
 
 function stripBom(s: string) {
@@ -411,8 +412,14 @@ export function ImportLeadsDialog({
       return null;
     };
 
+    const seenPhones = new Set<string>();
+
     return parseRows.map((r) => {
       const { phone: normalizedPhone, error: err } = normalizeWhatsappOrNull(r.whatsapp);
+
+      const phoneKey = normalizedPhone ? digitsOnly(normalizedPhone) : "";
+      const duplicateInFile = Boolean(phoneKey && seenPhones.has(phoneKey));
+      if (phoneKey) seenPhones.add(phoneKey);
 
       const existingCustomer = normalizedPhone
         ? customers.find((c) => samePhoneLoose(c.phone_e164, normalizedPhone)) ?? null
@@ -430,18 +437,21 @@ export function ImportLeadsDialog({
       const ownerVendor = ownerUser?.phone_e164 ? vendorByPhone.get(ownerUser.phone_e164) ?? null : null;
 
       // Regras:
+      // - Duplicado dentro do CSV: nunca cria case 2x; vira "atualizar"
       // - Se já existe chat para esse número => atualizar/vincular (não criar case novo)
-      // - Se já existe customer, mas NÃO existe case não-chat para ele nesta jornada => criar case (lead) normalmente
-      // - Se já existe customer E já existe case não-chat => apenas atualizar cadastro
+      // - Se já existe customer e já existe case não-chat nesta jornada => apenas atualizar
+      // - Caso contrário => criar case
       const hasNonChatCaseForCustomer = existingCustomer ? casesByCustomerId.has(existingCustomer.id) : false;
 
       const action: PreviewRow["action"] = err
         ? "skip_error"
-        : existingChatCase
+        : duplicateInFile
           ? "update_only"
-          : existingCustomer && hasNonChatCaseForCustomer
+          : existingChatCase
             ? "update_only"
-            : "create_case";
+            : existingCustomer && hasNonChatCaseForCustomer
+              ? "update_only"
+              : "create_case";
 
       return {
         ...r,
@@ -453,6 +463,7 @@ export function ImportLeadsDialog({
         ownerVendorId: ownerVendor?.id ?? null,
         ownerResolved,
         error: err,
+        duplicateInFile,
       } satisfies PreviewRow;
     });
   }, [parseRows, customersCache, usersCache, vendorsCache, chatCasesCache, chatCasePhonesCache, nonChatCasesCache]);
@@ -680,6 +691,71 @@ export function ImportLeadsDialog({
     if (error) throw error;
   };
 
+  const promoteChatToCrm = async (p: {
+    chatCaseId: string;
+    customerId: string;
+    assignedVendorId: string | null;
+    ownerEmail: string | null;
+    rowNo: number;
+    leadName: string | null;
+    leadEmail: string | null;
+    leadWhatsappRaw: string | null;
+    leadWhatsappE164: string | null;
+  }) => {
+    // transforma um case "chat" em um case do CRM, no estado inicial do fluxo
+    const { data: existing, error: selErr } = await supabase
+      .from("cases")
+      .select("id,meta_json")
+      .eq("tenant_id", tenantId)
+      .eq("id", p.chatCaseId)
+      .maybeSingle();
+    if (selErr) throw selErr;
+    if (!existing?.id) throw new Error("Chat não encontrado para promover.");
+
+    const mergedMeta = {
+      ...(existing as any).meta_json,
+      lead_source: "csv_import",
+      lead_owner_email: p.ownerEmail,
+      import_file_name: fileName || null,
+      import_row_no: p.rowNo,
+      lead_name: p.leadName,
+      lead_email: p.leadEmail,
+      lead_whatsapp_raw: p.leadWhatsappRaw,
+      lead_whatsapp_e164: p.leadWhatsappE164,
+      promoted_from_chat: true,
+    };
+
+    const { error: updErr } = await supabase
+      .from("cases")
+      .update({
+        is_chat: false,
+        journey_id: journey.id,
+        state: firstState,
+        customer_id: p.customerId,
+        assigned_vendor_id: p.assignedVendorId,
+        meta_json: mergedMeta,
+      } as any)
+      .eq("tenant_id", tenantId)
+      .eq("id", p.chatCaseId);
+
+    if (updErr) throw updErr;
+
+    const { error: tlErr } = await supabase.from("timeline_events").insert({
+      tenant_id: tenantId,
+      case_id: p.chatCaseId,
+      event_type: "lead_imported",
+      actor_type: "admin",
+      actor_id: actorUserId,
+      message: "Lead importado via planilha (promovido de chat para CRM).",
+      meta_json: { source: "csv_import", promoted_from_chat: true },
+      occurred_at: new Date().toISOString(),
+    });
+
+    if (tlErr) throw tlErr;
+
+    return p.chatCaseId;
+  };
+
   const touchLatestLeadCaseForCustomer = async (p: {
     customerId: string;
     assignedVendorId: string | null;
@@ -833,6 +909,9 @@ export function ImportLeadsDialog({
     let touchedCases = 0;
     let errors = 0;
 
+    // Dedup intra-import: evita criar 2 cases para o mesmo WhatsApp na mesma execução
+    const processedPhoneKeys = new Set<string>();
+
     try {
       // refresh caches (safe)
       if (!customersCache || !usersCache || !vendorsCache || !chatCasesCache || !chatCasePhonesCache) await loadCaches();
@@ -851,14 +930,41 @@ export function ImportLeadsDialog({
 
         try {
           const phone = row.normalizedPhone; // pode ser null (importar sem WhatsApp)
+          const phoneKey = phone ? digitsOnly(phone) : "";
 
           const ownerEmail = row.ownerEmail.trim().toLowerCase() || null;
           const ownerUser = ownerEmail ? userByEmail.get(ownerEmail) ?? null : null;
           const ownerVendorId = ownerUser ? await ensureVendorForUser(ownerUser) : null;
 
+          // Se já processamos esse número nesta execução, nunca cria de novo.
+          if (phoneKey && processedPhoneKeys.has(phoneKey)) {
+            if (row.existingCustomerId) {
+              await updateCustomer(row.existingCustomerId, {
+                name: row.name.trim() || null,
+                email: row.email.trim() || null,
+                assigned_vendor_id: ownerVendorId,
+              });
+              updatedCustomers += 1;
+
+              const touched = await touchLatestLeadCaseForCustomer({
+                customerId: row.existingCustomerId,
+                assignedVendorId: ownerVendorId,
+                ownerEmail,
+                rowNo: row.rowNo,
+                leadName: row.name.trim() || null,
+                leadEmail: row.email.trim() || null,
+                leadWhatsappRaw: row.whatsapp.trim() || null,
+                leadWhatsappE164: phone,
+              });
+              if (touched) touchedCases += 1;
+            }
+            continue;
+          }
+
           if (row.action === "update_only") {
             // update_only só faz sentido com telefone (para localizar registros)
             if (!phone) continue;
+            if (phoneKey) processedPhoneKeys.add(phoneKey);
 
             // 1) já existe customer => atualiza cadastro e "toca" o case para aparecer no funil (sem criar duplicado)
             if (row.existingCustomerId) {
@@ -883,7 +989,7 @@ export function ImportLeadsDialog({
               continue;
             }
 
-            // 2) já existe apenas como chat => cria/vincula customer e atualiza dados (sem criar case)
+            // 2) já existe apenas como chat => cria/vincula customer e PROMOVE o chat para CRM (não cria case novo)
             if (row.existingChatCaseId) {
               const { customer } = await ensureCustomerByPhoneTail(phone);
               await updateCustomer(customer.id, {
@@ -892,7 +998,18 @@ export function ImportLeadsDialog({
                 assigned_vendor_id: ownerVendorId,
               });
 
-              await linkCaseToCustomer(row.existingChatCaseId, customer.id, ownerVendorId);
+              await promoteChatToCrm({
+                chatCaseId: row.existingChatCaseId,
+                customerId: customer.id,
+                assignedVendorId: ownerVendorId,
+                ownerEmail,
+                rowNo: row.rowNo,
+                leadName: row.name.trim() || null,
+                leadEmail: row.email.trim() || null,
+                leadWhatsappRaw: row.whatsapp.trim() || null,
+                leadWhatsappE164: phone,
+              });
+
               linkedFromChat += 1;
               continue;
             }
@@ -903,6 +1020,8 @@ export function ImportLeadsDialog({
 
           // Novo lead => cria case. Se tiver WhatsApp, cria/vincula customer; se não, cria case sem customer.
           if (phone) {
+            if (phoneKey) processedPhoneKeys.add(phoneKey);
+
             const { customer } = await ensureCustomerByPhoneTail(phone);
 
             // Atualiza customer com dados do CSV
@@ -926,6 +1045,9 @@ export function ImportLeadsDialog({
             });
 
             createdCases += 1;
+
+            // Atualiza cache local de cases da jornada para o preview/run atual
+            setNonChatCasesCache((prev) => (prev ? [{ id: caseId, customer_id: customer.id }, ...prev] : [{ id: caseId, customer_id: customer.id }]));
 
             if (!ownerVendorId) {
               await createMissingOwnerPendency(caseId, ownerEmail);
@@ -984,9 +1106,7 @@ export function ImportLeadsDialog({
       }
 
       if (errors > 0) {
-        showError(
-          `Algumas linhas falharam (${errors}). Veja os detalhes abaixo em "Falhas na importação".`
-        );
+        showError(`Algumas linhas falharam (${errors}). Veja os detalhes abaixo em "Falhas na importação".`);
         // Mantém o modal aberto para o usuário ver os erros.
         return;
       }
@@ -998,6 +1118,7 @@ export function ImportLeadsDialog({
       await Promise.all([
         qc.invalidateQueries({ queryKey: ["crm_cases_by_tenant", tenantId] }),
         qc.invalidateQueries({ queryKey: ["crm_customers_by_ids", tenantId] }),
+        qc.invalidateQueries({ queryKey: ["case", tenantId] }),
       ]);
 
       setOpen(false);
@@ -1175,6 +1296,12 @@ export function ImportLeadsDialog({
                             <span className="font-medium">Dono:</span> {r.ownerEmail || "(vazio)"}
                           </div>
 
+                          {r.duplicateInFile && !r.error ? (
+                            <div className="mt-2 text-[11px] text-amber-700">
+                              Duplicado no CSV: esta linha não criará um novo case.
+                            </div>
+                          ) : null}
+
                           {r.error && (
                             <div className="mt-2 text-[11px] text-rose-700">{r.error}</div>
                           )}
@@ -1182,6 +1309,11 @@ export function ImportLeadsDialog({
 
                         <div className="flex items-center gap-2">
                           <Badge className={cn("rounded-full border-0", badgeCls)}>{label}</Badge>
+                          {r.duplicateInFile && r.action !== "skip_error" ? (
+                            <Badge className="rounded-full border-0 bg-amber-100 text-amber-900 hover:bg-amber-100">
+                              duplicado
+                            </Badge>
+                          ) : null}
                           {r.action !== "skip_error" && r.existingCustomerId && (
                             <Badge className="rounded-full border-0 bg-indigo-100 text-indigo-900 hover:bg-indigo-100">
                               já existe

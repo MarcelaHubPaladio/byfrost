@@ -169,6 +169,8 @@ export default function Admin() {
   const [deletingInstanceId, setDeletingInstanceId] = useState<string | null>(null);
   const [updatingInstanceId, setUpdatingInstanceId] = useState<string | null>(null);
   const [deletingUserId, setDeletingUserId] = useState<string | null>(null);
+  const [addingSelf, setAddingSelf] = useState(false);
+  const [selfRole, setSelfRole] = useState<UserRole>("admin");
 
   const ensureFreshTokenForRls = async () => {
     try {
@@ -433,6 +435,45 @@ export default function Admin() {
       showError(`Falha ao excluir usuário: ${e?.message ?? "erro"}`);
     } finally {
       setDeletingUserId(null);
+    }
+  };
+
+  const addSelfToTenant = async () => {
+    if (!activeTenantId || !user?.id) return;
+    setAddingSelf(true);
+    try {
+      await ensureFreshTokenForRls();
+
+      const roleKeys = (tenantRolesQ.data ?? []).map((r) => r.key);
+      const chosenRole = roleKeys.includes(selfRole) ? selfRole : roleKeys[0] || "admin";
+
+      const displayName =
+        (user as any)?.user_metadata?.name ||
+        (user as any)?.user_metadata?.full_name ||
+        (user.email ? user.email.split("@")[0] : null);
+
+      const { error } = await supabase
+        .from("users_profile")
+        .upsert(
+          {
+            user_id: user.id,
+            tenant_id: activeTenantId,
+            role: chosenRole,
+            email: user.email ?? null,
+            display_name: displayName ?? null,
+            deleted_at: null,
+          } as any,
+          { onConflict: "user_id,tenant_id" }
+        );
+
+      if (error) throw error;
+
+      showSuccess("Seu usuário foi adicionado ao tenant.");
+      await qc.invalidateQueries({ queryKey: ["admin_tenant_users", activeTenantId] });
+    } catch (e: any) {
+      showError(`Falha ao adicionar seu usuário: ${e?.message ?? "erro"}`);
+    } finally {
+      setAddingSelf(false);
     }
   };
 
@@ -874,6 +915,49 @@ export default function Admin() {
                   </div>
                 ) : (
                   <div className="grid gap-4">
+                    {isSuperAdmin && user?.id && (
+                      <div className="rounded-[22px] border border-indigo-200 bg-indigo-50/50 p-4">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                          <div>
+                            <div className="text-sm font-semibold text-slate-900">Adicionar meu usuário ao tenant</div>
+                            <div className="mt-1 text-[11px] text-slate-600">
+                              Super-admin tem acesso global, mas para aparecer como responsável em instâncias WhatsApp é preciso ter um registro em <span className="font-medium">users_profile</span>.
+                            </div>
+                          </div>
+                          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                            <div className="min-w-[220px]">
+                              <Label className="text-xs">Cargo do meu usuário</Label>
+                              <Select value={selfRole} onValueChange={(v) => setSelfRole(v as UserRole)}>
+                                <SelectTrigger className="mt-1 h-10 rounded-2xl bg-white">
+                                  <SelectValue placeholder="Selecionar" />
+                                </SelectTrigger>
+                                <SelectContent className="rounded-2xl">
+                                  {(tenantRolesQ.data ?? ([
+                                    { key: "admin", name: "Admin" },
+                                    { key: "manager", name: "Gerente" },
+                                    { key: "supervisor", name: "Supervisor" },
+                                    { key: "leader", name: "Líder" },
+                                    { key: "vendor", name: "Vendedor" },
+                                  ] as any)).map((r: any) => (
+                                    <SelectItem key={r.key} value={r.key} className="rounded-xl">
+                                      {r.name}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <Button
+                              onClick={addSelfToTenant}
+                              disabled={addingSelf}
+                              className="h-10 rounded-2xl bg-indigo-600 px-4 text-white hover:bg-indigo-700"
+                            >
+                              {addingSelf ? "Adicionando…" : "Adicionar"}
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
                     <div className="rounded-[22px] border border-slate-200 bg-white p-4">
                       <div className="flex items-start justify-between gap-3">
                         <div className="flex items-center gap-2">

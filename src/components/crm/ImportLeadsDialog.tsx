@@ -310,6 +310,9 @@ export function ImportLeadsDialog({
   const [parsingError, setParsingError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  const [rowFailures, setRowFailures] = useState<
+    { rowNo: number; name: string; message: string }[]
+  >([]);
 
   const firstState = useMemo(() => {
     const st = (journey.default_state_machine_json?.states ?? []) as any[];
@@ -330,6 +333,7 @@ export function ImportLeadsDialog({
     setParsingError(null);
     setImporting(false);
     setProgress(null);
+    setRowFailures([]);
   };
 
   const parseRows = useMemo(() => {
@@ -818,6 +822,7 @@ export function ImportLeadsDialog({
       return;
     }
 
+    setRowFailures([]);
     setImporting(true);
     setProgress({ done: 0, total: previewRows.length });
 
@@ -948,8 +953,31 @@ export function ImportLeadsDialog({
           }
         } catch (e: any) {
           errors += 1;
-          // continua
-          console.warn("import row failed", { rowNo: row.rowNo, error: e?.message ?? e });
+
+          const msgParts = [
+            e?.message,
+            e?.details ? `details: ${e.details}` : null,
+            e?.hint ? `hint: ${e.hint}` : null,
+            e?.code ? `code: ${e.code}` : null,
+          ].filter(Boolean);
+          const msg = msgParts.length ? String(msgParts.join(" | ")) : String(e ?? "erro");
+
+          console.error("[import-leads] row failed", {
+            rowNo: row.rowNo,
+            name: row.name,
+            whatsapp: row.whatsapp,
+            normalizedPhone: row.normalizedPhone,
+            ownerEmail: row.ownerEmail,
+            action: row.action,
+            error: e,
+          });
+
+          setRowFailures((prev) => {
+            const next = [...prev, { rowNo: row.rowNo, name: row.name, message: msg }];
+            // mantém a UI leve
+            next.sort((a, b) => a.rowNo - b.rowNo);
+            return next.slice(0, 50);
+          });
         } finally {
           setProgress({ done: i + 1, total: previewRows.length });
         }
@@ -973,7 +1001,7 @@ export function ImportLeadsDialog({
       setProgress(null);
 
       if (errors) {
-        showError(`Algumas linhas falharam: ${errors}. Verifique o console para detalhes.`);
+        showError(`Algumas linhas falharam: ${errors}. Veja os detalhes no preview.`);
       }
     }
   };
@@ -1174,6 +1202,23 @@ export function ImportLeadsDialog({
               </div>
             </ScrollArea>
           </div>
+
+          {rowFailures.length > 0 && (
+            <div className="rounded-[18px] border border-rose-200 bg-rose-50 p-3">
+              <div className="text-sm font-semibold text-rose-900">Falhas na importação</div>
+              <div className="mt-1 text-xs text-rose-800">
+                Abaixo estão os motivos retornados pelo banco para cada linha.
+              </div>
+              <div className="mt-3 space-y-2">
+                {rowFailures.map((f) => (
+                  <div key={`${f.rowNo}-${f.message}`} className="rounded-2xl border border-rose-200 bg-white px-3 py-2">
+                    <div className="text-xs font-semibold text-rose-900">Linha {f.rowNo}{f.name ? ` • ${f.name}` : ""}</div>
+                    <div className="mt-0.5 text-[11px] text-rose-800 break-words">{f.message}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {counts.skip_error > 0 && (
             <div className="flex items-start gap-2 rounded-2xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-900">

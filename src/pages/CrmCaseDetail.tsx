@@ -1,6 +1,6 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AppShell } from "@/components/AppShell";
 import { RequireAuth } from "@/components/RequireAuth";
 import { useTenant } from "@/providers/TenantProvider";
@@ -8,6 +8,7 @@ import { useSession } from "@/providers/SessionProvider";
 import { supabase } from "@/lib/supabase";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import { WhatsAppConversation } from "@/components/case/WhatsAppConversation";
 import { CaseTimeline, type CaseTimelineEvent } from "@/components/case/CaseTimeline";
 import { CaseCustomerCard } from "@/components/crm/CaseCustomerCard";
@@ -15,8 +16,9 @@ import { CaseTagsCard } from "@/components/crm/CaseTagsCard";
 import { CaseProductsCard } from "@/components/crm/CaseProductsCard";
 import { CaseTasksCard } from "@/components/crm/CaseTasksCard";
 import { CaseNotesCard } from "@/components/crm/CaseNotesCard";
-import { ArrowLeft, ClipboardList, Image as ImageIcon, UsersRound } from "lucide-react";
+import { ArrowLeft, ClipboardList, Image as ImageIcon, MessagesSquare, UsersRound } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { showError, showSuccess } from "@/utils/toast";
 
 type CaseRow = {
   id: string;
@@ -29,6 +31,7 @@ type CaseRow = {
   assigned_vendor_id: string | null;
   customer_id: string | null;
   meta_json?: any;
+  is_chat?: boolean;
   vendors?: { display_name: string | null; phone_e164: string | null } | null;
   journeys?: { key: string | null; name: string | null; is_crm?: boolean } | null;
 };
@@ -64,8 +67,12 @@ function ConfidencePill({ v }: { v: number | null | undefined }) {
 export default function CrmCaseDetail() {
   const { id } = useParams();
   const nav = useNavigate();
+  const qc = useQueryClient();
   const { activeTenantId } = useTenant();
   const { user } = useSession();
+
+  const [chatOnly, setChatOnly] = useState(false);
+  const [updatingChatOnly, setUpdatingChatOnly] = useState(false);
 
   const caseQ = useQuery({
     queryKey: ["case", activeTenantId, id],
@@ -74,7 +81,7 @@ export default function CrmCaseDetail() {
       const { data, error } = await supabase
         .from("cases")
         .select(
-          "id,tenant_id,customer_id,title,status,state,created_at,updated_at,assigned_vendor_id,meta_json,vendors:vendors!cases_assigned_vendor_id_fkey(display_name,phone_e164),journeys:journeys!cases_journey_id_fkey(key,name,is_crm)"
+          "id,tenant_id,customer_id,title,status,state,created_at,updated_at,assigned_vendor_id,meta_json,is_chat,vendors:vendors!cases_assigned_vendor_id_fkey(display_name,phone_e164),journeys:journeys!cases_journey_id_fkey(key,name,is_crm)"
         )
         .eq("tenant_id", activeTenantId!)
         .eq("id", id!)
@@ -85,12 +92,55 @@ export default function CrmCaseDetail() {
     },
   });
 
+  useEffect(() => {
+    setChatOnly(Boolean(caseQ.data?.is_chat));
+  }, [caseQ.data?.is_chat]);
+
+  const updateChatOnly = async (next: boolean) => {
+    if (!activeTenantId || !id) return;
+    if (updatingChatOnly) return;
+
+    setUpdatingChatOnly(true);
+    setChatOnly(next);
+    try {
+      const { error } = await supabase
+        .from("cases")
+        .update({ is_chat: next })
+        .eq("tenant_id", activeTenantId)
+        .eq("id", id);
+      if (error) throw error;
+
+      showSuccess(next ? "Marcado como chat." : "Removido de chat.");
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["case", activeTenantId, id] }),
+        qc.invalidateQueries({ queryKey: ["crm_cases_by_tenant", activeTenantId] }),
+        qc.invalidateQueries({ queryKey: ["cases_by_tenant", activeTenantId] }),
+        qc.invalidateQueries({ queryKey: ["chat_cases", activeTenantId] }),
+      ]);
+
+      if (next) nav(`/app/chat/${id}`, { replace: true });
+    } catch (e: any) {
+      setChatOnly(Boolean(caseQ.data?.is_chat));
+      showError(`Falha ao atualizar: ${e?.message ?? "erro"}`);
+    } finally {
+      setUpdatingChatOnly(false);
+    }
+  };
+
+  // Se foi marcado como chat, abre no inbox de chat.
+  useEffect(() => {
+    if (!caseQ.data?.id) return;
+    if (!caseQ.data.is_chat) return;
+    nav(`/app/chat/${caseQ.data.id}`, { replace: true });
+  }, [caseQ.data?.id, caseQ.data?.is_chat, nav]);
+
   // Se cair aqui por engano (case não é CRM), manda pro detalhe padrão.
   useEffect(() => {
     if (!caseQ.data?.id) return;
+    if (caseQ.data.is_chat) return;
     if (caseQ.data.journeys?.is_crm) return;
     nav(`/app/cases/${caseQ.data.id}`, { replace: true });
-  }, [caseQ.data?.id, caseQ.data?.journeys?.is_crm, nav]);
+  }, [caseQ.data?.id, caseQ.data?.journeys?.is_crm, caseQ.data?.is_chat, nav]);
 
   // Ao abrir o case, marca as mensagens inbound como "vistas" (por usuário).
   useEffect(() => {
@@ -210,7 +260,28 @@ export default function CrmCaseDetail() {
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:justify-end">
+              <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white/70 px-3 py-2 text-xs text-slate-700 shadow-sm">
+                <div className="min-w-0">
+                  <div className="text-[11px] font-semibold text-slate-800">Somente chat</div>
+                  <div className="text-[11px] text-slate-500">fora de fluxo</div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <Switch checked={chatOnly} onCheckedChange={updateChatOnly} disabled={updatingChatOnly || !c} />
+                  {chatOnly ? (
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      className="h-9 rounded-2xl"
+                      onClick={() => nav(`/app/chat/${id}`)}
+                      title="Abrir no inbox de Chat"
+                    >
+                      <MessagesSquare className="mr-2 h-4 w-4" /> Abrir
+                    </Button>
+                  ) : null}
+                </div>
+              </div>
+
               <Button
                 type="button"
                 variant="secondary"

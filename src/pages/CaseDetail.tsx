@@ -118,12 +118,19 @@ export default function CaseDetail() {
     }
   };
 
-  // Higienização: caso CRM abre em rota própria.
+  // Higienização:
+  // - se o case está marcado como chat, abre no inbox de chat
+  // - se é CRM, abre na rota própria
   useEffect(() => {
     if (!caseQ.data?.id) return;
-    if (!caseQ.data.journeys?.is_crm) return;
-    nav(`/crm/cases/${caseQ.data.id}`, { replace: true });
-  }, [caseQ.data?.id, caseQ.data?.journeys?.is_crm, nav]);
+    if (caseQ.data.is_chat) {
+      nav(`/app/chat/${caseQ.data.id}`, { replace: true });
+      return;
+    }
+    if (caseQ.data.journeys?.is_crm) {
+      nav(`/crm/cases/${caseQ.data.id}`, { replace: true });
+    }
+  }, [caseQ.data?.id, caseQ.data?.journeys?.is_crm, caseQ.data?.is_chat, nav]);
 
   // Ao abrir o case, marca as mensagens inbound como "vistas" (por usuário).
   useEffect(() => {

@@ -122,9 +122,21 @@ export default function CrmCaseDetail() {
         .eq("id", id);
       if (error) throw error;
 
+      await supabase.from("timeline_events").insert({
+        tenant_id: activeTenantId,
+        case_id: id,
+        event_type: "case_updated",
+        actor_type: "admin",
+        actor_id: user?.id ?? null,
+        message: next ? "Marcado como chat (fora de fluxo)." : "Removido de chat (volta ao fluxo).",
+        meta_json: { field: "is_chat", value: next },
+        occurred_at: new Date().toISOString(),
+      });
+
       showSuccess(next ? "Marcado como chat." : "Removido de chat.");
       await Promise.all([
         qc.invalidateQueries({ queryKey: ["case", activeTenantId, id] }),
+        qc.invalidateQueries({ queryKey: ["timeline", activeTenantId, id] }),
         qc.invalidateQueries({ queryKey: ["crm_cases_by_tenant", activeTenantId] }),
         qc.invalidateQueries({ queryKey: ["cases_by_tenant", activeTenantId] }),
         qc.invalidateQueries({ queryKey: ["chat_cases", activeTenantId] }),
@@ -151,10 +163,22 @@ export default function CrmCaseDetail() {
         .eq("id", id);
       if (error) throw error;
 
+      await supabase.from("timeline_events").insert({
+        tenant_id: activeTenantId,
+        case_id: id,
+        event_type: "case_deleted",
+        actor_type: "admin",
+        actor_id: user?.id ?? null,
+        message: "Caso excluído (soft delete).",
+        meta_json: {},
+        occurred_at: new Date().toISOString(),
+      });
+
       showSuccess("Caso excluído.");
 
       await Promise.all([
         qc.invalidateQueries({ queryKey: ["case", activeTenantId, id] }),
+        qc.invalidateQueries({ queryKey: ["timeline", activeTenantId, id] }),
         qc.invalidateQueries({ queryKey: ["crm_cases_by_tenant", activeTenantId] }),
         qc.invalidateQueries({ queryKey: ["cases_by_tenant", activeTenantId] }),
         qc.invalidateQueries({ queryKey: ["chat_cases", activeTenantId] }),

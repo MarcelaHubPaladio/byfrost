@@ -50,6 +50,19 @@ export function CaseNotesCard(props: { tenantId: string; caseId: string; userId:
     },
   });
 
+  const logTimeline = async (message: string, meta_json: any = {}) => {
+    await supabase.from("timeline_events").insert({
+      tenant_id: props.tenantId,
+      case_id: props.caseId,
+      event_type: "note_updated",
+      actor_type: "admin",
+      actor_id: props.userId,
+      message,
+      meta_json,
+      occurred_at: new Date().toISOString(),
+    });
+  };
+
   const add = async () => {
     const t = text.trim();
     if (!t) return;
@@ -62,9 +75,15 @@ export function CaseNotesCard(props: { tenantId: string; caseId: string; userId:
         created_by_user_id: props.userId,
       });
       if (error) throw error;
+
+      await logTimeline("Observação adicionada.", { action: "created", preview: t.slice(0, 240) });
+
       setText("");
       showSuccess("Observação adicionada.");
-      await qc.invalidateQueries({ queryKey: ["case_notes", props.tenantId, props.caseId] });
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["case_notes", props.tenantId, props.caseId] }),
+        qc.invalidateQueries({ queryKey: ["timeline", props.tenantId, props.caseId] }),
+      ]);
     } catch (e: any) {
       showError(`Falha ao salvar observação: ${e?.message ?? "erro"}`);
     } finally {
@@ -74,14 +93,21 @@ export function CaseNotesCard(props: { tenantId: string; caseId: string; userId:
 
   const remove = async (noteId: string) => {
     try {
+      const toRemove = (notesQ.data ?? []).find((n) => n.id === noteId);
       const { error } = await supabase
         .from("case_notes")
         .update({ deleted_at: new Date().toISOString() })
         .eq("tenant_id", props.tenantId)
         .eq("id", noteId);
       if (error) throw error;
+
+      await logTimeline("Observação removida.", { action: "deleted", preview: toRemove?.body_text?.slice(0, 240) });
+
       showSuccess("Observação removida.");
-      await qc.invalidateQueries({ queryKey: ["case_notes", props.tenantId, props.caseId] });
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["case_notes", props.tenantId, props.caseId] }),
+        qc.invalidateQueries({ queryKey: ["timeline", props.tenantId, props.caseId] }),
+      ]);
     } catch (e: any) {
       showError(`Falha ao remover observação: ${e?.message ?? "erro"}`);
     }

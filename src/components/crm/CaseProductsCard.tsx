@@ -8,6 +8,7 @@ import { supabase } from "@/lib/supabase";
 import { showError, showSuccess } from "@/utils/toast";
 import { cn } from "@/lib/utils";
 import { BadgeDollarSign, Plus, Trash2 } from "lucide-react";
+import { useSession } from "@/providers/SessionProvider";
 
 type CaseItemRow = {
   id: string;
@@ -31,7 +32,6 @@ function toMoney(v: number) {
 function parseMoney(s: string) {
   const raw = (s ?? "").trim();
   if (!raw) return null;
-  // Accept: 10,50 or 10.50
   const normalized = raw.replace(/\./g, "").replace(",", ".");
   const n = Number(normalized);
   if (Number.isNaN(n)) return null;
@@ -40,6 +40,7 @@ function parseMoney(s: string) {
 
 export function CaseProductsCard(props: { tenantId: string; caseId: string }) {
   const qc = useQueryClient();
+  const { user } = useSession();
   const [name, setName] = useState("");
   const [price, setPrice] = useState("");
   const [adding, setAdding] = useState(false);
@@ -75,6 +76,19 @@ export function CaseProductsCard(props: { tenantId: string; caseId: string }) {
     return max + 1;
   }, [itemsQ.data]);
 
+  const logTimeline = async (message: string, meta_json: any = {}) => {
+    await supabase.from("timeline_events").insert({
+      tenant_id: props.tenantId,
+      case_id: props.caseId,
+      event_type: "products_updated",
+      actor_type: "admin",
+      actor_id: user?.id ?? null,
+      message,
+      meta_json,
+      occurred_at: new Date().toISOString(),
+    });
+  };
+
   const add = async () => {
     const d = name.trim();
     const p = parseMoney(price);
@@ -101,10 +115,15 @@ export function CaseProductsCard(props: { tenantId: string; caseId: string }) {
       });
       if (error) throw error;
 
+      await logTimeline(`Item adicionado: ${d} (${toMoney(p)})`, { action: "created", description: d, price: p });
+
       setName("");
       setPrice("");
       showSuccess("Item adicionado.");
-      await qc.invalidateQueries({ queryKey: ["crm_case_items", props.tenantId, props.caseId] });
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["crm_case_items", props.tenantId, props.caseId] }),
+        qc.invalidateQueries({ queryKey: ["timeline", props.tenantId, props.caseId] }),
+      ]);
     } catch (e: any) {
       showError(`Falha ao adicionar item: ${e?.message ?? "erro"}`);
     } finally {
@@ -114,10 +133,21 @@ export function CaseProductsCard(props: { tenantId: string; caseId: string }) {
 
   const remove = async (id: string) => {
     try {
+      const it = (itemsQ.data ?? []).find((x) => x.id === id);
       const { error } = await supabase.from("case_items").delete().eq("id", id);
       if (error) throw error;
+
+      await logTimeline(`Item removido: ${it?.description ?? `#${it?.line_no ?? ""}`}`, {
+        action: "deleted",
+        description: it?.description,
+        line_no: it?.line_no,
+      });
+
       showSuccess("Item removido.");
-      await qc.invalidateQueries({ queryKey: ["crm_case_items", props.tenantId, props.caseId] });
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["crm_case_items", props.tenantId, props.caseId] }),
+        qc.invalidateQueries({ queryKey: ["timeline", props.tenantId, props.caseId] }),
+      ]);
     } catch (e: any) {
       showError(`Falha ao remover item: ${e?.message ?? "erro"}`);
     }

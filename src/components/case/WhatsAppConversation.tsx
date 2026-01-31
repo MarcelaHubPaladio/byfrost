@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { useTenant } from "@/providers/TenantProvider";
+import { useSession } from "@/providers/SessionProvider";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { showError, showSuccess } from "@/utils/toast";
@@ -23,6 +24,10 @@ type WaInstanceRow = {
   id: string;
   phone_number: string | null;
 };
+
+type CaseRowLite = { id: string; journey_id: string };
+
+type TenantJourneyRowLite = { config_json: any };
 
 function fmtTime(ts: string) {
   try {
@@ -68,15 +73,12 @@ function safeJsonParse(s: string) {
 }
 
 function getBestText(m: WaMessageRow) {
-  // 1) Prefer body_text when it is already a normal string.
   const raw = (m.body_text ?? "").trim();
   if (raw && raw !== "[object Object]") {
-    // Sometimes we accidentally store a JSON-string in body_text.
     if ((raw.startsWith("{") && raw.endsWith("}")) || (raw.startsWith("[") && raw.endsWith("]"))) {
       const parsed = safeJsonParse(raw);
       if (parsed.ok) {
         const v = parsed.value;
-        // Common shapes
         if (typeof v === "string") return v;
         if (Array.isArray(v)) return v.map((x) => (typeof x === "string" ? x : "")).filter(Boolean).join("\n");
         if (v && typeof v === "object") {
@@ -99,7 +101,6 @@ function getBestText(m: WaMessageRow) {
     return raw;
   }
 
-  // 2) Fallback: extract from payload_json.
   const p = m.payload_json ?? {};
   return (
     pickFirstString(
@@ -126,7 +127,6 @@ function samePhoneLoose(a: string | null | undefined, b: string | null | undefin
   const da = digitsTail(a);
   const db = digitsTail(b);
   if (!da || !db) return false;
-  // require at least 10 digits to reduce false matches
   if (Math.min(da.length, db.length) < 10) return false;
   return da === db;
 }
@@ -142,14 +142,65 @@ function looksLikeGroupNumber(v: string | null | undefined) {
   return d.startsWith("1203") && d.length >= 16;
 }
 
+function readCfg(obj: any, path: string) {
+  const parts = path.split(".").filter(Boolean);
+  let cur: any = obj;
+  for (const p of parts) {
+    if (!cur || typeof cur !== "object") return undefined;
+    cur = cur[p];
+  }
+  return cur;
+}
+
 export function WhatsAppConversation({ caseId, className }: { caseId: string; className?: string }) {
   const qc = useQueryClient();
   const { activeTenantId } = useTenant();
+  const { user } = useSession();
   const [tab, setTab] = useState<"messages" | "participants">("messages");
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
 
   const scrollerRef = useRef<HTMLDivElement | null>(null);
+
+  const caseQ = useQuery({
+    queryKey: ["case_lite_for_chat", activeTenantId, caseId],
+    enabled: Boolean(activeTenantId && caseId),
+    staleTime: 30_000,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("cases")
+        .select("id,journey_id")
+        .eq("tenant_id", activeTenantId!)
+        .eq("id", caseId)
+        .maybeSingle();
+      if (error) throw error;
+      if (!data) throw new Error("Case não encontrado");
+      return data as CaseRowLite;
+    },
+  });
+
+  const tenantJourneyCfgQ = useQuery({
+    queryKey: ["tenant_journey_cfg", activeTenantId, caseQ.data?.journey_id],
+    enabled: Boolean(activeTenantId && caseQ.data?.journey_id),
+    staleTime: 60_000,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("tenant_journeys")
+        .select("config_json")
+        .eq("tenant_id", activeTenantId!)
+        .eq("journey_id", caseQ.data!.journey_id)
+        .maybeSingle();
+      if (error) throw error;
+      return (data ?? null) as TenantJourneyRowLite | null;
+    },
+  });
+
+  const senderIsVendor = useMemo(() => {
+    const cfg = (tenantJourneyCfgQ.data as any)?.config_json ?? {};
+    return Boolean(readCfg(cfg, "automation.conversations.sender_is_vendor"));
+  }, [tenantJourneyCfgQ.data]);
+
+  const counterpartRoleLabel = senderIsVendor ? "vendedor" : "cliente";
 
   const instanceQ = useQuery({
     queryKey: ["wa_instance_active_first", activeTenantId],
@@ -195,8 +246,6 @@ export function WhatsAppConversation({ caseId, className }: { caseId: string; cl
 
     const last = msgs[msgs.length - 1];
 
-    // Hygiene: sometimes provider webhooks store our own instance-sent messages as inbound.
-    // If the instance phone matches `from_phone`, treat it as outbound.
     const effectiveOutbound =
       samePhoneLoose(instancePhone, last.from_phone) ||
       (last.direction === "outbound" && !samePhoneLoose(instancePhone, last.to_phone));
@@ -214,6 +263,20 @@ export function WhatsAppConversation({ caseId, className }: { caseId: string; cl
     }
     return Array.from(s);
   }, [waMsgsQ.data]);
+
+  const logTimeline = async (args: { event_type: string; message: string; meta_json?: any }) => {
+    if (!activeTenantId || !caseId) return;
+    await supabase.from("timeline_events").insert({
+      tenant_id: activeTenantId,
+      case_id: caseId,
+      event_type: args.event_type,
+      actor_type: "admin",
+      actor_id: user?.id ?? null,
+      message: args.message,
+      meta_json: args.meta_json ?? {},
+      occurred_at: new Date().toISOString(),
+    });
+  };
 
   const sendText = async () => {
     if (!activeTenantId) return;
@@ -262,7 +325,17 @@ export function WhatsAppConversation({ caseId, className }: { caseId: string; cl
 
       setText("");
       showSuccess("Mensagem preparada/enfileirada.");
-      await qc.invalidateQueries({ queryKey: ["wa_messages_case", activeTenantId, caseId] });
+
+      await logTimeline({
+        event_type: "whatsapp_outbound",
+        message: `Mensagem enviada para ${counterpartRoleLabel}.`,
+        meta_json: { to, kind: "panel_send", preview: trimmed.slice(0, 240) },
+      });
+
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["wa_messages_case", activeTenantId, caseId] }),
+        qc.invalidateQueries({ queryKey: ["timeline", activeTenantId, caseId] }),
+      ]);
     } catch (e: any) {
       showError(`Falha ao enviar: ${e?.message ?? "erro"}`);
     } finally {
@@ -274,7 +347,6 @@ export function WhatsAppConversation({ caseId, className }: { caseId: string; cl
     if (tab !== "messages") return;
     const el = scrollerRef.current;
     if (!el) return;
-    // scroll to bottom after updates
     el.scrollTop = el.scrollHeight;
   }, [waMsgsQ.data?.length, tab]);
 
@@ -290,7 +362,7 @@ export function WhatsAppConversation({ caseId, className }: { caseId: string; cl
         <div className="min-w-0">
           <div className="text-sm font-semibold text-slate-900">Conversa</div>
           <div className="mt-0.5 text-[11px] text-slate-600 truncate">
-            WhatsApp • {counterpartPhone ? `destinatário: ${counterpartPhone}` : "aguardando mensagens"}
+            WhatsApp • {counterpartPhone ? `destinatário (${counterpartRoleLabel}): ${counterpartPhone}` : "aguardando mensagens"}
           </div>
         </div>
 
@@ -379,7 +451,9 @@ export function WhatsAppConversation({ caseId, className }: { caseId: string; cl
                 const loc = m.type === "location" ? extractLocation(m.payload_json) : null;
                 const mapsUrl = loc ? `https://www.google.com/maps?q=${loc.lat},${loc.lng}` : null;
 
-                const text = m.type === "text" ? getBestText(m) : "";
+                const msgText = m.type === "text" ? getBestText(m) : "";
+
+                const inboundLabel = senderIsVendor ? "Vendedor" : "Cliente";
 
                 return (
                   <div
@@ -468,7 +542,7 @@ export function WhatsAppConversation({ caseId, className }: { caseId: string; cl
                               effectiveInbound ? "text-slate-900" : "text-white"
                             )}
                           >
-                            {text || "(sem texto)"}
+                            {msgText || "(sem texto)"}
                           </div>
                         )}
                       </div>
@@ -479,7 +553,7 @@ export function WhatsAppConversation({ caseId, className }: { caseId: string; cl
                           effectiveInbound ? "text-slate-500" : "text-slate-500 text-right"
                         )}
                       >
-                        {effectiveInbound ? (m.from_phone ?? "") : "Você"} • {fmtTime(m.occurred_at)}
+                        {effectiveInbound ? `${inboundLabel}${m.from_phone ? ` • ${m.from_phone}` : ""}` : "Painel"} • {fmtTime(m.occurred_at)}
                       </div>
                     </div>
                   </div>

@@ -47,6 +47,17 @@ function toneFor(e: CaseTimelineEvent) {
   return "emerald";
 }
 
+function actorLabel(actorType: string) {
+  const t = String(actorType ?? "").toLowerCase();
+  if (t === "admin") return "Painel";
+  if (t === "vendor") return "Vendedor";
+  if (t === "customer") return "Cliente";
+  if (t === "leader") return "Líder";
+  if (t === "ai") return "IA";
+  if (t === "system") return "Sistema";
+  return actorType;
+}
+
 export function CaseTimeline({ events }: { events: CaseTimelineEvent[] }) {
   return (
     <div className="rounded-[22px] border border-slate-200 bg-white p-4">
@@ -76,13 +87,9 @@ export function CaseTimeline({ events }: { events: CaseTimelineEvent[] }) {
 
               return (
                 <li key={e.id} className="relative">
-                  {/* Connector line */}
-                  {!isLast && (
-                    <div className="absolute left-[14px] top-7 bottom-[-22px] w-px bg-slate-200" />
-                  )}
+                  {!isLast && <div className="absolute left-[14px] top-7 bottom-[-22px] w-px bg-slate-200" />}
 
                   <div className="flex items-start gap-3">
-                    {/* Icon comes first (before date), like the reference */}
                     <div
                       className={cn(
                         "z-10 mt-0.5 h-7 w-7 flex-shrink-0 rounded-full border grid place-items-center",
@@ -98,7 +105,7 @@ export function CaseTimeline({ events }: { events: CaseTimelineEvent[] }) {
                         {e.message ?? "(sem mensagem)"}
                       </div>
                       <div className="mt-1 text-[11px] text-slate-500">
-                        {e.actor_type} • {e.event_type}
+                        {actorLabel(e.actor_type)} • {e.event_type}
                       </div>
                     </div>
                   </div>

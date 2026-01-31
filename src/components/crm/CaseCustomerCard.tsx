@@ -8,6 +8,7 @@ import { supabase } from "@/lib/supabase";
 import { showError, showSuccess } from "@/utils/toast";
 import { cn } from "@/lib/utils";
 import { Phone, UserRound, Mail, Link2 } from "lucide-react";
+import { useSession } from "@/providers/SessionProvider";
 
 type CustomerRow = {
   id: string;
@@ -22,7 +23,6 @@ function normalizePhoneLoose(v: string) {
   const s = (v ?? "").trim();
   if (!s) return "";
   if (s.startsWith("+")) return s;
-  // fallback: keep digits, prefix +
   const digits = s.replace(/\D/g, "");
   return digits ? `+${digits}` : "";
 }
@@ -35,6 +35,7 @@ export function CaseCustomerCard(props: {
   suggestedPhone?: string | null;
 }) {
   const qc = useQueryClient();
+  const { user } = useSession();
   const [saving, setSaving] = useState(false);
 
   const customerQ = useQuery({
@@ -73,6 +74,19 @@ export function CaseCustomerCard(props: {
     setEmail(initialDraft.email);
   }, [initialDraft.phone, initialDraft.name, initialDraft.email]);
 
+  const logTimeline = async (message: string, meta_json: any = {}) => {
+    await supabase.from("timeline_events").insert({
+      tenant_id: props.tenantId,
+      case_id: props.caseId,
+      event_type: "customer_updated",
+      actor_type: "admin",
+      actor_id: user?.id ?? null,
+      message,
+      meta_json,
+      occurred_at: new Date().toISOString(),
+    });
+  };
+
   const save = async () => {
     const p = normalizePhoneLoose(phone);
     if (!p) {
@@ -95,9 +109,20 @@ export function CaseCustomerCard(props: {
           .eq("id", props.customerId);
         if (error) throw error;
 
+        await logTimeline("Dados do cliente atualizados.", {
+          action: "updated",
+          customer_id: props.customerId,
+          phone_e164: p,
+          name: name.trim() || null,
+          email: email.trim() || null,
+        });
+
         showSuccess("Cliente atualizado.");
-        await qc.invalidateQueries({ queryKey: ["customer_account", props.tenantId, props.customerId] });
-        await qc.invalidateQueries({ queryKey: ["case", props.tenantId, props.caseId] });
+        await Promise.all([
+          qc.invalidateQueries({ queryKey: ["customer_account", props.tenantId, props.customerId] }),
+          qc.invalidateQueries({ queryKey: ["case", props.tenantId, props.caseId] }),
+          qc.invalidateQueries({ queryKey: ["timeline", props.tenantId, props.caseId] }),
+        ]);
         return;
       }
 
@@ -111,6 +136,8 @@ export function CaseCustomerCard(props: {
         .limit(1)
         .maybeSingle();
       if (findErr) throw findErr;
+
+      const createdNew = !existing?.id;
 
       const idToLink = existing?.id
         ? (existing.id as string)
@@ -141,11 +168,18 @@ export function CaseCustomerCard(props: {
         .eq("id", props.caseId);
       if (linkErr) throw linkErr;
 
+      await logTimeline(createdNew ? "Cliente criado e vinculado ao case." : "Cliente vinculado ao case.", {
+        action: createdNew ? "created_and_linked" : "linked",
+        customer_id: idToLink,
+        phone_e164: p,
+      });
+
       showSuccess(existing?.id ? "Cliente vinculado ao case." : "Cliente criado e vinculado ao case.");
 
       await Promise.all([
         qc.invalidateQueries({ queryKey: ["case", props.tenantId, props.caseId] }),
         qc.invalidateQueries({ queryKey: ["customer_account", props.tenantId, idToLink] }),
+        qc.invalidateQueries({ queryKey: ["timeline", props.tenantId, props.caseId] }),
       ]);
     } catch (e: any) {
       showError(`Falha ao salvar cliente: ${e?.message ?? "erro"}`);

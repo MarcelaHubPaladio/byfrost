@@ -8,6 +8,7 @@ import { supabase } from "@/lib/supabase";
 import { showError, showSuccess } from "@/utils/toast";
 import { cn } from "@/lib/utils";
 import { CheckSquare, Plus, Trash2 } from "lucide-react";
+import { useSession } from "@/providers/SessionProvider";
 
 type TaskRow = {
   id: string;
@@ -26,6 +27,7 @@ function isDone(status: string) {
 
 export function CaseTasksCard(props: { tenantId: string; caseId: string }) {
   const qc = useQueryClient();
+  const { user } = useSession();
   const [title, setTitle] = useState("");
   const [adding, setAdding] = useState(false);
 
@@ -50,6 +52,19 @@ export function CaseTasksCard(props: { tenantId: string; caseId: string }) {
 
   const doneCount = useMemo(() => (tasksQ.data ?? []).filter((t) => isDone(t.status)).length, [tasksQ.data]);
 
+  const logTimeline = async (message: string, meta_json: any = {}) => {
+    await supabase.from("timeline_events").insert({
+      tenant_id: props.tenantId,
+      case_id: props.caseId,
+      event_type: "task_updated",
+      actor_type: "admin",
+      actor_id: user?.id ?? null,
+      message,
+      meta_json,
+      occurred_at: new Date().toISOString(),
+    });
+  };
+
   const add = async () => {
     const t = title.trim();
     if (!t) return;
@@ -64,9 +79,15 @@ export function CaseTasksCard(props: { tenantId: string; caseId: string }) {
         meta_json: {},
       });
       if (error) throw error;
+
+      await logTimeline(`Tarefa criada: ${t}`, { action: "created", title: t });
+
       setTitle("");
       showSuccess("Tarefa criada.");
-      await qc.invalidateQueries({ queryKey: ["tasks_case", props.tenantId, props.caseId] });
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["tasks_case", props.tenantId, props.caseId] }),
+        qc.invalidateQueries({ queryKey: ["timeline", props.tenantId, props.caseId] }),
+      ]);
     } catch (e: any) {
       showError(`Falha ao criar tarefa: ${e?.message ?? "erro"}`);
     } finally {
@@ -83,7 +104,18 @@ export function CaseTasksCard(props: { tenantId: string; caseId: string }) {
         .eq("tenant_id", props.tenantId)
         .eq("id", task.id);
       if (error) throw error;
-      await qc.invalidateQueries({ queryKey: ["tasks_case", props.tenantId, props.caseId] });
+
+      await logTimeline(`Tarefa ${next === "done" ? "concluída" : "reaberta"}: ${task.title}`, {
+        action: "status",
+        from: task.status,
+        to: next,
+        title: task.title,
+      });
+
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["tasks_case", props.tenantId, props.caseId] }),
+        qc.invalidateQueries({ queryKey: ["timeline", props.tenantId, props.caseId] }),
+      ]);
     } catch (e: any) {
       showError(`Falha ao atualizar tarefa: ${e?.message ?? "erro"}`);
     }
@@ -97,8 +129,14 @@ export function CaseTasksCard(props: { tenantId: string; caseId: string }) {
         .eq("tenant_id", props.tenantId)
         .eq("id", task.id);
       if (error) throw error;
+
+      await logTimeline(`Tarefa removida: ${task.title}`, { action: "deleted", title: task.title });
+
       showSuccess("Tarefa removida.");
-      await qc.invalidateQueries({ queryKey: ["tasks_case", props.tenantId, props.caseId] });
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["tasks_case", props.tenantId, props.caseId] }),
+        qc.invalidateQueries({ queryKey: ["timeline", props.tenantId, props.caseId] }),
+      ]);
     } catch (e: any) {
       showError(`Falha ao remover tarefa: ${e?.message ?? "erro"}`);
     }
@@ -169,7 +207,12 @@ export function CaseTasksCard(props: { tenantId: string; caseId: string }) {
                 title="Marcar como feito"
               >
                 <Checkbox checked={done} />
-                <div className={cn("truncate text-sm font-medium", done ? "text-emerald-900 line-through" : "text-slate-900")}>
+                <div
+                  className={cn(
+                    "truncate text-sm font-medium",
+                    done ? "text-emerald-900 line-through" : "text-slate-900"
+                  )}
+                >
                   {t.title}
                 </div>
               </button>

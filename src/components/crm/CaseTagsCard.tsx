@@ -7,6 +7,7 @@ import { supabase } from "@/lib/supabase";
 import { showError, showSuccess } from "@/utils/toast";
 import { cn } from "@/lib/utils";
 import { Tag, Plus, X } from "lucide-react";
+import { useSession } from "@/providers/SessionProvider";
 
 type TagRow = {
   id: string;
@@ -25,7 +26,6 @@ function normalizeTag(s: string) {
 }
 
 function tintForTag(tag: string) {
-  // Deterministic small palette based on string hash
   let h = 0;
   for (let i = 0; i < tag.length; i++) h = (h * 31 + tag.charCodeAt(i)) >>> 0;
   const hue = (h % 320) + 20;
@@ -38,6 +38,7 @@ function tintForTag(tag: string) {
 
 export function CaseTagsCard(props: { tenantId: string; caseId: string }) {
   const qc = useQueryClient();
+  const { user } = useSession();
   const [draft, setDraft] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -64,6 +65,19 @@ export function CaseTagsCard(props: { tenantId: string; caseId: string }) {
     return Array.from(new Set(list));
   }, [tagsQ.data]);
 
+  const logTimeline = async (message: string, meta_json: any = {}) => {
+    await supabase.from("timeline_events").insert({
+      tenant_id: props.tenantId,
+      case_id: props.caseId,
+      event_type: "tag_updated",
+      actor_type: "admin",
+      actor_id: user?.id ?? null,
+      message,
+      meta_json,
+      occurred_at: new Date().toISOString(),
+    });
+  };
+
   const add = async () => {
     const t = normalizeTag(draft);
     if (!t) return;
@@ -80,9 +94,15 @@ export function CaseTagsCard(props: { tenantId: string; caseId: string }) {
         tag: t,
       });
       if (error) throw error;
+
+      await logTimeline(`Tag adicionada: ${t}`, { action: "created", tag: t });
+
       setDraft("");
       showSuccess("Tag adicionada.");
-      await qc.invalidateQueries({ queryKey: ["case_tags", props.tenantId, props.caseId] });
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["case_tags", props.tenantId, props.caseId] }),
+        qc.invalidateQueries({ queryKey: ["timeline", props.tenantId, props.caseId] }),
+      ]);
     } catch (e: any) {
       showError(`Falha ao adicionar tag: ${e?.message ?? "erro"}`);
     } finally {
@@ -92,7 +112,6 @@ export function CaseTagsCard(props: { tenantId: string; caseId: string }) {
 
   const remove = async (tag: string) => {
     try {
-      // delete all rows matching the tag (defensive)
       const { error } = await supabase
         .from("case_tags")
         .delete()
@@ -100,8 +119,14 @@ export function CaseTagsCard(props: { tenantId: string; caseId: string }) {
         .eq("case_id", props.caseId)
         .eq("tag", tag);
       if (error) throw error;
+
+      await logTimeline(`Tag removida: ${tag}`, { action: "deleted", tag });
+
       showSuccess("Tag removida.");
-      await qc.invalidateQueries({ queryKey: ["case_tags", props.tenantId, props.caseId] });
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["case_tags", props.tenantId, props.caseId] }),
+        qc.invalidateQueries({ queryKey: ["timeline", props.tenantId, props.caseId] }),
+      ]);
     } catch (e: any) {
       showError(`Falha ao remover tag: ${e?.message ?? "erro"}`);
     }

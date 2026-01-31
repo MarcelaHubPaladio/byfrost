@@ -53,6 +53,11 @@ type ChatCaseLite = {
   meta_json?: any;
 };
 
+type NonChatCaseLite = {
+  id: string;
+  customer_id: string | null;
+};
+
 type ParsedRow = {
   rowNo: number;
   name: string;
@@ -317,6 +322,7 @@ export function ImportLeadsDialog({
   const [vendorsCache, setVendorsCache] = useState<VendorLite[] | null>(null);
   const [chatCasesCache, setChatCasesCache] = useState<ChatCaseLite[] | null>(null);
   const [chatCasePhonesCache, setChatCasePhonesCache] = useState<Map<string, string> | null>(null);
+  const [nonChatCasesCache, setNonChatCasesCache] = useState<NonChatCaseLite[] | null>(null);
 
   const reset = () => {
     setFileName("");
@@ -374,6 +380,7 @@ export function ImportLeadsDialog({
     const vendors = vendorsCache ?? [];
     const chatCases = chatCasesCache ?? [];
     const chatCasePhones = chatCasePhonesCache ?? new Map<string, string>();
+    const nonChatCases = nonChatCasesCache ?? [];
 
     const userByEmail = new Map<string, UserProfileLite>();
     for (const u of users) {
@@ -384,6 +391,12 @@ export function ImportLeadsDialog({
 
     const vendorByPhone = new Map<string, VendorLite>();
     for (const v of vendors) vendorByPhone.set(v.phone_e164, v);
+
+    const casesByCustomerId = new Set<string>();
+    for (const c of nonChatCases) {
+      const cid = String(c.customer_id ?? "");
+      if (cid) casesByCustomerId.add(cid);
+    }
 
     const findChatCaseByPhone = (phone: string) => {
       for (const c of chatCases) {
@@ -412,11 +425,19 @@ export function ImportLeadsDialog({
       // tenta resolver vendor via phone do users_profile (se já existir)
       const ownerVendor = ownerUser?.phone_e164 ? vendorByPhone.get(ownerUser.phone_e164) ?? null : null;
 
+      // Regras:
+      // - Se já existe chat para esse número => atualizar/vincular (não criar case novo)
+      // - Se já existe customer, mas NÃO existe case não-chat para ele nesta jornada => criar case (lead) normalmente
+      // - Se já existe customer E já existe case não-chat => apenas atualizar cadastro
+      const hasNonChatCaseForCustomer = existingCustomer ? casesByCustomerId.has(existingCustomer.id) : false;
+
       const action: PreviewRow["action"] = err
         ? "skip_error"
-        : existingCustomer || existingChatCase
+        : existingChatCase
           ? "update_only"
-          : "create_case";
+          : existingCustomer && hasNonChatCaseForCustomer
+            ? "update_only"
+            : "create_case";
 
       return {
         ...r,
@@ -430,7 +451,7 @@ export function ImportLeadsDialog({
         error: err,
       } satisfies PreviewRow;
     });
-  }, [parseRows, customersCache, usersCache, vendorsCache, chatCasesCache, chatCasePhonesCache]);
+  }, [parseRows, customersCache, usersCache, vendorsCache, chatCasesCache, chatCasePhonesCache, nonChatCasesCache]);
 
   const counts = useMemo(() => {
     const c = { create_case: 0, update_only: 0, skip_error: 0, missing_owner: 0, update_chat_only: 0 };
@@ -469,6 +490,17 @@ export function ImportLeadsDialog({
       .is("deleted_at", null)
       .limit(5000);
     if (vErr) throw vErr;
+
+    // Existing cases (não-chat) desta jornada: para não criar duplicado ao importar o mesmo lead
+    const { data: nonChatCases, error: ncErr } = await supabase
+      .from("cases")
+      .select("id,customer_id")
+      .eq("tenant_id", tenantId)
+      .is("deleted_at", null)
+      .eq("is_chat", false)
+      .eq("journey_id", journey.id)
+      .limit(20_000);
+    if (ncErr) throw ncErr;
 
     // Chat cases (para reconhecer lead já existente mesmo se só chat)
     const { data: chatCases, error: ccErr } = await supabase
@@ -516,6 +548,7 @@ export function ImportLeadsDialog({
     setCustomersCache((customers ?? []) as any);
     setUsersCache((users ?? []) as any);
     setVendorsCache((vendors ?? []) as any);
+    setNonChatCasesCache((nonChatCases ?? []) as any);
     setChatCasesCache((chatCases ?? []) as any);
     setChatCasePhonesCache(phoneByCase);
   };
@@ -954,6 +987,7 @@ export function ImportLeadsDialog({
                     setVendorsCache(null);
                     setChatCasesCache(null);
                     setChatCasePhonesCache(null);
+                    setNonChatCasesCache(null);
                     setFileName("");
                     setParsingError(null);
                   }}

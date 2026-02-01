@@ -18,6 +18,7 @@ import Dashboard from "@/pages/Dashboard";
 import CaseDetail from "@/pages/CaseDetail";
 import Simulator from "@/pages/Simulator";
 import Settings from "@/pages/Settings";
+import Me from "@/pages/Me";
 import Admin from "@/pages/Admin";
 import Crm from "@/pages/Crm";
 import CrmCaseDetail from "@/pages/CrmCaseDetail";
@@ -106,6 +107,15 @@ const App = () => (
                   element={
                     <RequireRouteAccess routeKey="app.simulator">
                       <Simulator />
+                    </RequireRouteAccess>
+                  }
+                />
+
+                <Route
+                  path="/app/me"
+                  element={
+                    <RequireRouteAccess routeKey="app.me">
+                      <Me />
                     </RequireRouteAccess>
                   }
                 />

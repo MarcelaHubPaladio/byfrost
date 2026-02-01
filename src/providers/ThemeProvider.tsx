@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
+import React, { createContext, useContext, useEffect, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { supabase } from "@/lib/supabase";
@@ -81,7 +81,7 @@ function rgbToHsl(r: number, g: number, b: number) {
   };
 }
 
-function applyCustomCssVars(custom: ThemeCustom) {
+function applyUserOverrides(custom: ThemeCustom) {
   const root = document.documentElement;
 
   const accentHex = custom.accentHex ? String(custom.accentHex).trim() : "";
@@ -91,7 +91,7 @@ function applyCustomCssVars(custom: ThemeCustom) {
     const rgb = hexToRgb(accentHex);
     if (rgb) {
       const hsl = rgbToHsl(rgb.r, rgb.g, rgb.b);
-      root.style.setProperty("--byfrost-accent", `${hsl.h} ${hsl.s}% ${hsl.l}%`);
+      root.style.setProperty("--user-accent", `${hsl.h} ${hsl.s}% ${hsl.l}%`);
     }
   }
 
@@ -101,15 +101,15 @@ function applyCustomCssVars(custom: ThemeCustom) {
       const hsl = rgbToHsl(rgb.r, rgb.g, rgb.b);
       // keep background very light even if someone picks a dark color
       const l = clamp(hsl.l, 92, 98);
-      root.style.setProperty("--byfrost-bg", `${hsl.h} ${Math.min(35, hsl.s)}% ${l}%`);
+      root.style.setProperty("--user-bg", `${hsl.h} ${Math.min(35, hsl.s)}% ${l}%`);
     }
   }
 }
 
-function clearCustomCssVars() {
+function clearUserOverrides() {
   const root = document.documentElement;
-  root.style.removeProperty("--byfrost-accent");
-  root.style.removeProperty("--byfrost-bg");
+  root.style.removeProperty("--user-accent");
+  root.style.removeProperty("--user-bg");
 }
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
@@ -143,19 +143,20 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
     if (prefs.mode === "dark") {
       root.classList.add("dark");
-      clearCustomCssVars();
+      // IMPORTANT: don't clear tenant vars; only clear user overrides when not in custom.
+      clearUserOverrides();
       return;
     }
 
     root.classList.remove("dark");
 
     if (prefs.mode === "custom") {
-      applyCustomCssVars(prefs.custom);
+      applyUserOverrides(prefs.custom);
       return;
     }
 
     // byfrost
-    clearCustomCssVars();
+    clearUserOverrides();
   }, [prefs.mode, prefs.custom]);
 
   const upsert = async (patch: Partial<{ theme_mode: ThemeMode; theme_custom_json: ThemeCustom }>) => {

@@ -43,9 +43,16 @@
     --sidebar-border: 220 13% 91%;
     --sidebar-ring: 217.2 91.2% 59.8%;
 
-    /* Byfrost design tokens (mobile-first, colorful, no gradients) */
-    --byfrost-bg: 220 45% 97%;
-    --byfrost-accent: 252 86% 62%;
+    /* Byfrost design tokens (mobile-first, colorful, no gradients)
+       Theme resolution order:
+       1) user overrides (custom theme)
+       2) tenant palette
+       3) defaults */
+    --tenant-bg: 220 45% 97%;
+    --tenant-accent: 252 86% 62%;
+
+    --byfrost-bg: var(--user-bg, var(--tenant-bg));
+    --byfrost-accent: var(--user-accent, var(--tenant-accent));
   }
 
   .dark {
@@ -85,8 +92,9 @@
     --sidebar-border: 240 3.7% 15.9%;
     --sidebar-ring: 217.2 91.2% 59.8%;
 
+    /* Dark mode uses a fixed background, but keeps the accent resolution order */
     --byfrost-bg: 240 12% 10%;
-    --byfrost-accent: 252 86% 62%;
+    --byfrost-accent: var(--user-accent, var(--tenant-accent));
   }
 }
 

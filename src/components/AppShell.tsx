@@ -4,7 +4,6 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { useTenant } from "@/providers/TenantProvider";
 import { useSession } from "@/providers/SessionProvider";
-import { useTheme } from "@/providers/ThemeProvider";
 import {
   LayoutGrid,
   FlaskConical,
@@ -133,7 +132,6 @@ export function AppShell({
   const nav = useNavigate();
   const { activeTenant, isSuperAdmin, activeTenantId } = useTenant();
   const { user } = useSession();
-  const { prefs } = useTheme();
   const [userMenuOpen, setUserMenuOpen] = useState(false);
 
   const crmEnabledQ = useQuery({
@@ -170,9 +168,6 @@ export function AppShell({
   useEffect(() => {
     const root = document.documentElement;
 
-    // If the user is in custom theme, we do NOT override their CSS vars.
-    if (prefs.mode === "custom") return;
-
     // Default
     let accent = { h: 252, s: 86, l: 62 };
     let bg = { h: 220, s: 45, l: 97 };
@@ -185,14 +180,10 @@ export function AppShell({
       }
     }
 
-    // Always keep accent aligned with tenant palette (even in dark).
-    root.style.setProperty("--byfrost-accent", `${accent.h} ${accent.s}% ${accent.l}%`);
-
-    // Only set the light background when not in dark mode.
-    if (prefs.mode !== "dark") {
-      root.style.setProperty("--byfrost-bg", `${bg.h} ${bg.s}% ${bg.l}%`);
-    }
-  }, [palettePrimaryHex, activeTenant?.id, prefs.mode]);
+    // Tenant palette variables (user theme may override via --user-*).
+    root.style.setProperty("--tenant-accent", `${accent.h} ${accent.s}% ${accent.l}%`);
+    root.style.setProperty("--tenant-bg", `${bg.h} ${bg.s}% ${bg.l}%`);
+  }, [palettePrimaryHex, activeTenant?.id]);
 
   const signOut = async () => {
     await supabase.auth.signOut();
@@ -318,6 +309,21 @@ export function AppShell({
                         </div>
                       </DropdownMenuLabel>
                       <DropdownMenuSeparator className="bg-slate-200 dark:bg-slate-800" />
+
+                      <DropdownMenuItem
+                        className="cursor-pointer rounded-xl px-2 py-2 text-slate-700 focus:bg-slate-100 focus:text-slate-900 dark:text-slate-200 dark:focus:bg-slate-800"
+                        onSelect={(e) => {
+                          e.preventDefault();
+                          setUserMenuOpen(false);
+                          nav("/app/me");
+                        }}
+                      >
+                        <User2 className="mr-2 h-4 w-4" />
+                        Meu usuário
+                      </DropdownMenuItem>
+
+                      <DropdownMenuSeparator className="bg-slate-200 dark:bg-slate-800" />
+
                       <DropdownMenuItem
                         className="cursor-pointer rounded-xl px-2 py-2 text-rose-700 focus:bg-rose-50 focus:text-rose-800 dark:text-rose-300 dark:focus:bg-rose-950/30 dark:focus:text-rose-200"
                         onSelect={(e) => {

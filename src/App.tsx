@@ -23,6 +23,8 @@ import Admin from "@/pages/Admin";
 import Crm from "@/pages/Crm";
 import CrmCaseDetail from "@/pages/CrmCaseDetail";
 import Chats from "@/pages/Chats";
+import Presence from "@/pages/Presence";
+import PresenceManage from "@/pages/PresenceManage";
 
 const queryClient = new QueryClient();
 
@@ -80,6 +82,24 @@ const App = () => (
                   element={
                     <RequireRouteAccess routeKey="app.chat">
                       <Chats />
+                    </RequireRouteAccess>
+                  }
+                />
+
+                {/* Presença (opcional por tenant) */}
+                <Route
+                  path="/app/presence"
+                  element={
+                    <RequireRouteAccess routeKey="app.presence">
+                      <Presence />
+                    </RequireRouteAccess>
+                  }
+                />
+                <Route
+                  path="/app/presence/manage"
+                  element={
+                    <RequireRouteAccess routeKey="app.presence_manage">
+                      <PresenceManage />
                     </RequireRouteAccess>
                   }
                 />

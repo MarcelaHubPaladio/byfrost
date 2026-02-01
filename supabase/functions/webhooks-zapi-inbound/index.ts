@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { corsHeaders } from "../_shared/cors.ts";
 import { createSupabaseAdmin } from "../_shared/supabaseAdmin.ts";
 import { normalizePhoneE164Like } from "../_shared/normalize.ts";
+import { clockPresencePunch, getPresenceTenantConfig, type PresencePunchType } from "../_shared/presence.ts";
 
 type InboundType = "text" | "image" | "audio" | "location";
 
@@ -108,6 +109,18 @@ function forceDirectionFromUrl(reqUrl: string): WebhookDirection | null {
   } catch {
     return null;
   }
+}
+
+function normalizePresenceCommand(
+  text: string | null | undefined
+): { raw: "ENTRADA" | "SAIDA" | "INTERVALO" | "VOLTEI"; forcedType: PresencePunchType } | null {
+  const t = String(text ?? "").trim().toUpperCase();
+  if (!t) return null;
+  if (t === "ENTRADA") return { raw: "ENTRADA", forcedType: "ENTRY" };
+  if (t === "SAIDA" || t === "SAÍDA") return { raw: "SAIDA", forcedType: "EXIT" };
+  if (t === "INTERVALO") return { raw: "INTERVALO", forcedType: "BREAK_START" };
+  if (t === "VOLTEI") return { raw: "VOLTEI", forcedType: "BREAK_END" };
+  return null;
 }
 
 function normalizeInbound(payload: any): {
@@ -592,6 +605,203 @@ serve(async (req) => {
         return new Response(JSON.stringify({ ok: true, correlation_id: correlationId, duplicate: true }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
+      }
+    }
+
+    // -------------------- Presence (WhatsApp clocking) — feature flagged per tenant --------------------
+    // This MUST NOT interfere with other journeys.
+    if (direction === "inbound") {
+      const presenceCfg = await getPresenceTenantConfig(supabase as any, String(instance.tenant_id)).catch(() => null);
+      const allowPresenceWa = Boolean(presenceCfg?.enabled && presenceCfg?.flags?.presence_allow_whatsapp_clocking);
+
+      if (allowPresenceWa && normalized.from) {
+        const command = normalizePresenceCommand(normalized.text);
+
+        const upsertContactMeta = async (patch: any) => {
+          const { data: existing } = await supabase
+            .from("wa_contacts")
+            .select("meta_json")
+            .eq("tenant_id", instance.tenant_id)
+            .eq("phone_e164", normalized.from)
+            .is("deleted_at", null)
+            .maybeSingle();
+
+          const merged = { ...((existing as any)?.meta_json ?? {}), ...patch };
+
+          await supabase
+            .from("wa_contacts")
+            .upsert(
+              {
+                tenant_id: instance.tenant_id,
+                phone_e164: normalized.from,
+                name: null,
+                role_hint: "employee",
+                meta_json: merged,
+              },
+              { onConflict: "tenant_id,phone_e164" }
+            );
+        };
+
+        const writeInboundMessage = async () => {
+          await supabase.from("wa_messages").insert({
+            tenant_id: instance.tenant_id,
+            instance_id: instance.id,
+            direction: "inbound",
+            from_phone: normalized.from,
+            to_phone: normalized.to,
+            type: normalized.type,
+            body_text: normalized.text,
+            media_url: normalized.mediaUrl,
+            payload_json: payload,
+            correlation_id: correlationId,
+            occurred_at: new Date().toISOString(),
+            case_id: null,
+          });
+        };
+
+        // 1) Command message => stage command, require location next.
+        if (normalized.type === "text" && command) {
+          await upsertContactMeta({
+            presence_pending_command: command.raw,
+            presence_pending_command_at: new Date().toISOString(),
+          });
+
+          await writeInboundMessage();
+
+          await logInbox({
+            instance,
+            ok: true,
+            http_status: 200,
+            reason: "presence_command_staged",
+            direction,
+            meta: {
+              correlation_id: correlationId,
+              command: command.raw,
+              forced_type: command.forcedType,
+            },
+          });
+
+          return new Response(JSON.stringify({ ok: true, presence: { staged: true, command: command.raw } }), {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+
+        // 2) Location message => must have a command (either inline text or pending from previous message).
+        if (normalized.type === "location" && normalized.location) {
+          const inlineCmd = normalizePresenceCommand(normalized.text);
+
+          const { data: contact } = await supabase
+            .from("wa_contacts")
+            .select("meta_json")
+            .eq("tenant_id", instance.tenant_id)
+            .eq("phone_e164", normalized.from)
+            .is("deleted_at", null)
+            .maybeSingle();
+
+          const pendingRaw = String((contact as any)?.meta_json?.presence_pending_command ?? "").trim().toUpperCase();
+          const pendingAt = String((contact as any)?.meta_json?.presence_pending_command_at ?? "");
+          const pending = normalizePresenceCommand(pendingRaw);
+
+          const used = inlineCmd ?? pending;
+
+          // Require a command.
+          if (!used) {
+            await writeInboundMessage();
+            await logInbox({
+              instance,
+              ok: true,
+              http_status: 200,
+              reason: "presence_missing_command",
+              direction,
+              meta: { correlation_id: correlationId },
+            });
+            return new Response(JSON.stringify({ ok: true, presence: { handled: false, reason: "missing_command" } }), {
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
+
+          // If it came from pending, enforce freshness (10 minutes).
+          if (!inlineCmd && pendingAt) {
+            const dt = Date.parse(pendingAt);
+            if (!Number.isNaN(dt) && Date.now() - dt > 10 * 60_000) {
+              await upsertContactMeta({ presence_pending_command: null, presence_pending_command_at: null });
+              await writeInboundMessage();
+              await logInbox({
+                instance,
+                ok: true,
+                http_status: 200,
+                reason: "presence_pending_command_expired",
+                direction,
+                meta: { correlation_id: correlationId },
+              });
+              return new Response(
+                JSON.stringify({ ok: true, presence: { handled: false, reason: "pending_command_expired" } }),
+                { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+              );
+            }
+          }
+
+          // Map phone -> employee user
+          const { data: employee } = await supabase
+            .from("users_profile")
+            .select("user_id")
+            .eq("tenant_id", instance.tenant_id)
+            .eq("phone_e164", normalized.from)
+            .is("deleted_at", null)
+            .limit(1)
+            .maybeSingle();
+
+          if (!(employee as any)?.user_id) {
+            await writeInboundMessage();
+            await logInbox({
+              instance,
+              ok: true,
+              http_status: 200,
+              reason: "presence_employee_not_found",
+              direction,
+              meta: { correlation_id: correlationId, from: normalized.from },
+            });
+            return new Response(JSON.stringify({ ok: true, presence: { handled: false, reason: "employee_not_found" } }), {
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
+
+          const punchRes = await clockPresencePunch({
+            supabase: supabase as any,
+            tenantId: String(instance.tenant_id),
+            employeeId: String((employee as any).user_id),
+            source: "WHATSAPP",
+            latitude: normalized.location.lat,
+            longitude: normalized.location.lng,
+            accuracyMeters: null,
+            forcedType: used.forcedType,
+            actorType: "system",
+            actorId: null,
+          }).catch((e) => ({ ok: false as const, error: "presence_clock_failed", details: String(e?.message ?? e) }));
+
+          // Clear pending command (best-effort)
+          await upsertContactMeta({ presence_pending_command: null, presence_pending_command_at: null });
+
+          await writeInboundMessage();
+
+          await logInbox({
+            instance,
+            ok: true,
+            http_status: 200,
+            reason: (punchRes as any)?.ok ? "presence_clocked" : (punchRes as any)?.error ?? "presence_clock_failed",
+            direction,
+            meta: {
+              correlation_id: correlationId,
+              command: used.raw,
+              forced_type: used.forcedType,
+              punch: punchRes,
+            },
+          });
+
+          return new Response(JSON.stringify({ ok: true, presence: punchRes }), {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
       }
     }
 

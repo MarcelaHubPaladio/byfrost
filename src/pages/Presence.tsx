@@ -207,52 +207,37 @@ export default function Presence() {
     if (!open.length) return;
 
     try {
-      for (const p of open) {
-        const ans = (justificationDraft[p.id] ?? "").trim();
-        if (!ans) continue;
+      const answers = open
+        .map((p) => ({ pendencyId: p.id, answerText: (justificationDraft[p.id] ?? "").trim() }))
+        .filter((a) => Boolean(a.answerText));
 
-        const q = supabase
-          .from("pendencies")
-          .update({ status: "answered", answered_text: ans })
-          .eq("id", p.id);
-
-        // best-effort tenant filter
-        await (activeTenantId ? (q as any).eq("tenant_id", activeTenantId) : (q as any));
+      if (!answers.length) {
+        showError("Escreva ao menos uma justificativa para enviar.");
+        return;
       }
 
-      // If all required open pendencies are answered, move to approval.
-      const { data: stillOpen, error } = await supabase
-        .from("pendencies")
-        .select("id,required,status")
-        .eq("case_id", caseQ.data.id)
-        .eq("status", "open")
-        .limit(200);
+      const url = "https://pryoirzeghatrgecwrci.supabase.co/functions/v1/presence-justify";
+      const { data: sess } = await supabase.auth.getSession();
+      const token = sess.session?.access_token;
+      if (!token) throw new Error("Sessão expirada. Faça login novamente.");
 
-      if (error) throw error;
+      const res = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ tenantId: activeTenantId, caseId: caseQ.data.id, answers }),
+      });
 
-      const requiredOpen = (stillOpen ?? []).some((r: any) => Boolean(r.required));
-
-      if (!requiredOpen) {
-        await supabase
-          .from("cases")
-          .update({ state: "PENDENTE_APROVACAO" })
-          .eq("tenant_id", activeTenantId)
-          .eq("id", caseQ.data.id);
-
-        await supabase.from("timeline_events").insert({
-          tenant_id: activeTenantId,
-          case_id: caseQ.data.id,
-          event_type: "presence_justification_sent",
-          actor_type: "admin",
-          actor_id: user?.id ?? null,
-          message: "Justificativas enviadas pelo colaborador.",
-          meta_json: {},
-          occurred_at: new Date().toISOString(),
-        });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.ok) {
+        throw new Error(json?.error ?? `Falha ao enviar (${res.status})`);
       }
 
-      showSuccess(requiredOpen ? "Justificativa enviada." : "Justificativas enviadas. Aguardando aprovação.");
+      showSuccess(json.requiredOpen ? "Justificativa enviada." : "Justificativas enviadas. Aguardando aprovação.");
       setJustificationDraft({});
+
       await Promise.all([
         qc.invalidateQueries({ queryKey: ["presence_case_today", activeTenantId, user?.id, today] }),
         qc.invalidateQueries({ queryKey: ["presence_pendencies_today", activeTenantId, caseQ.data.id] }),
@@ -392,7 +377,7 @@ export default function Presence() {
 
                 {!punchesQ.data?.length && (
                   <div className="rounded-2xl border border-dashed border-slate-200 bg-white/60 p-4 text-sm text-slate-600">
-                    Ainda não há batidas hoje. Clique em “Registrar agora” para iniciar.
+                    Ainda não há batidas hoje. Clique em "Registrar agora" para iniciar.
                   </div>
                 )}
               </div>

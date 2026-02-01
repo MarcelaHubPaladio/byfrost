@@ -225,7 +225,6 @@ export function TenantJourneysPanel() {
   );
   const onImageInitialState = (configObj as any)?.automation?.on_image?.initial_state ?? "";
 
-  // Default: ON (abrir case por texto/áudio) — pode desligar no switch.
   const createCaseOnText = (configObj as any)?.automation?.on_text?.create_case ?? true;
   const onTextInitialState = (configObj as any)?.automation?.on_text?.initial_state ?? "";
 
@@ -236,6 +235,12 @@ export function TenantJourneysPanel() {
   const onLocationInitialState = (configObj as any)?.automation?.on_location?.initial_state ?? "";
 
   const onLocationNextState = (configObj as any)?.automation?.on_location?.next_state ?? "";
+
+  const presenceEnabledFlag = Boolean((configObj as any)?.flags?.presence_enabled);
+  const presenceAllowWhatsapp = Boolean((configObj as any)?.flags?.presence_allow_whatsapp_clocking);
+  const presenceTimeZone = String((configObj as any)?.presence?.time_zone ?? "America/Sao_Paulo");
+  const presenceScheduledStart = String((configObj as any)?.presence?.scheduled_start_hhmm ?? "08:00");
+  const presencePlannedMinutes = String((configObj as any)?.presence?.planned_minutes ?? 480);
 
   const createSector = async () => {
     if (!sectorName.trim()) return;
@@ -833,6 +838,73 @@ export function TenantJourneysPanel() {
                   Essa flag é do <span className="font-medium">catálogo (journeys)</span> e é protegida por RLS (apenas super-admin).
                 </div>
               </div>
+
+              {selectedJourney.key === "presence" && (
+                <div className="rounded-2xl border border-slate-200 bg-white p-3">
+                  <div className="text-xs font-semibold text-slate-900">Presença (Ponto Digital)</div>
+                  <div className="mt-1 text-[11px] text-slate-600">
+                    Esta é uma jornada <span className="font-semibold">opcional</span>. A UI de ponto só aparece quando a flag estiver ativa.
+                  </div>
+
+                  <div className="mt-3 grid gap-2">
+                    <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
+                      <div>
+                        <div className="text-xs font-semibold text-slate-900">presence_enabled</div>
+                        <div className="mt-0.5 text-[11px] text-slate-600">
+                          Habilita funcionalidades de ponto para este tenant.
+                        </div>
+                      </div>
+                      <Switch
+                        checked={presenceEnabledFlag}
+                        onCheckedChange={(v) => updateConfig({ flags: { presence_enabled: v } })}
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
+                      <div>
+                        <div className="text-xs font-semibold text-slate-900">presence_allow_whatsapp_clocking</div>
+                        <div className="mt-0.5 text-[11px] text-slate-600">
+                          Quando true, permite batidas via WhatsApp (ENTRADA/SAIDA/INTERVALO/VOLTEI + localização).
+                        </div>
+                      </div>
+                      <Switch
+                        checked={presenceAllowWhatsapp}
+                        onCheckedChange={(v) => updateConfig({ flags: { presence_allow_whatsapp_clocking: v } })}
+                      />
+                    </div>
+
+                    <div className="grid gap-2 sm:grid-cols-3">
+                      <div>
+                        <Label className="text-xs">Time zone</Label>
+                        <Input
+                          value={presenceTimeZone}
+                          onChange={(e) => updateConfig({ presence: { time_zone: e.target.value } })}
+                          className="mt-1 rounded-2xl"
+                          placeholder="America/Sao_Paulo"
+                        />
+                      </div>
+                      <div>
+                        <Label className="text-xs">Entrada (HH:MM)</Label>
+                        <Input
+                          value={presenceScheduledStart}
+                          onChange={(e) => updateConfig({ presence: { scheduled_start_hhmm: e.target.value } })}
+                          className="mt-1 rounded-2xl"
+                          placeholder="08:00"
+                        />
+                      </div>
+                      <div>
+                        <Label className="text-xs">Minutos planejados</Label>
+                        <Input
+                          value={presencePlannedMinutes}
+                          onChange={(e) => updateConfig({ presence: { planned_minutes: Number(e.target.value) || 0 } })}
+                          className="mt-1 rounded-2xl"
+                          placeholder="480"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               <div className="rounded-2xl border border-slate-200 bg-white p-3">
                 <div className="flex items-start justify-between gap-3">

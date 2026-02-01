@@ -15,6 +15,8 @@ import {
   ShieldCheck,
   LayoutDashboard,
   MessagesSquare,
+  Clock3,
+  ClipboardCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -125,6 +127,10 @@ function getUserDisplayName(user: any) {
   return email ? email.split("@")[0] : "Usuário";
 }
 
+function isPresenceManagerRole(role: string | null | undefined) {
+  return ["admin", "manager", "supervisor", "leader"].includes(String(role ?? "").toLowerCase());
+}
+
 export function AppShell({
   children,
   hideTopBar,
@@ -150,7 +156,27 @@ export function AppShell({
     },
   });
 
+  const presenceEnabledQ = useQuery({
+    queryKey: ["nav_presence_enabled", activeTenantId],
+    enabled: Boolean(activeTenantId),
+    staleTime: 30_000,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("tenant_journeys")
+        .select("config_json, journeys!inner(key)")
+        .eq("tenant_id", activeTenantId!)
+        .eq("enabled", true)
+        .eq("journeys.key", "presence")
+        .limit(1)
+        .maybeSingle();
+      if (error) throw error;
+      return Boolean((data as any)?.config_json?.flags?.presence_enabled === true);
+    },
+  });
+
   const hasCrm = Boolean(crmEnabledQ.data);
+  const hasPresence = Boolean(presenceEnabledQ.data);
+  const isPresenceManager = isSuperAdmin || isPresenceManagerRole(activeTenant?.role);
 
   const palettePrimaryHex =
     (activeTenant?.branding_json?.palette?.primary?.hex as string | undefined) ?? null;
@@ -242,6 +268,10 @@ export function AppShell({
                 <NavTile to="/app" icon={LayoutGrid} label="Dashboard" />
                 <NavTile to="/app/chat" icon={MessagesSquare} label="Chat" />
                 {hasCrm && <NavTile to="/app/crm" icon={LayoutDashboard} label="CRM" />}
+                {hasPresence && <NavTile to="/app/presence" icon={Clock3} label="Ponto" />}
+                {hasPresence && isPresenceManager && (
+                  <NavTile to="/app/presence/manage" icon={ClipboardCheck} label="Gestão" />
+                )}
                 <NavTile to="/app/simulator" icon={FlaskConical} label="Simulador" />
                 {isSuperAdmin && <NavTile to="/app/admin" icon={Crown} label="Admin" />}
                 <NavTile to="/app/settings" icon={Settings} label="Config" />

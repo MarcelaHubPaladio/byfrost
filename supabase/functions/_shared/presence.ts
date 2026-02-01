@@ -161,6 +161,23 @@ export async function ensurePresenceDayCase(args: {
   if (exErr) throw exErr;
   if ((existing as any)?.id) return { caseId: (existing as any).id as string, day };
 
+  // Best-effort label to avoid managers needing access to users_profile.
+  let employeeLabel: string | null = null;
+  try {
+    const { data: prof } = await supabase
+      .from("users_profile")
+      .select("display_name,email")
+      .eq("tenant_id", tenantId)
+      .eq("user_id", employeeId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    employeeLabel =
+      (prof as any)?.display_name ||
+      ((prof as any)?.email ? String((prof as any).email).split("@")[0] : null);
+  } catch {
+    employeeLabel = null;
+  }
+
   const { data: created, error: cErr } = await supabase
     .from("cases")
     .insert({
@@ -170,13 +187,13 @@ export async function ensurePresenceDayCase(args: {
       status: "open",
       state: "AGUARDANDO_ENTRADA",
       created_by_channel: "panel",
-      title: `Ponto • ${day}`,
+      title: employeeLabel ? `Ponto • ${day} • ${employeeLabel}` : `Ponto • ${day}`,
       entity_type: "employee",
       entity_id: employeeId,
       case_date: day,
       meta_json: {
         journey_key: "presence",
-        presence: { day },
+        presence: { day, employee_label: employeeLabel },
       },
     })
     .select("id")
@@ -248,6 +265,16 @@ export async function clockPresencePunch(args: {
 
   const lastType = (lastPunch as any)?.type ? (String((lastPunch as any).type) as PresencePunchType) : null;
   const inferred = inferNextPunchType(lastType, breakRequired);
+
+  if (forcedType && inferred && forcedType !== inferred) {
+    return {
+      ok: false as const,
+      error: "invalid_sequence",
+      expected: inferred,
+      got: forcedType,
+    };
+  }
+
   const nextType = forcedType ?? inferred;
 
   if (!nextType) {

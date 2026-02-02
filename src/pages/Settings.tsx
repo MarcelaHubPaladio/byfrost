@@ -17,12 +17,12 @@ const ADMIN_SET_SUPERADMIN_URL =
 
 export default function Settings() {
   const qc = useQueryClient();
-  const { activeTenantId } = useTenant();
+  const { activeTenantId, isSuperAdmin } = useTenant();
   const { user } = useSession();
   const email = (user?.email ?? "").toLowerCase();
 
-  // UI gate (email allowlist). Database write gate is enforced by RLS via JWT app_metadata.byfrost_super_admin.
-  const isSuperAdminUi = env.APP_SUPER_ADMIN_EMAILS.includes(email);
+  // UI gate: allow either the env allowlist (bootstrap) OR the JWT claim (promoted super-admin).
+  const isSuperAdminUi = env.APP_SUPER_ADMIN_EMAILS.includes(email) || isSuperAdmin;
 
   const tenantQ = useQuery({
     queryKey: ["tenant_settings", activeTenantId],
@@ -51,7 +51,9 @@ export default function Settings() {
   const [enablingRlsSuperAdmin, setEnablingRlsSuperAdmin] = useState(false);
 
   const enableRlsSuperAdmin = async () => {
-    if (!isSuperAdminUi) return;
+    // Keep bootstrap button restricted to allowlist only (safer): it updates auth metadata.
+    if (!env.APP_SUPER_ADMIN_EMAILS.includes(email)) return;
+
     setEnablingRlsSuperAdmin(true);
     try {
       const { data: sess } = await supabase.auth.getSession();
@@ -157,11 +159,11 @@ export default function Settings() {
 
               {!isSuperAdminUi && (
                 <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
-                  Você não está na allowlist VITE_APP_SUPER_ADMIN_EMAILS. Modo somente leitura.
+                  Você não tem permissão de super-admin. Modo somente leitura.
                 </div>
               )}
 
-              {isSuperAdminUi && (
+              {env.APP_SUPER_ADMIN_EMAILS.includes(email) && (
                 <div className="mt-3 rounded-2xl border border-slate-200 bg-white/70 p-3 text-xs text-slate-600 dark:border-slate-800 dark:bg-slate-950/40 dark:text-slate-300">
                   <div className="font-medium text-slate-900 dark:text-slate-100">Super-admin (RLS)</div>
                   <div className="mt-1">

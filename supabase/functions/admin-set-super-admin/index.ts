@@ -10,6 +10,31 @@ function parseAllowlist() {
     .filter(Boolean);
 }
 
+async function findUserIdByEmail(admin: ReturnType<typeof createClient>, email: string) {
+  // Supabase Auth doesn't have a direct getUserByEmail in the public JS API.
+  // We page through users (bounded) and match by email.
+  const target = email.trim().toLowerCase();
+  if (!target) return null;
+
+  const PER_PAGE = 200;
+  const MAX_PAGES = 25; // hard cap to avoid long scans
+
+  for (let page = 1; page <= MAX_PAGES; page++) {
+    const { data, error } = await admin.auth.admin.listUsers({ page, perPage: PER_PAGE });
+    if (error) throw error;
+
+    const users = data?.users ?? [];
+    for (const u of users) {
+      if (String(u.email ?? "").toLowerCase() === target) return u.id;
+    }
+
+    // no more pages
+    if (users.length < PER_PAGE) break;
+  }
+
+  return null;
+}
+
 serve(async (req) => {
   const fn = "admin-set-super-admin";
   try {
@@ -72,16 +97,34 @@ serve(async (req) => {
     }
 
     const body = await req.json().catch(() => ({}));
-    const targetUserId = (body.userId as string | undefined) ?? caller.id;
+
     const set = (body.set as boolean | undefined) ?? true;
+    const email = String(body.email ?? "").trim().toLowerCase();
+    const userId = String(body.userId ?? "").trim();
 
     const admin = createClient(supabaseUrl, serviceKey, {
       auth: { persistSession: false },
     });
 
+    let targetUserId = userId || "";
+    if (!targetUserId && email) {
+      try {
+        targetUserId = (await findUserIdByEmail(admin, email)) ?? "";
+      } catch (e) {
+        console.error(`[${fn}] listUsers failed`, { e: String(e) });
+        return new Response(JSON.stringify({ ok: false, error: "Failed to search users" }), {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    }
+
+    // Default to self if no target given.
+    if (!targetUserId) targetUserId = caller.id;
+
     const { data: existing, error: getErr } = await admin.auth.admin.getUserById(targetUserId);
     if (getErr || !existing?.user) {
-      console.error(`[${fn}] getUserById failed`, { getErr });
+      console.error(`[${fn}] getUserById failed`, { getErr, targetUserId });
       return new Response(JSON.stringify({ ok: false, error: "Target user not found" }), {
         status: 404,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -111,6 +154,7 @@ serve(async (req) => {
       callerEmail,
       targetUserId,
       set,
+      targetEmail: email || null,
     });
 
     return new Response(

@@ -43,7 +43,7 @@ import { TenantBrandingPanel } from "@/components/admin/TenantBrandingPanel";
 import { TenantJourneysPanel } from "@/components/admin/TenantJourneysPanel";
 import { JourneyPromptsPanel } from "@/components/admin/JourneyPromptsPanel";
 import { AccessMatrixPanel } from "@/components/admin/AccessMatrixPanel";
-import { Trash2, PauseCircle, PlayCircle, ChevronLeft, ChevronRight, UsersRound, Smartphone, Copy } from "lucide-react";
+import { Trash2, PauseCircle, PlayCircle, ChevronLeft, ChevronRight, UsersRound, Smartphone, Copy, Shield } from "lucide-react";
 
 type UserRole = string;
 
@@ -172,6 +172,10 @@ export default function Admin() {
   const { activeTenantId, activeTenant, isSuperAdmin } = useTenant();
   const { user } = useSession();
 
+  // Super-admin bootstrap helper (edge function checks allowlist APP_SUPER_ADMIN_EMAILS)
+  const ADMIN_SET_SUPERADMIN_URL =
+    "https://pryoirzeghatrgecwrci.supabase.co/functions/v1/admin-set-super-admin";
+
   const [refreshingSession, setRefreshingSession] = useState(false);
   const [debug, setDebug] = useState<any>(null);
   const [deletingInstanceId, setDeletingInstanceId] = useState<string | null>(null);
@@ -182,6 +186,9 @@ export default function Admin() {
 
   const [inviteLink, setInviteLink] = useState<string>("");
   const [inviteLinkOpen, setInviteLinkOpen] = useState(false);
+
+  const [superAdminEmail, setSuperAdminEmail] = useState("");
+  const [settingSuperAdmin, setSettingSuperAdmin] = useState(false);
 
   const ensureFreshTokenForRls = async () => {
     try {
@@ -416,6 +423,55 @@ export default function Admin() {
       showSuccess("Link copiado.");
     } catch {
       showError("Não consegui copiar automaticamente. Selecione e copie manualmente.");
+    }
+  };
+
+  const setSuperAdminByEmail = async (set: boolean) => {
+    const email = superAdminEmail.trim().toLowerCase();
+    if (!email.includes("@")) {
+      showError("Informe um email válido.");
+      return;
+    }
+
+    setSettingSuperAdmin(true);
+    try {
+      const { data: sess } = await supabase.auth.getSession();
+      const token = sess.session?.access_token ?? null;
+      if (!token) throw new Error("Sessão inválida");
+
+      const res = await fetch(ADMIN_SET_SUPERADMIN_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ email, set }),
+      });
+
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.ok) {
+        throw new Error(json?.error || `HTTP ${res.status}`);
+      }
+
+      showSuccess(
+        set
+          ? "Super-admin ativado para este email. A pessoa precisa fazer logout/login para o token carregar o claim."
+          : "Super-admin removido para este email."
+      );
+      setSuperAdminEmail("");
+    } catch (e: any) {
+      const msg = String(e?.message ?? "erro");
+      if (msg.toLowerCase().includes("forbidden")) {
+        showError(
+          "Sem permissão para promover super-admin. Verifique o Secret APP_SUPER_ADMIN_EMAILS nas Edge Functions (allowlist de bootstrap)."
+        );
+      } else if (msg.toLowerCase().includes("target user not found")) {
+        showError("Usuário não encontrado no Auth. Ele precisa se cadastrar/entrar ao menos uma vez.");
+      } else {
+        showError(`Falha ao atualizar super-admin: ${msg}`);
+      }
+    } finally {
+      setSettingSuperAdmin(false);
     }
   };
 
@@ -985,48 +1041,55 @@ export default function Admin() {
                   </div>
                 ) : (
                   <div className="grid gap-4">
-                    {isSuperAdmin && user?.id && (
-                      <div className="rounded-[22px] border border-indigo-200 bg-indigo-50/50 p-4">
-                        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-                          <div>
-                            <div className="text-sm font-semibold text-slate-900">Adicionar meu usuário ao tenant</div>
-                            <div className="mt-1 text-[11px] text-slate-600">
-                              Super-admin tem acesso global, mas para aparecer como responsável em instâncias WhatsApp é preciso ter um registro em <span className="font-medium">users_profile</span>.
-                            </div>
+                    <div className="rounded-[22px] border border-slate-200 bg-white p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex items-center gap-2">
+                          <div className="grid h-10 w-10 place-items-center rounded-2xl bg-indigo-50 text-indigo-700">
+                            <Shield className="h-5 w-5" />
                           </div>
-                          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                            <div className="min-w-[220px]">
-                              <Label className="text-xs">Cargo do meu usuário</Label>
-                              <Select value={selfRole} onValueChange={(v) => setSelfRole(v as UserRole)}>
-                                <SelectTrigger className="mt-1 h-10 rounded-2xl bg-white">
-                                  <SelectValue placeholder="Selecionar" />
-                                </SelectTrigger>
-                                <SelectContent className="rounded-2xl">
-                                  {(tenantRolesQ.data ?? ([
-                                    { key: "admin", name: "Admin" },
-                                    { key: "manager", name: "Gerente" },
-                                    { key: "supervisor", name: "Supervisor" },
-                                    { key: "leader", name: "Líder" },
-                                    { key: "vendor", name: "Vendedor" },
-                                  ] as any)).map((r: any) => (
-                                    <SelectItem key={r.key} value={r.key} className="rounded-xl">
-                                      {r.name}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
+                          <div>
+                            <div className="text-sm font-semibold text-slate-900">Super-admins</div>
+                            <div className="mt-0.5 text-[11px] text-slate-500">
+                              Promove/remover super-admin por email (o usuário precisa existir no Auth).
                             </div>
-                            <Button
-                              onClick={addSelfToTenant}
-                              disabled={addingSelf}
-                              className="h-10 rounded-2xl bg-indigo-600 px-4 text-white hover:bg-indigo-700"
-                            >
-                              {addingSelf ? "Adicionando…" : "Adicionar"}
-                            </Button>
                           </div>
                         </div>
                       </div>
-                    )}
+
+                      <div className="mt-4 grid gap-2 sm:grid-cols-[1fr_auto_auto] sm:items-end">
+                        <div>
+                          <Label className="text-xs">Email</Label>
+                          <Input
+                            value={superAdminEmail}
+                            onChange={(e) => setSuperAdminEmail(e.target.value)}
+                            className="mt-1 h-11 rounded-2xl"
+                            placeholder="email@empresa.com"
+                          />
+                          <div className="mt-1 text-[11px] text-slate-500">
+                            Depois de promover, a pessoa deve fazer <span className="font-medium">logout/login</span>.
+                          </div>
+                        </div>
+                        <Button
+                          onClick={() => setSuperAdminByEmail(true)}
+                          disabled={settingSuperAdmin || !superAdminEmail.trim()}
+                          className="h-11 rounded-2xl bg-indigo-600 px-4 text-white hover:bg-indigo-700"
+                        >
+                          {settingSuperAdmin ? "Salvando…" : "Tornar super-admin"}
+                        </Button>
+                        <Button
+                          onClick={() => setSuperAdminByEmail(false)}
+                          disabled={settingSuperAdmin || !superAdminEmail.trim()}
+                          variant="secondary"
+                          className="h-11 rounded-2xl px-4"
+                        >
+                          Remover
+                        </Button>
+                      </div>
+
+                      <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-3 text-[11px] text-slate-600">
+                        Observação: esta ação é protegida por allowlist (Secret <span className="font-medium">APP_SUPER_ADMIN_EMAILS</span>) para evitar escalonamento acidental.
+                      </div>
+                    </div>
 
                     <div className="rounded-[22px] border border-slate-200 bg-white p-4">
                       <div className="flex items-start justify-between gap-3">

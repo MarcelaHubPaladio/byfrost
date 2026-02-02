@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AppShell } from "@/components/AppShell";
 import { RequireAuth } from "@/components/RequireAuth";
@@ -14,6 +14,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { showError, showSuccess } from "@/utils/toast";
+import { GeofenceMapPicker } from "@/components/presence/GeofenceMapPicker";
 import {
   CalendarDays,
   ClipboardCheck,
@@ -415,6 +416,33 @@ export default function PresenceManage() {
     return policyDraft ?? base;
   }, [configQ.data?.policy, configQ.data?.locations, policyDraft]);
 
+  const selectedLocation = useMemo(() => {
+    const locs = configQ.data?.locations ?? [];
+    return locs.find((l) => l.id === policyEffective.location_id) ?? locs[0] ?? null;
+  }, [configQ.data?.locations, policyEffective.location_id]);
+
+  const [mapPin, setMapPin] = useState<{ lat: number; lng: number }>(() => ({
+    lat: -23.55052, // SP default
+    lng: -46.633308,
+  }));
+
+  // Keep map centered on selected location unless the user is already picking a new pin.
+  useEffect(() => {
+    if (selectedLocation && (!newLocLat || !newLocLng)) {
+      setMapPin({ lat: selectedLocation.latitude, lng: selectedLocation.longitude });
+      setNewLocLat(selectedLocation.latitude.toFixed(6));
+      setNewLocLng(selectedLocation.longitude.toFixed(6));
+    }
+    // Intentionally do not depend on newLocLat/newLocLng to avoid overriding user's manual edits.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedLocation?.id]);
+
+  const applyMapPinToInputs = (p: { lat: number; lng: number }) => {
+    setMapPin(p);
+    setNewLocLat(p.lat.toFixed(6));
+    setNewLocLng(p.lng.toFixed(6));
+  };
+
   const savePolicy = async () => {
     if (!activeTenantId || !manager) return;
     if (!policyEffective.location_id) {
@@ -607,7 +635,15 @@ export default function PresenceManage() {
                               <button
                                 key={l.id}
                                 type="button"
-                                onClick={() => setPolicyDraft((prev) => ({ ...(prev ?? policyEffective), location_id: l.id }))}
+                                onClick={() => {
+                                  setPolicyDraft((prev) => ({ ...(prev ?? policyEffective), location_id: l.id }));
+                                  // Move map to this place (and if not editing a new place, refresh the inputs)
+                                  setMapPin({ lat: l.latitude, lng: l.longitude });
+                                  if (!newLocLat && !newLocLng) {
+                                    setNewLocLat(l.latitude.toFixed(6));
+                                    setNewLocLng(l.longitude.toFixed(6));
+                                  }
+                                }}
                                 className={cn(
                                   "w-full rounded-2xl border px-3 py-2 text-left",
                                   policyEffective.location_id === l.id
@@ -633,6 +669,14 @@ export default function PresenceManage() {
                             )}
                           </div>
 
+                          <div className="mt-3">
+                            <GeofenceMapPicker
+                              value={mapPin}
+                              onChange={applyMapPinToInputs}
+                              radiusMeters={Math.max(1, Number(policyEffective.radius_meters) || 100)}
+                            />
+                          </div>
+
                           <div className="mt-3 grid gap-2 sm:grid-cols-3">
                             <Input
                               value={newLocName}
@@ -643,13 +687,13 @@ export default function PresenceManage() {
                             <Input
                               value={newLocLat}
                               onChange={(e) => setNewLocLat(e.target.value)}
-                              placeholder="Lat"
+                              placeholder="Lat (clique no mapa)"
                               className="rounded-2xl bg-white"
                             />
                             <Input
                               value={newLocLng}
                               onChange={(e) => setNewLocLng(e.target.value)}
-                              placeholder="Lng"
+                              placeholder="Lng (clique no mapa)"
                               className="rounded-2xl bg-white"
                             />
                           </div>

@@ -482,6 +482,8 @@ export default function Admin() {
           role: invRole,
           displayName: invName.trim() || null,
           phoneE164: normalizePhoneLoose(invPhone),
+          // Use a stable callback route so we can show better diagnostics (clock skew, missing membership, etc.)
+          redirectTo: `${window.location.origin}/auth/callback`,
         }),
       });
 

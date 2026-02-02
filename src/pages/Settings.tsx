@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
 import { RequireAuth } from "@/components/RequireAuth";
 import { AppShell } from "@/components/AppShell";
 import { useTenant } from "@/providers/TenantProvider";
@@ -9,6 +10,7 @@ import { env } from "@/lib/env";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { showError, showSuccess } from "@/utils/toast";
+import { Link2 } from "lucide-react";
 
 const ADMIN_SET_SUPERADMIN_URL =
   "https://pryoirzeghatrgecwrci.supabase.co/functions/v1/admin-set-super-admin";
@@ -127,60 +129,84 @@ export default function Settings() {
             Nesta fase, apenas governança do tenant (somente super-admin).
           </p>
 
-          <div className="mt-5 rounded-[22px] border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-950/30">
-            <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-              Governança de comunicação
-            </div>
-            <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-              A IA nunca envia mensagem ao cliente sem aprovação humana. Além disso, o tenant pode desligar a
-              feature "avisar cliente".
+          <div className="mt-5 grid gap-4 lg:grid-cols-[1fr_0.9fr]">
+            <div className="rounded-[22px] border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-950/30">
+              <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                Governança de comunicação
+              </div>
+              <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                A IA nunca envia mensagem ao cliente sem aprovação humana. Além disso, o tenant pode desligar a
+                feature "avisar cliente".
+              </div>
+
+              <div className="mt-4 flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 dark:border-slate-800 dark:bg-slate-950/40">
+                <div>
+                  <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
+                    Notificar cliente após aprovação
+                  </div>
+                  <div className="mt-0.5 text-xs text-slate-600 dark:text-slate-400">
+                    Quando desligado, o painel registra aprovação mas não prepara envio.
+                  </div>
+                </div>
+                <Switch
+                  checked={features.notify_customer}
+                  onCheckedChange={(v) => setFeature("notify_customer", v)}
+                  disabled={!isSuperAdminUi || saving}
+                />
+              </div>
+
+              {!isSuperAdminUi && (
+                <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+                  Você não está na allowlist VITE_APP_SUPER_ADMIN_EMAILS. Modo somente leitura.
+                </div>
+              )}
+
+              {isSuperAdminUi && (
+                <div className="mt-3 rounded-2xl border border-slate-200 bg-white/70 p-3 text-xs text-slate-600 dark:border-slate-800 dark:bg-slate-950/40 dark:text-slate-300">
+                  <div className="font-medium text-slate-900 dark:text-slate-100">Super-admin (RLS)</div>
+                  <div className="mt-1">
+                    Para o banco permitir editar tenants (RLS), seu token precisa ter o claim
+                    <span className="font-semibold"> app_metadata.byfrost_super_admin=true</span>.
+                  </div>
+                  <Button
+                    onClick={enableRlsSuperAdmin}
+                    disabled={enablingRlsSuperAdmin}
+                    variant="secondary"
+                    className="mt-3 h-10 rounded-2xl"
+                  >
+                    {enablingRlsSuperAdmin
+                      ? "Ativando…"
+                      : "Ativar super-admin (RLS) para meu usuário"}
+                  </Button>
+                  <div className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">
+                    Requer Secret <span className="font-medium">APP_SUPER_ADMIN_EMAILS</span> nas Edge
+                    Functions. Depois de ativar, faça logout/login.
+                  </div>
+                </div>
+              )}
             </div>
 
-            <div className="mt-4 flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 dark:border-slate-800 dark:bg-slate-950/40">
-              <div>
-                <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
-                  Notificar cliente após aprovação
+            <div className="rounded-[22px] border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-950/30">
+              <div className="flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
+                <div className="grid h-10 w-10 place-items-center rounded-2xl bg-[hsl(var(--byfrost-accent)/0.12)] text-[hsl(var(--byfrost-accent))]">
+                  <Link2 className="h-5 w-5" />
                 </div>
-                <div className="mt-0.5 text-xs text-slate-600 dark:text-slate-400">
-                  Quando desligado, o painel registra aprovação mas não prepara envio.
-                </div>
+                Integrações
               </div>
-              <Switch
-                checked={features.notify_customer}
-                onCheckedChange={(v) => setFeature("notify_customer", v)}
-                disabled={!isSuperAdminUi || saving}
-              />
+              <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                Conexões externas ficam protegidas por Edge Functions e tokens criptografados.
+              </div>
+
+              <Link
+                to="/app/integrations/meta"
+                className="mt-4 block rounded-2xl border border-slate-200 bg-slate-50 p-4 transition hover:bg-white"
+              >
+                <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">Meta (Instagram Business)</div>
+                <div className="mt-1 text-xs text-slate-600 dark:text-slate-400">
+                  Conectar Instagram via Página do Facebook.
+                </div>
+              </Link>
             </div>
-
-            {!isSuperAdminUi && (
-              <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
-                Você não está na allowlist VITE_APP_SUPER_ADMIN_EMAILS. Modo somente leitura.
-              </div>
-            )}
-
-            {isSuperAdminUi && (
-              <div className="mt-3 rounded-2xl border border-slate-200 bg-white/70 p-3 text-xs text-slate-600 dark:border-slate-800 dark:bg-slate-950/40 dark:text-slate-300">
-                <div className="font-medium text-slate-900 dark:text-slate-100">Super-admin (RLS)</div>
-                <div className="mt-1">
-                  Para o banco permitir editar tenants (RLS), seu token precisa ter o claim
-                  <span className="font-semibold"> app_metadata.byfrost_super_admin=true</span>.
-                </div>
-                <Button
-                  onClick={enableRlsSuperAdmin}
-                  disabled={enablingRlsSuperAdmin}
-                  variant="secondary"
-                  className="mt-3 h-10 rounded-2xl"
-                >
-                  {enablingRlsSuperAdmin
-                    ? "Ativando…"
-                    : "Ativar super-admin (RLS) para meu usuário"}
-                </Button>
-                <div className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">
-                  Requer Secret <span className="font-medium">APP_SUPER_ADMIN_EMAILS</span> nas Edge
-                  Functions. Depois de ativar, faça logout/login.
-                </div>
-              </div>
-            )}
           </div>
         </div>
       </AppShell>

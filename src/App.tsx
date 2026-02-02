@@ -25,6 +25,7 @@ import CrmCaseDetail from "@/pages/CrmCaseDetail";
 import Chats from "@/pages/Chats";
 import Presence from "@/pages/Presence";
 import PresenceManage from "@/pages/PresenceManage";
+import IntegrationsMeta from "@/pages/IntegrationsMeta";
 
 const queryClient = new QueryClient();
 
@@ -100,6 +101,16 @@ const App = () => (
                   element={
                     <RequireRouteAccess routeKey="app.presence_manage">
                       <PresenceManage />
+                    </RequireRouteAccess>
+                  }
+                />
+
+                {/* Integrações */}
+                <Route
+                  path="/app/integrations/meta"
+                  element={
+                    <RequireRouteAccess routeKey="app.settings">
+                      <IntegrationsMeta />
                     </RequireRouteAccess>
                   }
                 />

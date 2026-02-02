@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { showError, showSuccess } from "@/utils/toast";
 import { cn } from "@/lib/utils";
 import { PublicationPerformancePanel, type MetricsSnapshot } from "@/components/content/PublicationPerformancePanel";
+import { StoryPackPreview } from "@/components/content/StoryPackPreview";
 import {
   ArrowLeft,
   CalendarDays,
@@ -32,6 +33,7 @@ const CONTENT_MEDIA_UPLOAD_URL =
 
 const META_PUBLISH_URL = "https://pryoirzeghatrgecwrci.supabase.co/functions/v1/meta-publish";
 const META_METRICS_COLLECT_URL = "https://pryoirzeghatrgecwrci.supabase.co/functions/v1/meta-metrics-collect";
+const CONTENT_AI_GENERATE_URL = "https://pryoirzeghatrgecwrci.supabase.co/functions/v1/content-ai-generate";
 
 type ContentItemRow = {
   id: string;
@@ -66,6 +68,8 @@ type PubRow = {
   meta_post_id: string | null;
   meta_permalink: string | null;
   last_error: string | null;
+  ai_story_pack_json?: any;
+  ai_generated_at?: string | null;
   created_at: string;
 };
 
@@ -162,7 +166,7 @@ export default function ContentDetail() {
       const { data, error } = await supabase
         .from("content_publications")
         .select(
-          "id,tenant_id,case_id,content_item_id,channel,caption_text,creative_type,media_storage_paths,scheduled_at,publish_status,meta_post_id,meta_permalink,last_error,created_at"
+          "id,tenant_id,case_id,content_item_id,channel,caption_text,creative_type,media_storage_paths,scheduled_at,publish_status,meta_post_id,meta_permalink,last_error,ai_story_pack_json,ai_generated_at,created_at"
         )
         .eq("tenant_id", activeTenantId!)
         .eq("case_id", caseId)
@@ -447,6 +451,7 @@ export default function ContentDetail() {
 
   const [publishingNowId, setPublishingNowId] = useState<string | null>(null);
   const [collectingMetricsId, setCollectingMetricsId] = useState<string | null>(null);
+  const [generatingId, setGeneratingId] = useState<string | null>(null);
 
   const publishNow = async (publicationId: string) => {
     if (!activeTenantId) return;
@@ -516,6 +521,39 @@ export default function ContentDetail() {
       showError(`Falha ao coletar métricas: ${e?.message ?? "erro"}`);
     } finally {
       setCollectingMetricsId(null);
+    }
+  };
+
+  const generateForPublication = async (publicationId: string, kind: "caption" | "story_pack") => {
+    if (!activeTenantId) return;
+    setGeneratingId(publicationId + ":" + kind);
+
+    try {
+      const { data: sess } = await supabase.auth.getSession();
+      const token = sess.session?.access_token;
+      if (!token) throw new Error("Sessão inválida");
+
+      const res = await fetch(CONTENT_AI_GENERATE_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ tenantId: activeTenantId, publicationId, kind }),
+      });
+
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.ok) {
+        throw new Error(json?.error || `HTTP ${res.status}`);
+      }
+
+      showSuccess(kind === "caption" ? "Legenda gerada." : "Story Pack gerado.");
+      await qc.invalidateQueries({ queryKey: ["content_publications_by_case", activeTenantId, caseId] });
+      await qc.invalidateQueries({ queryKey: ["content_performance_logs", activeTenantId, caseId] });
+    } catch (e: any) {
+      showError(`Falha ao gerar: ${e?.message ?? "erro"}`);
+    } finally {
+      setGeneratingId(null);
     }
   };
 
@@ -829,7 +867,7 @@ export default function ContentDetail() {
                   <div>
                     <div className="text-sm font-semibold text-slate-900">Publicações</div>
                     <div className="mt-1 text-xs text-slate-500">
-                      Itens agendados aparecem no calendário oficial.
+                      IA gera rascunhos sob demanda; publicar continua sendo ação humana.
                     </div>
                   </div>
                   <Badge className="rounded-full border-0 bg-slate-100 text-slate-700 hover:bg-slate-100">
@@ -847,6 +885,9 @@ export default function ContentDetail() {
                     const snaps = snapshotsByPub.get(p.id) ?? [];
                     const reportText = latestReportByPub.get(p.id) ?? null;
                     const canShowMetrics = p.publish_status === "PUBLISHED" && Boolean(p.meta_post_id) && canAuto;
+
+                    const canGenerateCaption = p.channel === "ig_feed" && p.publish_status !== "PUBLISHED";
+                    const canGenerateStoryPack = p.channel === "ig_story" && p.publish_status !== "PUBLISHED";
 
                     return (
                       <div key={p.id} className="rounded-[20px] border border-slate-200 bg-slate-50 p-3">
@@ -887,11 +928,41 @@ export default function ContentDetail() {
                               ) : null}
                             </div>
 
+                            {/* AI actions */}
+                            {(canGenerateCaption || canGenerateStoryPack) && (
+                              <div className="mt-3 flex flex-wrap gap-2">
+                                {canGenerateCaption ? (
+                                  <Button
+                                    variant="secondary"
+                                    className="h-9 rounded-2xl border border-slate-200 bg-white text-slate-800 hover:bg-slate-50"
+                                    onClick={() => generateForPublication(p.id, "caption")}
+                                    disabled={generatingId === `${p.id}:caption`}
+                                  >
+                                    {generatingId === `${p.id}:caption` ? "Gerando…" : "Gerar legenda"}
+                                  </Button>
+                                ) : null}
+                                {canGenerateStoryPack ? (
+                                  <Button
+                                    variant="secondary"
+                                    className="h-9 rounded-2xl border border-slate-200 bg-white text-slate-800 hover:bg-slate-50"
+                                    onClick={() => generateForPublication(p.id, "story_pack")}
+                                    disabled={generatingId === `${p.id}:story_pack`}
+                                  >
+                                    {generatingId === `${p.id}:story_pack` ? "Gerando…" : "Gerar Story Pack"}
+                                  </Button>
+                                ) : null}
+                              </div>
+                            )}
+
                             {p.caption_text ? (
                               <div className="mt-2 text-sm text-slate-900 line-clamp-3">{p.caption_text}</div>
                             ) : (
                               <div className="mt-2 text-sm text-slate-500">(sem legenda)</div>
                             )}
+
+                            {canGenerateStoryPack && p.ai_story_pack_json ? (
+                              <StoryPackPreview storyPack={p.ai_story_pack_json} />
+                            ) : null}
 
                             {media.length ? (
                               <div className="mt-3 grid gap-2">

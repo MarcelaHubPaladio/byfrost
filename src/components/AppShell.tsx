@@ -18,6 +18,7 @@ import {
   Clock3,
   ClipboardCheck,
   Clapperboard,
+  Lock,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -29,6 +30,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { checkRouteAccess } from "@/lib/access";
 
 function hexToRgb(hex: string) {
   const h = hex.replace("#", "").trim();
@@ -91,11 +93,34 @@ function NavTile({
   to,
   icon: Icon,
   label,
+  disabled,
 }: {
   to: string;
   icon: any;
   label: string;
+  disabled?: boolean;
 }) {
+  if (disabled) {
+    return (
+      <div
+        className={cn(
+          "flex w-full flex-col items-center gap-1 rounded-2xl border px-2 py-2 text-center",
+          "border-slate-200 bg-white/40 text-slate-400",
+          "dark:border-slate-800 dark:bg-slate-950/30 dark:text-slate-500"
+        )}
+        title={`${label} (sem permissão)`}
+      >
+        <div className="relative">
+          <Icon className="h-5 w-5" />
+          <div className="absolute -right-1.5 -top-1.5 grid h-4 w-4 place-items-center rounded-full bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300">
+            <Lock className="h-2.5 w-2.5" />
+          </div>
+        </div>
+        <span className="text-[11px] font-semibold tracking-tight leading-none">{label}</span>
+      </div>
+    );
+  }
+
   return (
     <NavLink
       to={to}
@@ -140,6 +165,49 @@ export function AppShell({
   const { activeTenant, isSuperAdmin, activeTenantId } = useTenant();
   const { user } = useSession();
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+
+  const roleKey = String(activeTenant?.role ?? "");
+
+  const navAccessQ = useQuery({
+    queryKey: ["nav_access", activeTenantId, roleKey],
+    enabled: Boolean(activeTenantId && roleKey && !isSuperAdmin),
+    staleTime: 10_000,
+    queryFn: async () => {
+      const keys = [
+        "app.dashboard",
+        "app.chat",
+        "app.crm",
+        "app.content",
+        "app.presence",
+        "app.presence_manage",
+        "app.simulator",
+        "app.settings",
+        "app.me",
+        "app.admin",
+      ];
+
+      const map: Record<string, boolean> = {};
+      for (const k of keys) {
+        try {
+          map[k] = await checkRouteAccess({ tenantId: activeTenantId!, roleKey, routeKey: k });
+        } catch {
+          // On error, fail-closed for the menu.
+          map[k] = false;
+        }
+      }
+
+      return map;
+    },
+  });
+
+  const can = (routeKey: string) => {
+    if (isSuperAdmin) return true;
+    if (!activeTenantId) return false;
+    if (!roleKey) return false;
+    // While loading, keep visible to avoid layout jump; the guards will still block.
+    if (navAccessQ.isLoading || !navAccessQ.data) return true;
+    return Boolean(navAccessQ.data[routeKey]);
+  };
 
   const crmEnabledQ = useQuery({
     queryKey: ["nav_has_crm", activeTenantId],
@@ -285,17 +353,24 @@ export function AppShell({
 
             <div className="p-3">
               <div className="grid gap-2">
-                <NavTile to="/app" icon={LayoutGrid} label="Dashboard" />
-                <NavTile to="/app/chat" icon={MessagesSquare} label="Chat" />
-                {hasCrm && <NavTile to="/app/crm" icon={LayoutDashboard} label="CRM" />}
-                {hasMetaContent && <NavTile to="/app/content" icon={Clapperboard} label="Conteúdo" />}
-                {hasPresence && <NavTile to="/app/presence" icon={Clock3} label="Ponto" />}
-                {hasPresence && isPresenceManager && (
-                  <NavTile to="/app/presence/manage" icon={ClipboardCheck} label="Gestão" />
+                <NavTile to="/app" icon={LayoutGrid} label="Dashboard" disabled={!can("app.dashboard")} />
+                <NavTile to="/app/chat" icon={MessagesSquare} label="Chat" disabled={!can("app.chat")} />
+                {hasCrm && <NavTile to="/app/crm" icon={LayoutDashboard} label="CRM" disabled={!can("app.crm")} />}
+                {hasMetaContent && (
+                  <NavTile to="/app/content" icon={Clapperboard} label="Conteúdo" disabled={!can("app.content")} />
                 )}
-                <NavTile to="/app/simulator" icon={FlaskConical} label="Simulador" />
-                {isSuperAdmin && <NavTile to="/app/admin" icon={Crown} label="Admin" />}
-                <NavTile to="/app/settings" icon={Settings} label="Config" />
+                {hasPresence && <NavTile to="/app/presence" icon={Clock3} label="Ponto" disabled={!can("app.presence")} />}
+                {hasPresence && isPresenceManager && (
+                  <NavTile
+                    to="/app/presence/manage"
+                    icon={ClipboardCheck}
+                    label="Gestão"
+                    disabled={!can("app.presence_manage")}
+                  />
+                )}
+                <NavTile to="/app/simulator" icon={FlaskConical} label="Simulador" disabled={!can("app.simulator")} />
+                {isSuperAdmin && <NavTile to="/app/admin" icon={Crown} label="Admin" disabled={!can("app.admin")} />}
+                <NavTile to="/app/settings" icon={Settings} label="Config" disabled={!can("app.settings")} />
               </div>
             </div>
           </aside>

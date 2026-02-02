@@ -18,6 +18,11 @@ type PresencePolicy = {
   } | null;
 };
 
+type PresenceEmployeeConfig = {
+  scheduled_start_hhmm: string | null;
+  planned_minutes: number | null;
+} | null;
+
 export function getLocalYmd(timeZone: string, d = new Date()) {
   const dtf = new Intl.DateTimeFormat("en-CA", {
     timeZone,
@@ -126,6 +131,31 @@ export async function getPresencePolicy(supabase: SupabaseClient, tenantId: stri
 
   if (error) throw error;
   return (data as any) ?? null;
+}
+
+export async function getPresenceEmployeeConfig(
+  supabase: SupabaseClient,
+  tenantId: string,
+  employeeId: string
+): Promise<PresenceEmployeeConfig> {
+  try {
+    const { data, error } = await supabase
+      .from("presence_employee_configs")
+      .select("scheduled_start_hhmm,planned_minutes")
+      .eq("tenant_id", tenantId)
+      .eq("employee_id", employeeId)
+      .limit(1)
+      .maybeSingle();
+
+    if (error) return null;
+
+    return {
+      scheduled_start_hhmm: (data as any)?.scheduled_start_hhmm ?? null,
+      planned_minutes: (data as any)?.planned_minutes ?? null,
+    };
+  } catch {
+    return null;
+  }
 }
 
 export function inferNextPunchType(last: PresencePunchType | null, breakRequired: boolean): PresencePunchType | null {
@@ -243,6 +273,9 @@ export async function clockPresencePunch(args: {
   const policy = await getPresencePolicy(supabase, tenantId);
   const breakRequired = policy?.break_required ?? true;
 
+  const employeeCfg = await getPresenceEmployeeConfig(supabase, tenantId, employeeId);
+  const scheduledStartHhmm = employeeCfg?.scheduled_start_hhmm || tenantCfg.presence.scheduled_start_hhmm;
+
   const { caseId, day } = await ensurePresenceDayCase({
     supabase,
     tenantId,
@@ -319,7 +352,7 @@ export async function clockPresencePunch(args: {
   if (nextType === "ENTRY") {
     const tol = policy?.lateness_tolerance_minutes ?? 10;
     const nowHm = getLocalHm(tenantCfg.presence.time_zone);
-    const startHm = parseHHMM(tenantCfg.presence.scheduled_start_hhmm);
+    const startHm = parseHHMM(scheduledStartHhmm);
 
     if (minutesOfDay(nowHm.hh, nowHm.mm) > minutesOfDay(startHm.hh, startHm.mm) + tol) {
       punchStatus = withinRadius ? "VALID_WITH_EXCEPTION" : punchStatus;
@@ -346,7 +379,11 @@ export async function clockPresencePunch(args: {
         actor_type: "system",
         actor_id: null,
         message: "Atraso detectado (entrada fora da tolerância).",
-        meta_json: { tolerance_minutes: tol, scheduled_start_hhmm: tenantCfg.presence.scheduled_start_hhmm },
+        meta_json: {
+          tolerance_minutes: tol,
+          scheduled_start_hhmm: scheduledStartHhmm,
+          scheduled_start_source: employeeCfg?.scheduled_start_hhmm ? "employee" : "tenant",
+        },
         occurred_at: new Date().toISOString(),
       });
     }
@@ -376,6 +413,13 @@ export async function clockPresencePunch(args: {
               break_required: policy.break_required,
               allow_outside_radius: policy.allow_outside_radius,
               location_name: locationName,
+            }
+          : null,
+        employee_config: employeeCfg
+          ? {
+              scheduled_start_hhmm: scheduledStartHhmm,
+              scheduled_start_source: employeeCfg?.scheduled_start_hhmm ? "employee" : "tenant",
+              planned_minutes: employeeCfg?.planned_minutes ?? null,
             }
           : null,
       },

@@ -4,6 +4,7 @@ import { AppShell } from "@/components/AppShell";
 import { RequireAuth } from "@/components/RequireAuth";
 import { RequireRouteAccess } from "@/components/RequireRouteAccess";
 import { useTenant } from "@/providers/TenantProvider";
+import { useSession } from "@/providers/SessionProvider";
 import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 import { formatYmdInTimeZone, titleizeCaseState, titleizePunchType, type PresencePunchType } from "@/lib/presence";
@@ -72,6 +73,30 @@ type PresencePolicy = {
   allow_outside_radius: boolean;
 };
 
+type EmployeeRow = {
+  user_id: string;
+  role: string;
+  display_name: string | null;
+  email: string | null;
+  deleted_at: string | null;
+};
+
+type EmployeePresenceConfig = {
+  employee_id: string;
+  scheduled_start_hhmm: string | null;
+  planned_minutes: number | null;
+  notes: string | null;
+};
+
+type BankLedgerRow = {
+  id: string;
+  employee_id: string;
+  minutes_delta: number;
+  balance_after: number;
+  source: string;
+  created_at: string;
+};
+
 function shortId(id: string | null | undefined) {
   const s = String(id ?? "");
   if (!s) return "—";
@@ -81,6 +106,35 @@ function shortId(id: string | null | undefined) {
 function isPresenceManager(role: string | null | undefined) {
   return ["admin", "manager", "supervisor", "leader"].includes(String(role ?? "").toLowerCase());
 }
+
+function fmtMinutes(mins: number | null | undefined) {
+  const m = Number(mins ?? 0);
+  const sign = m < 0 ? "-" : "+";
+  const abs = Math.abs(m);
+  const hh = Math.floor(abs / 60);
+  const mm = abs % 60;
+  return `${sign}${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
+}
+
+function fmtBalance(mins: number | null | undefined) {
+  const m = Number(mins ?? 0);
+  const sign = m < 0 ? "-" : "";
+  const abs = Math.abs(m);
+  const hh = Math.floor(abs / 60);
+  const mm = abs % 60;
+  return `${sign}${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
+}
+
+const presenceStates = [
+  "AGUARDANDO_ENTRADA",
+  "EM_EXPEDIENTE",
+  "EM_INTERVALO",
+  "AGUARDANDO_SAIDA",
+  "PENDENTE_JUSTIFICATIVA",
+  "PENDENTE_APROVACAO",
+  "AJUSTADO",
+  "FECHADO",
+] as const;
 
 function ColumnHeader({
   icon: Icon,
@@ -197,6 +251,7 @@ function CaseCard({
 
 export default function PresenceManage() {
   const { activeTenantId, activeTenant, isSuperAdmin } = useTenant();
+  const { user } = useSession();
   const qc = useQueryClient();
 
   const manager = isSuperAdmin || isPresenceManager(activeTenant?.role);
@@ -300,6 +355,71 @@ export default function PresenceManage() {
     return m;
   }, [pendQ.data]);
 
+  const employeesQ = useQuery({
+    queryKey: ["presence_manage_employees", activeTenantId, manager],
+    enabled: Boolean(activeTenantId && manager),
+    staleTime: 30_000,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("users_profile")
+        .select("user_id,role,display_name,email,deleted_at")
+        .eq("tenant_id", activeTenantId!)
+        .is("deleted_at", null)
+        .order("display_name", { ascending: true })
+        .limit(800);
+      if (error) throw error;
+      return (data ?? []) as any as EmployeeRow[];
+    },
+  });
+
+  const employeeIds = useMemo(() => (employeesQ.data ?? []).map((e) => e.user_id), [employeesQ.data]);
+
+  const empCfgQ = useQuery({
+    queryKey: ["presence_manage_employee_cfg", activeTenantId, employeeIds.join(",")],
+    enabled: Boolean(activeTenantId && manager && employeeIds.length),
+    staleTime: 20_000,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("presence_employee_configs")
+        .select("employee_id,scheduled_start_hhmm,planned_minutes,notes")
+        .eq("tenant_id", activeTenantId!)
+        .in("employee_id", employeeIds)
+        .limit(1200);
+      if (error) throw error;
+      return (data ?? []) as any as EmployeePresenceConfig[];
+    },
+  });
+
+  const empCfgByEmployee = useMemo(() => {
+    const m = new Map<string, EmployeePresenceConfig>();
+    for (const r of empCfgQ.data ?? []) m.set(r.employee_id, r);
+    return m;
+  }, [empCfgQ.data]);
+
+  const bankLedgerQ = useQuery({
+    queryKey: ["presence_manage_bank_ledger", activeTenantId],
+    enabled: Boolean(activeTenantId && manager),
+    staleTime: 20_000,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("bank_hour_ledger")
+        .select("id,employee_id,minutes_delta,balance_after,source,created_at")
+        .eq("tenant_id", activeTenantId!)
+        .order("created_at", { ascending: false })
+        .limit(3000);
+      if (error) throw error;
+      return (data ?? []) as any as BankLedgerRow[];
+    },
+  });
+
+  const bankBalanceByEmployee = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const r of bankLedgerQ.data ?? []) {
+      if (!m.has(r.employee_id)) m.set(r.employee_id, r.balance_after);
+    }
+    return m;
+  }, [bankLedgerQ.data]);
+
   const buckets = useMemo(() => {
     const out = {
       critical: [] as PresenceCaseRow[],
@@ -328,10 +448,12 @@ export default function PresenceManage() {
   const openCase = useMemo(() => (casesQ.data ?? []).find((c) => c.id === openCaseId) ?? null, [casesQ.data, openCaseId]);
 
   const caseDetailQ = useQuery({
-    queryKey: ["presence_manage_case_detail", activeTenantId, openCaseId],
+    queryKey: ["presence_manage_case_detail", activeTenantId, openCaseId, openCase?.entity_id],
     enabled: Boolean(activeTenantId && openCaseId && presenceEnabled),
     queryFn: async () => {
-      const [timelineRes, punchesRes, pendRes] = await Promise.all([
+      const employeeId = String(openCase?.entity_id ?? "");
+
+      const [timelineRes, punchesRes, pendRes, ledgerRes] = await Promise.all([
         supabase
           .from("timeline_events")
           .select("id,occurred_at,event_type,message,meta_json")
@@ -352,16 +474,27 @@ export default function PresenceManage() {
           .eq("case_id", openCaseId!)
           .order("created_at", { ascending: true })
           .limit(500),
+        employeeId
+          ? supabase
+              .from("bank_hour_ledger")
+              .select("id,employee_id,minutes_delta,balance_after,source,created_at")
+              .eq("tenant_id", activeTenantId!)
+              .eq("employee_id", employeeId)
+              .order("created_at", { ascending: false })
+              .limit(80)
+          : (Promise.resolve({ data: [], error: null }) as any),
       ]);
 
       if (timelineRes.error) throw timelineRes.error;
       if (punchesRes.error) throw punchesRes.error;
       if (pendRes.error) throw pendRes.error;
+      if (ledgerRes.error) throw ledgerRes.error;
 
       return {
         timeline: timelineRes.data ?? [],
         punches: punchesRes.data ?? [],
         pendencies: pendRes.data ?? [],
+        bankLedger: ledgerRes.data ?? [],
       };
     },
   });
@@ -549,6 +682,91 @@ export default function PresenceManage() {
     }
   };
 
+  const [manualState, setManualState] = useState<string>("AGUARDANDO_ENTRADA");
+  const [manualNote, setManualNote] = useState<string>("");
+
+  useEffect(() => {
+    if (openCase?.state) setManualState(String(openCase.state));
+  }, [openCase?.state]);
+
+  const applyManualState = async () => {
+    if (!activeTenantId || !openCaseId || !openCase) return;
+    if (!manager) {
+      showError("Apenas administradores/gestores podem corrigir etapa.");
+      return;
+    }
+
+    const next = String(manualState);
+    if (!presenceStates.includes(next as any)) {
+      showError("Estado inválido.");
+      return;
+    }
+
+    try {
+      const nextStatus = next === "FECHADO" ? "closed" : "open";
+
+      const { error: updErr } = await supabase
+        .from("cases")
+        .update({ state: next, status: nextStatus })
+        .eq("tenant_id", activeTenantId)
+        .eq("id", openCaseId);
+      if (updErr) throw updErr;
+
+      const { error: tlErr } = await supabase.from("timeline_events").insert({
+        tenant_id: activeTenantId,
+        case_id: openCaseId,
+        event_type: "presence_state_manual_override",
+        actor_type: "admin",
+        actor_id: user?.id ?? null,
+        message: `Etapa ajustada manualmente: ${titleizeCaseState(String(openCase.state))} → ${titleizeCaseState(next)}`,
+        meta_json: {
+          from: String(openCase.state),
+          to: next,
+          note: manualNote || null,
+        },
+        occurred_at: new Date().toISOString(),
+      });
+      if (tlErr) throw tlErr;
+
+      showSuccess("Etapa atualizada.");
+      setManualNote("");
+
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["presence_manage_cases", activeTenantId] }),
+        qc.invalidateQueries({ queryKey: ["presence_manage_case_detail", activeTenantId, openCaseId] }),
+      ]);
+    } catch (e: any) {
+      showError(e?.message ?? "Falha ao atualizar etapa");
+    }
+  };
+
+  const upsertEmployeeCfg = async (employeeId: string, patch: Partial<EmployeePresenceConfig>) => {
+    if (!activeTenantId || !manager) return;
+
+    const scheduled = (patch.scheduled_start_hhmm ?? null) as any;
+    const planned = patch.planned_minutes === undefined ? undefined : patch.planned_minutes;
+
+    try {
+      const payload = {
+        tenant_id: activeTenantId,
+        employee_id: employeeId,
+        scheduled_start_hhmm: scheduled,
+        planned_minutes: planned ?? null,
+        notes: (patch.notes ?? null) as any,
+      };
+
+      const { error } = await supabase.from("presence_employee_configs").upsert(payload as any, {
+        onConflict: "tenant_id,employee_id",
+      });
+      if (error) throw error;
+
+      showSuccess("Jornada salva.");
+      await qc.invalidateQueries({ queryKey: ["presence_manage_employee_cfg", activeTenantId] });
+    } catch (e: any) {
+      showError(e?.message ?? "Falha ao salvar jornada");
+    }
+  };
+
   const columns = [
     {
       key: "critical",
@@ -614,6 +832,115 @@ export default function PresenceManage() {
                     className="h-9 w-[170px] rounded-xl border-0 bg-transparent px-1 text-sm"
                   />
                 </div>
+
+                {manager && (
+                  <Sheet>
+                    <SheetTrigger asChild>
+                      <Button variant="secondary" className="h-11 rounded-2xl">
+                        Jornadas
+                      </Button>
+                    </SheetTrigger>
+                    <SheetContent className="w-full sm:max-w-[620px]">
+                      <SheetHeader>
+                        <SheetTitle>Jornada por colaborador</SheetTitle>
+                      </SheetHeader>
+
+                      <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-3 text-[11px] text-slate-700">
+                        Configure <span className="font-semibold">início planejado</span> (HH:MM) e
+                        <span className="font-semibold"> minutos planejados</span> (ex.: 480 = 8h). Se vazio, usa o padrão do tenant.
+                      </div>
+
+                      <ScrollArea className="mt-4 h-[70vh] pr-3">
+                        <div className="space-y-2">
+                          {(employeesQ.data ?? []).map((e) => {
+                            const cfg = empCfgByEmployee.get(e.user_id);
+                            const balance = bankBalanceByEmployee.get(e.user_id);
+
+                            return (
+                              <div key={e.user_id} className="rounded-2xl border border-slate-200 bg-white p-3">
+                                <div className="flex items-start justify-between gap-2">
+                                  <div className="min-w-0">
+                                    <div className="truncate text-sm font-semibold text-slate-900">
+                                      {e.display_name || (e.email ? e.email.split("@")[0] : shortId(e.user_id))}
+                                    </div>
+                                    <div className="mt-0.5 text-[11px] text-slate-600">
+                                      {e.email ?? "—"} • role: <span className="font-semibold">{e.role}</span>
+                                    </div>
+                                  </div>
+
+                                  <Badge className="rounded-full border-0 bg-slate-100 text-slate-800">
+                                    Banco: <span className="ml-1 font-semibold">{fmtBalance(balance)}</span>
+                                  </Badge>
+                                </div>
+
+                                <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                                  <div>
+                                    <div className="text-[11px] font-semibold text-slate-700">Início (HH:MM)</div>
+                                    <Input
+                                      defaultValue={cfg?.scheduled_start_hhmm ?? ""}
+                                      onBlur={(ev) =>
+                                        upsertEmployeeCfg(e.user_id, {
+                                          scheduled_start_hhmm: ev.target.value.trim() || null,
+                                          planned_minutes: cfg?.planned_minutes ?? null,
+                                          notes: cfg?.notes ?? null,
+                                        })
+                                      }
+                                      placeholder="08:00"
+                                      className="mt-1 h-10 rounded-2xl"
+                                    />
+                                  </div>
+
+                                  <div>
+                                    <div className="text-[11px] font-semibold text-slate-700">Minutos planejados</div>
+                                    <Input
+                                      type="number"
+                                      defaultValue={cfg?.planned_minutes ?? ""}
+                                      onBlur={(ev) =>
+                                        upsertEmployeeCfg(e.user_id, {
+                                          scheduled_start_hhmm: cfg?.scheduled_start_hhmm ?? null,
+                                          planned_minutes: ev.target.value.trim() ? Number(ev.target.value) : null,
+                                          notes: cfg?.notes ?? null,
+                                        })
+                                      }
+                                      placeholder="480"
+                                      className="mt-1 h-10 rounded-2xl"
+                                    />
+                                  </div>
+
+                                  <div>
+                                    <div className="text-[11px] font-semibold text-slate-700">Nota</div>
+                                    <Input
+                                      defaultValue={cfg?.notes ?? ""}
+                                      onBlur={(ev) =>
+                                        upsertEmployeeCfg(e.user_id, {
+                                          scheduled_start_hhmm: cfg?.scheduled_start_hhmm ?? null,
+                                          planned_minutes: cfg?.planned_minutes ?? null,
+                                          notes: ev.target.value.trim() || null,
+                                        })
+                                      }
+                                      placeholder="Opcional"
+                                      className="mt-1 h-10 rounded-2xl"
+                                    />
+                                  </div>
+                                </div>
+
+                                <div className="mt-2 text-[11px] text-slate-500">
+                                  Último saldo: {balance == null ? "—" : fmtBalance(balance)} • variação do dia será lançada ao fechar.
+                                </div>
+                              </div>
+                            );
+                          })}
+
+                          {!employeesQ.data?.length && (
+                            <div className="rounded-2xl border border-dashed border-slate-200 bg-white/60 p-4 text-sm text-slate-600">
+                              Nenhum colaborador encontrado.
+                            </div>
+                          )}
+                        </div>
+                      </ScrollArea>
+                    </SheetContent>
+                  </Sheet>
+                )}
 
                 {manager && (
                   <Sheet>
@@ -828,12 +1155,58 @@ export default function PresenceManage() {
                                   <div className="text-sm font-semibold text-slate-900">
                                     {(c.meta_json?.presence?.employee_label as string | undefined) ?? shortId(c.entity_id)}
                                   </div>
-                                  <Badge className="rounded-full border-0 bg-white text-slate-800 ring-1 ring-slate-200">
-                                    {titleizeCaseState(c.state)}
-                                  </Badge>
+                                  <div className="flex items-center gap-2">
+                                    <Badge className="rounded-full border-0 bg-white text-slate-800 ring-1 ring-slate-200">
+                                      {titleizeCaseState(c.state)}
+                                    </Badge>
+                                    {manager && (
+                                      <Badge className="rounded-full border-0 bg-slate-100 text-slate-800">
+                                        Banco: <span className="ml-1 font-semibold">{fmtBalance(bankBalanceByEmployee.get(String(c.entity_id)))}</span>
+                                      </Badge>
+                                    )}
+                                  </div>
                                 </div>
                                 <div className="text-xs text-slate-600">case_id: {c.id}</div>
                               </div>
+
+                              {manager && (
+                                <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-3">
+                                  <div className="text-xs font-semibold text-slate-900">Correção manual (admin)</div>
+                                  <div className="mt-2 grid gap-2">
+                                    <div className="grid grid-cols-2 gap-2">
+                                      <div>
+                                        <div className="text-[11px] font-semibold text-slate-700">Etapa</div>
+                                        <select
+                                          value={manualState}
+                                          onChange={(e) => setManualState(e.target.value)}
+                                          className="mt-1 h-10 w-full rounded-2xl border border-slate-200 bg-white px-3 text-sm"
+                                        >
+                                          {presenceStates.map((s) => (
+                                            <option key={s} value={s}>
+                                              {titleizeCaseState(s)}
+                                            </option>
+                                          ))}
+                                        </select>
+                                      </div>
+                                      <div>
+                                        <div className="text-[11px] font-semibold text-slate-700">Observação</div>
+                                        <Input
+                                          value={manualNote}
+                                          onChange={(e) => setManualNote(e.target.value)}
+                                          placeholder="Motivo da correção"
+                                          className="mt-1 h-10 rounded-2xl"
+                                        />
+                                      </div>
+                                    </div>
+                                    <Button onClick={applyManualState} className="h-11 rounded-2xl">
+                                      Aplicar correção
+                                    </Button>
+                                    <div className="text-[11px] text-slate-500">
+                                      Isso registra um evento na timeline. Se você escolher <span className="font-semibold">Fechado</span>, as validações do sistema ainda podem mover para pendências.
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
 
                               <div className="mt-4 grid gap-4 lg:grid-cols-2">
                                 <div className="rounded-2xl border border-slate-200 bg-white p-3">
@@ -861,27 +1234,24 @@ export default function PresenceManage() {
                                 </div>
 
                                 <div className="rounded-2xl border border-slate-200 bg-white p-3">
-                                  <div className="text-xs font-semibold text-slate-900">Pendências</div>
+                                  <div className="text-xs font-semibold text-slate-900">Banco de horas</div>
                                   <div className="mt-2 space-y-2">
-                                    {(caseDetailQ.data?.pendencies ?? []).map((p: any) => (
-                                      <div key={p.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-                                        <div className="text-xs font-semibold text-slate-900">{p.question_text}</div>
-                                        <div className="mt-1 flex items-center justify-between text-[11px] text-slate-600">
-                                          <span>{p.type}</span>
-                                          <span className={cn(p.status === "open" ? "text-amber-700" : "text-emerald-700")}>
-                                            {p.status}
-                                          </span>
-                                        </div>
-                                        {p.answered_text && (
-                                          <div className="mt-2 rounded-2xl border border-slate-200 bg-white p-2 text-[11px] text-slate-700">
-                                            {p.answered_text}
+                                    {(caseDetailQ.data?.bankLedger ?? []).slice(0, 8).map((r: any) => (
+                                      <div key={r.id} className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
+                                        <div className="min-w-0">
+                                          <div className="text-sm font-semibold text-slate-900">{fmtMinutes(r.minutes_delta)}</div>
+                                          <div className="mt-0.5 text-[11px] text-slate-600">
+                                            {new Date(r.created_at).toLocaleString()} • {r.source}
                                           </div>
-                                        )}
+                                        </div>
+                                        <div className="text-right text-[11px] font-semibold text-slate-800">
+                                          saldo {fmtBalance(r.balance_after)}
+                                        </div>
                                       </div>
                                     ))}
-                                    {!caseDetailQ.data?.pendencies?.length && (
+                                    {!caseDetailQ.data?.bankLedger?.length && (
                                       <div className="rounded-2xl border border-dashed border-slate-200 bg-white/60 p-3 text-sm text-slate-600">
-                                        Sem pendências.
+                                        Sem lançamentos ainda. O lançamento automático ocorre ao fechar o dia.
                                       </div>
                                     )}
                                   </div>

@@ -11,6 +11,15 @@ import { showError, showSuccess } from "@/utils/toast";
 import { cn } from "@/lib/utils";
 import { ArrowDown, ArrowUp, Plus, Sparkles, Trash2 } from "lucide-react";
 
+// Default per-tenant config for optional journey: meta_content
+const META_CONTENT_DEFAULT_CONFIG = {
+  meta_content_enabled: true,
+  meta_autopublish_stories: true,
+  meta_autopublish_feed: true,
+  meta_autopublish_reels: false,
+  calendar_import_export_enabled: true,
+} as const;
+
 type SectorRow = {
   id: string;
   name: string;
@@ -178,6 +187,12 @@ export function TenantJourneysPanel() {
     return m;
   }, [tenantJourneysQ.data]);
 
+  const journeyKeyById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const j of journeysQ.data ?? []) m.set(j.id, j.key);
+    return m;
+  }, [journeysQ.data]);
+
   const journeysBySector = useMemo(() => {
     const m = new Map<string, JourneyRow[]>();
     for (const j of journeysQ.data ?? []) {
@@ -241,6 +256,23 @@ export function TenantJourneysPanel() {
   const presenceTimeZone = String((configObj as any)?.presence?.time_zone ?? "America/Sao_Paulo");
   const presenceScheduledStart = String((configObj as any)?.presence?.scheduled_start_hhmm ?? "08:00");
   const presencePlannedMinutes = String((configObj as any)?.presence?.planned_minutes ?? 480);
+
+  const metaContentEnabled = Boolean(
+    (configObj as any)?.meta_content_enabled ?? META_CONTENT_DEFAULT_CONFIG.meta_content_enabled
+  );
+  const metaAutopublishStories = Boolean(
+    (configObj as any)?.meta_autopublish_stories ?? META_CONTENT_DEFAULT_CONFIG.meta_autopublish_stories
+  );
+  const metaAutopublishFeed = Boolean(
+    (configObj as any)?.meta_autopublish_feed ?? META_CONTENT_DEFAULT_CONFIG.meta_autopublish_feed
+  );
+  const metaAutopublishReels = Boolean(
+    (configObj as any)?.meta_autopublish_reels ?? META_CONTENT_DEFAULT_CONFIG.meta_autopublish_reels
+  );
+  const calendarImportExportEnabled = Boolean(
+    (configObj as any)?.calendar_import_export_enabled ??
+      META_CONTENT_DEFAULT_CONFIG.calendar_import_export_enabled
+  );
 
   const createSector = async () => {
     if (!sectorName.trim()) return;
@@ -366,11 +398,14 @@ export function TenantJourneysPanel() {
           .eq("id", existing.id);
         if (error) throw error;
       } else {
+        const key = journeyKeyById.get(journeyId) ?? "";
+        const config_json = key === "meta_content" ? META_CONTENT_DEFAULT_CONFIG : {};
+
         const { error } = await supabase.from("tenant_journeys").insert({
           tenant_id: activeTenantId,
           journey_id: journeyId,
           enabled,
-          config_json: {},
+          config_json,
         });
         if (error) throw error;
       }
@@ -838,6 +873,75 @@ export function TenantJourneysPanel() {
                   Essa flag é do <span className="font-medium">catálogo (journeys)</span> e é protegida por RLS (apenas super-admin).
                 </div>
               </div>
+
+              {selectedJourney.key === "meta_content" && (
+                <div className="rounded-2xl border border-slate-200 bg-white p-3">
+                  <div className="text-xs font-semibold text-slate-900">Meta Content</div>
+                  <div className="mt-1 text-[11px] text-slate-600">
+                    Jornada <span className="font-semibold">opcional</span> por tenant. Estes flags vivem em
+                    <span className="font-mono"> tenant_journeys.config_json</span>.
+                  </div>
+
+                  <div className="mt-3 grid gap-2">
+                    <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
+                      <div>
+                        <div className="text-xs font-semibold text-slate-900">meta_content_enabled</div>
+                        <div className="mt-0.5 text-[11px] text-slate-600">Habilita a jornada para este tenant.</div>
+                      </div>
+                      <Switch
+                        checked={metaContentEnabled}
+                        onCheckedChange={(v) => updateConfig({ meta_content_enabled: v })}
+                      />
+                    </div>
+
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
+                        <div>
+                          <div className="text-xs font-semibold text-slate-900">meta_autopublish_stories</div>
+                          <div className="mt-0.5 text-[11px] text-slate-600">Permite autopublicar Stories.</div>
+                        </div>
+                        <Switch
+                          checked={metaAutopublishStories}
+                          onCheckedChange={(v) => updateConfig({ meta_autopublish_stories: v })}
+                        />
+                      </div>
+
+                      <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
+                        <div>
+                          <div className="text-xs font-semibold text-slate-900">meta_autopublish_feed</div>
+                          <div className="mt-0.5 text-[11px] text-slate-600">Permite autopublicar Feed.</div>
+                        </div>
+                        <Switch
+                          checked={metaAutopublishFeed}
+                          onCheckedChange={(v) => updateConfig({ meta_autopublish_feed: v })}
+                        />
+                      </div>
+
+                      <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
+                        <div>
+                          <div className="text-xs font-semibold text-slate-900">meta_autopublish_reels</div>
+                          <div className="mt-0.5 text-[11px] text-slate-600">Permite autopublicar Reels.</div>
+                        </div>
+                        <Switch
+                          checked={metaAutopublishReels}
+                          onCheckedChange={(v) => updateConfig({ meta_autopublish_reels: v })}
+                        />
+                      </div>
+
+                      <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
+                        <div>
+                          <div className="text-xs font-semibold text-slate-900">calendar_import_export_enabled</div>
+                          <div className="mt-0.5 text-[11px] text-slate-600">Habilita import/export de calendário.</div>
+                        </div>
+                        <Switch
+                          checked={calendarImportExportEnabled}
+                          onCheckedChange={(v) => updateConfig({ calendar_import_export_enabled: v })}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {selectedJourney.key === "presence" && (
                 <div className="rounded-2xl border border-slate-200 bg-white p-3">

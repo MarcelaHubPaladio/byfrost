@@ -4,12 +4,21 @@ import { createSupabaseAdmin } from "../_shared/supabaseAdmin.ts";
 
 type RoleKey = string;
 
+type GenerateLinkType = "invite" | "magiclink";
+
 function normalizePhone(v: any): string | null {
   const s = String(v ?? "").trim();
   if (!s) return null;
   if (s.startsWith("+")) return s;
   const digits = s.replace(/\D/g, "");
   return digits ? `+${digits}` : null;
+}
+
+function isAlreadyRegisteredError(message: string) {
+  const msg = (message ?? "").toLowerCase();
+  return (
+    msg.includes("already") && (msg.includes("registered") || msg.includes("exists"))
+  );
 }
 
 serve(async (req) => {
@@ -99,50 +108,51 @@ serve(async (req) => {
       });
     }
 
-    // Primary path: send the invite email.
+    // Primary path: try to send the invite email.
+    // NOTE: This can fail when SMTP is not configured OR when the user already exists.
     const { data: invited, error: inviteErr } = await supabase.auth.admin.inviteUserByEmail(email);
 
-    // Fallback path: if email sending is failing (common when SMTP isn't configured),
-    // generate an invite link and return it so the admin can share manually.
+    // Secondary path: ALWAYS attempt to generate a link when invite email fails.
+    // This also fixes a common admin scenario:
+    // - user already exists in Auth (so inviteUserByEmail fails)
+    // - but the admin deleted users_profile and needs to re-attach the user to a tenant
+    // In that case, we generate a magiclink (login link) and still upsert users_profile.
     if (inviteErr || !invited?.user) {
-      console.error(`[${fn}] inviteUserByEmail failed`, { inviteErr });
+      const errMsg = String(inviteErr?.message ?? "");
+      console.warn(`[${fn}] inviteUserByEmail failed; trying generateLink`, { errMsg });
 
-      const msg = String(inviteErr?.message ?? "").toLowerCase();
-      const shouldFallbackToLink =
-        msg.includes("invite") && msg.includes("email") ||
-        (inviteErr as any)?.status === 500 ||
-        String((inviteErr as any)?.code ?? "").toLowerCase().includes("unexpected_failure");
+      const firstTry: GenerateLinkType = isAlreadyRegisteredError(errMsg) ? "magiclink" : "invite";
+      const tryOrder: GenerateLinkType[] = firstTry === "invite" ? ["invite", "magiclink"] : ["magiclink", "invite"];
 
-      if (!shouldFallbackToLink) {
-        return new Response(
-          JSON.stringify({ ok: false, error: inviteErr?.message ?? "Invite failed", code: (inviteErr as any)?.code ?? null }),
-          {
-            status: 400,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          }
-        );
+      let linkData: any = null;
+      let linkTypeUsed: GenerateLinkType | null = null;
+      let lastLinkErr: any = null;
+
+      for (const t of tryOrder) {
+        const { data, error } = await supabase.auth.admin.generateLink({
+          type: t,
+          email,
+          options: redirectTo ? { redirectTo } : undefined,
+        } as any);
+
+        if (!error && data?.user && (data as any)?.properties?.action_link) {
+          linkData = data;
+          linkTypeUsed = t;
+          break;
+        }
+
+        lastLinkErr = error;
+        console.warn(`[${fn}] generateLink failed`, { type: t, errorMessage: String(error?.message ?? "") });
       }
 
-      console.warn(`[${fn}] falling back to admin.generateLink(type=invite)`, {
-        email,
-        redirectTo: redirectTo || null,
-      });
-
-      const { data: linkData, error: linkErr } = await supabase.auth.admin.generateLink({
-        type: "invite",
-        email,
-        options: redirectTo ? { redirectTo } : undefined,
-      } as any);
-
-      if (linkErr || !linkData?.user || !(linkData as any)?.properties?.action_link) {
-        console.error(`[${fn}] generateLink failed`, { linkErr });
+      if (!linkData?.user || !linkData?.properties?.action_link) {
+        console.error(`[${fn}] generateLink exhausted`, { lastLinkErr });
         return new Response(
           JSON.stringify({
             ok: false,
-            error: linkErr?.message ?? "Invite failed (SMTP + link generation)",
-            code: (linkErr as any)?.code ?? null,
+            error: (lastLinkErr as any)?.message ?? inviteErr?.message ?? "Invite failed",
             hint:
-              "Parece que o SMTP do Supabase não está configurado. Configure um provedor SMTP (Auth → Email) ou use o link manual.",
+              "Se o usuário já existe, use o link (magiclink) para ele entrar. Se SMTP estiver desligado, compartilhe o link manual.",
           }),
           {
             status: 400,
@@ -209,13 +219,34 @@ serve(async (req) => {
         }
       }
 
-      console.log(`[${fn}] invited user (manual link)`, { tenantId, userId, role, email });
-
-      return new Response(JSON.stringify({ ok: true, userId, sentEmail: false, inviteLink }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      console.log(`[${fn}] invited user (manual link)`, {
+        tenantId,
+        userId,
+        role,
+        email,
+        linkType: linkTypeUsed,
+        inviteErr: inviteErr ? String(inviteErr.message ?? "") : null,
       });
+
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          userId,
+          sentEmail: false,
+          inviteLink,
+          linkType: linkTypeUsed,
+          note:
+            linkTypeUsed === "magiclink"
+              ? "Usuário já existia no Auth; gerei magiclink e reativei o vínculo no tenant (users_profile)."
+              : "Gerei link de convite e reativei o vínculo no tenant (users_profile).",
+        }),
+        {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
     }
 
+    // Invite email succeeded.
     const userId = invited.user.id;
 
     const { error: profErr } = await supabase

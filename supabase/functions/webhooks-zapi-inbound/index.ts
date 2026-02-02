@@ -179,7 +179,7 @@ function normalizeInbound(payload: any): {
   mediaUrl: string | null;
   location: { lat: number; lng: number } | null;
   externalMessageId: string | null;
-  meta: { isCallEvent: boolean; callStatus: string | null };
+  meta: { isCallEvent: boolean; callStatus: string | null; rawType: string };
   raw: any;
 } {
   const zapiInstanceId = pickFirst<string>(payload?.instanceId, payload?.instance_id, payload?.instance);
@@ -239,7 +239,9 @@ function normalizeInbound(payload: any): {
     payload?.message,
     payload?.data?.text,
     payload?.data?.body,
-    payload?.data?.message
+    payload?.data?.message,
+    payload?.caption,
+    payload?.data?.caption
   );
 
   const mediaUrl = pickFirst<string>(
@@ -294,9 +296,38 @@ function normalizeInbound(payload: any): {
     mediaUrl: mediaUrl ?? null,
     location,
     externalMessageId,
-    meta: { isCallEvent, callStatus: callInfo.status },
+    meta: { isCallEvent, callStatus: callInfo.status, rawType },
     raw: payload,
   };
+}
+
+function isNonMessageCallbackEvent(args: {
+  rawType: string;
+  normalized: { text: string | null; mediaUrl: string | null; location: any };
+}) {
+  const t = String(args.rawType ?? "").toLowerCase();
+
+  // We only ignore when we have strong evidence this is a status/receipt callback (not user content).
+  const looksCallback =
+    t.includes("callback") ||
+    t.includes("ack") ||
+    t.includes("receipt") ||
+    t.includes("delivered") ||
+    t.includes("delivery") ||
+    t.includes("read") ||
+    t.includes("seen") ||
+    t.includes("status") ||
+    t.includes("presence") ||
+    t.includes("connection") ||
+    t.includes("connected") ||
+    t.includes("disconnected");
+
+  if (!looksCallback) return false;
+
+  const hasContent = Boolean(args.normalized.text || args.normalized.mediaUrl || args.normalized.location);
+  if (hasContent) return false;
+
+  return true;
 }
 
 function inferDirection(args: {
@@ -597,6 +628,7 @@ serve(async (req) => {
             journey_id: args.journey_id ?? null,
             case_id: args.case_id ?? null,
             external_message_id: normalized.externalMessageId,
+            raw_type: normalized.meta.rawType,
             call_event: normalized.meta.isCallEvent,
             call_status: normalized.meta.callStatus,
             ...((args.meta ?? {}) as any),
@@ -739,6 +771,23 @@ serve(async (req) => {
       });
 
       return new Response(JSON.stringify({ ok: true, ignored: true, reason: "group_ignored" }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Ignore provider callbacks/receipts (delivery/read/ack/etc) that carry no user content.
+    // These events must never open cases.
+    if (isNonMessageCallbackEvent({ rawType: normalized.meta.rawType, normalized })) {
+      await logInbox({
+        instance,
+        ok: true,
+        http_status: 200,
+        reason: "non_message_event_ignored",
+        direction,
+        meta: { forced_direction: forced ?? null, inferred_direction: inferred, strong_outbound: strongOutbound },
+      });
+
+      return new Response(JSON.stringify({ ok: true, ignored: true, reason: "non_message_event_ignored" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }

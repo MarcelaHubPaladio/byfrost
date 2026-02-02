@@ -26,6 +26,8 @@ import Chats from "@/pages/Chats";
 import Presence from "@/pages/Presence";
 import PresenceManage from "@/pages/PresenceManage";
 import IntegrationsMeta from "@/pages/IntegrationsMeta";
+import Content from "@/pages/Content";
+import ContentDetail from "@/pages/ContentDetail";
 
 const queryClient = new QueryClient();
 
@@ -83,6 +85,24 @@ const App = () => (
                   element={
                     <RequireRouteAccess routeKey="app.chat">
                       <Chats />
+                    </RequireRouteAccess>
+                  }
+                />
+
+                {/* Conteúdo (meta_content) */}
+                <Route
+                  path="/app/content"
+                  element={
+                    <RequireRouteAccess routeKey="app.content">
+                      <Content />
+                    </RequireRouteAccess>
+                  }
+                />
+                <Route
+                  path="/app/content/:id"
+                  element={
+                    <RequireRouteAccess routeKey="app.content">
+                      <ContentDetail />
                     </RequireRouteAccess>
                   }
                 />

@@ -19,6 +19,7 @@ import {
   ClipboardCheck,
   Clapperboard,
   Lock,
+  Menu,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -30,6 +31,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import { Button } from "@/components/ui/button";
 import { checkRouteAccess } from "@/lib/access";
 
 function hexToRgb(hex: string) {
@@ -141,6 +144,68 @@ function NavTile({
   );
 }
 
+function MobileNavItem({
+  to,
+  icon: Icon,
+  label,
+  disabled,
+  onNavigate,
+}: {
+  to: string;
+  icon: any;
+  label: string;
+  disabled?: boolean;
+  onNavigate: () => void;
+}) {
+  if (disabled) {
+    return (
+      <div
+        className={cn(
+          "flex w-full items-center justify-between gap-3 rounded-2xl border px-4 py-3",
+          "border-slate-200 bg-white/40 text-slate-400",
+          "dark:border-slate-800 dark:bg-slate-950/30 dark:text-slate-500"
+        )}
+        title={`${label} (sem permissão)`}
+      >
+        <div className="flex items-center gap-3">
+          <div className="relative">
+            <Icon className="h-5 w-5" />
+            <div className="absolute -right-1.5 -top-1.5 grid h-4 w-4 place-items-center rounded-full bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300">
+              <Lock className="h-2.5 w-2.5" />
+            </div>
+          </div>
+          <span className="text-sm font-semibold tracking-tight text-slate-500 dark:text-slate-400">{label}</span>
+        </div>
+        <span className="text-[11px] font-semibold">bloqueado</span>
+      </div>
+    );
+  }
+
+  return (
+    <NavLink
+      to={to}
+      end={to === "/app"}
+      onClick={onNavigate}
+      className={({ isActive }) =>
+        cn(
+          "flex w-full items-center justify-between gap-3 rounded-2xl border px-4 py-3 transition",
+          isActive
+            ? "border-[hsl(var(--byfrost-accent)/0.35)] bg-[hsl(var(--byfrost-accent)/0.10)] text-[hsl(var(--byfrost-accent))]"
+            : "border-slate-200 bg-white/75 text-slate-800 hover:border-slate-300 hover:bg-white",
+          "dark:border-slate-800 dark:bg-slate-950/40 dark:text-slate-100 dark:hover:bg-slate-950/60"
+        )
+      }
+      title={label}
+    >
+      <div className="flex items-center gap-3">
+        <Icon className="h-5 w-5" />
+        <span className="text-sm font-semibold tracking-tight">{label}</span>
+      </div>
+      <div className="h-2 w-2 rounded-full bg-current opacity-30" />
+    </NavLink>
+  );
+}
+
 function getUserDisplayName(user: any) {
   const md = user?.user_metadata ?? {};
   const full = (md.full_name as string | undefined) ?? null;
@@ -165,6 +230,7 @@ export function AppShell({
   const { activeTenant, isSuperAdmin, activeTenantId } = useTenant();
   const { user } = useSession();
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   const roleKey = String(activeTenant?.role ?? "");
 
@@ -315,7 +381,7 @@ export function AppShell({
         <Link
           to="/tenants"
           className={cn(
-            "fixed right-3 top-3 z-50 inline-flex items-center gap-2 rounded-2xl px-3 py-2 text-xs font-semibold text-white shadow-md",
+            "fixed right-3 top-3 z-50 hidden items-center gap-2 rounded-2xl px-3 py-2 text-xs font-semibold text-white shadow-md md:inline-flex",
             "bg-[hsl(var(--byfrost-accent))] hover:bg-[hsl(var(--byfrost-accent)/0.92)]"
           )}
           title="Trocar tenant"
@@ -327,8 +393,8 @@ export function AppShell({
 
       <div className="w-full px-3 py-3 md:px-5 md:py-5">
         <div className="grid gap-3 md:grid-cols-[96px_1fr] md:gap-5">
-          {/* Sidebar */}
-          <aside className="overflow-hidden rounded-[28px] border border-slate-200 bg-white/65 shadow-sm backdrop-blur md:sticky md:top-5 md:h-[calc(100vh-40px)] dark:border-slate-800 dark:bg-slate-950/40">
+          {/* Sidebar (desktop) */}
+          <aside className="hidden overflow-hidden rounded-[28px] border border-slate-200 bg-white/65 shadow-sm backdrop-blur md:sticky md:top-5 md:block md:h-[calc(100vh-40px)] dark:border-slate-800 dark:bg-slate-950/40">
             {/* Top brand block */}
             <div className="bg-[hsl(var(--byfrost-accent))] px-2 pb-2 pt-1.5">
               <Link
@@ -382,8 +448,147 @@ export function AppShell({
               <div className="overflow-hidden rounded-[28px] border border-slate-200 border-t-4 border-t-[hsl(var(--byfrost-accent))] bg-white/65 px-4 py-3 shadow-sm backdrop-blur dark:border-slate-800 dark:bg-slate-950/40">
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex min-w-0 items-center gap-2">
+                    <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
+                      <SheetTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          className="h-10 rounded-2xl px-3 md:hidden"
+                          title="Abrir menu"
+                        >
+                          <Menu className="h-5 w-5" />
+                        </Button>
+                      </SheetTrigger>
+                      <SheetContent side="left" className="w-[92vw] max-w-[420px] p-0">
+                        <div className="border-b border-slate-200 bg-[hsl(var(--byfrost-accent))] px-4 pb-4 pt-5 text-white dark:border-slate-800">
+                          <div className="flex items-start justify-between gap-3">
+                            <Link
+                              to="/app"
+                              onClick={() => setMobileNavOpen(false)}
+                              className="flex items-center gap-3"
+                            >
+                              <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-2xl bg-white/95 p-1 shadow-sm ring-1 ring-white/30">
+                                {logoUrl ? (
+                                  <img src={logoUrl} alt="Logo do tenant" className="h-full w-full object-contain" />
+                                ) : (
+                                  <div className="flex h-full w-full items-center justify-center rounded-xl bg-white/15 text-lg font-semibold text-white">
+                                    {(activeTenant?.name?.slice(0, 1) ?? "B").toUpperCase()}
+                                  </div>
+                                )}
+                              </div>
+                              <div className="min-w-0">
+                                <div className="truncate text-sm font-semibold leading-tight">{activeTenant?.name ?? "Byfrost"}</div>
+                                <div className="mt-0.5 truncate text-[11px] text-white/85">{activeTenant?.slug ?? ""}</div>
+                              </div>
+                            </Link>
+
+                            <div className="flex items-center gap-2">
+                              <Button
+                                variant="secondary"
+                                className="h-10 rounded-2xl bg-white/15 text-white hover:bg-white/20"
+                                onClick={() => {
+                                  setMobileNavOpen(false);
+                                  nav("/tenants");
+                                }}
+                                title="Trocar tenant"
+                              >
+                                <ArrowLeftRight className="mr-2 h-4 w-4" />
+                                Trocar
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="p-4">
+                          <SheetHeader className="sr-only">
+                            <SheetTitle>Menu</SheetTitle>
+                          </SheetHeader>
+
+                          <div className="grid gap-2">
+                            <MobileNavItem
+                              to="/app"
+                              icon={LayoutGrid}
+                              label="Dashboard"
+                              disabled={!can("app.dashboard")}
+                              onNavigate={() => setMobileNavOpen(false)}
+                            />
+                            <MobileNavItem
+                              to="/app/chat"
+                              icon={MessagesSquare}
+                              label="Chat"
+                              disabled={!can("app.chat")}
+                              onNavigate={() => setMobileNavOpen(false)}
+                            />
+                            {hasCrm && (
+                              <MobileNavItem
+                                to="/app/crm"
+                                icon={LayoutDashboard}
+                                label="CRM"
+                                disabled={!can("app.crm")}
+                                onNavigate={() => setMobileNavOpen(false)}
+                              />
+                            )}
+                            {hasMetaContent && (
+                              <MobileNavItem
+                                to="/app/content"
+                                icon={Clapperboard}
+                                label="Conteúdo"
+                                disabled={!can("app.content")}
+                                onNavigate={() => setMobileNavOpen(false)}
+                              />
+                            )}
+                            {hasPresence && (
+                              <MobileNavItem
+                                to="/app/presence"
+                                icon={Clock3}
+                                label="Ponto"
+                                disabled={!can("app.presence")}
+                                onNavigate={() => setMobileNavOpen(false)}
+                              />
+                            )}
+                            {hasPresence && isPresenceManager && (
+                              <MobileNavItem
+                                to="/app/presence/manage"
+                                icon={ClipboardCheck}
+                                label="Gestão"
+                                disabled={!can("app.presence_manage")}
+                                onNavigate={() => setMobileNavOpen(false)}
+                              />
+                            )}
+                            <MobileNavItem
+                              to="/app/simulator"
+                              icon={FlaskConical}
+                              label="Simulador"
+                              disabled={!can("app.simulator")}
+                              onNavigate={() => setMobileNavOpen(false)}
+                            />
+                            {isSuperAdmin && (
+                              <MobileNavItem
+                                to="/app/admin"
+                                icon={Crown}
+                                label="Admin"
+                                disabled={!can("app.admin")}
+                                onNavigate={() => setMobileNavOpen(false)}
+                              />
+                            )}
+                            <MobileNavItem
+                              to="/app/settings"
+                              icon={Settings}
+                              label="Config"
+                              disabled={!can("app.settings")}
+                              onNavigate={() => setMobileNavOpen(false)}
+                            />
+                          </div>
+
+                          <div className="mt-3 rounded-2xl border border-slate-200 bg-white/70 p-3 text-[11px] text-slate-600 dark:border-slate-800 dark:bg-slate-950/40 dark:text-slate-300">
+                            Dica: itens com cadeado aparecem, mas ficam <span className="font-semibold">bloqueados</span> conforme sua matriz de acesso.
+                          </div>
+                        </div>
+                      </SheetContent>
+                    </Sheet>
+
                     {isSuperAdmin && (
-                      <div className="inline-flex items-center gap-1 rounded-full bg-[hsl(var(--byfrost-accent)/0.10)] px-2 py-1 text-[11px] font-semibold text-[hsl(var(--byfrost-accent))]">
+                      <div className="hidden sm:inline-flex items-center gap-1 rounded-full bg-[hsl(var(--byfrost-accent)/0.10)] px-2 py-1 text-[11px] font-semibold text-[hsl(var(--byfrost-accent))]">
                         <ShieldCheck className="h-3.5 w-3.5" />
                         super-admin
                       </div>

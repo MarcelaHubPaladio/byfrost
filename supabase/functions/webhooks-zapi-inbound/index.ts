@@ -942,6 +942,71 @@ serve(async (req) => {
       }
     }
 
+    const pickLatestMessageWithCase = async (phones: string[]) => {
+      const list = (phones ?? []).map((p) => String(p)).filter(Boolean);
+      if (!list.length) return null;
+
+      const [fromRes, toRes] = await Promise.all([
+        supabase
+          .from("wa_messages")
+          .select("case_id,occurred_at")
+          .eq("tenant_id", instance.tenant_id)
+          .eq("instance_id", instance.id)
+          .in("from_phone", list)
+          .not("case_id", "is", null)
+          .order("occurred_at", { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+        supabase
+          .from("wa_messages")
+          .select("case_id,occurred_at")
+          .eq("tenant_id", instance.tenant_id)
+          .eq("instance_id", instance.id)
+          .in("to_phone", list)
+          .not("case_id", "is", null)
+          .order("occurred_at", { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+      ]);
+
+      const a = (fromRes as any)?.data ?? null;
+      const b = (toRes as any)?.data ?? null;
+      if (!a?.case_id && !b?.case_id) return null;
+
+      const aT = a?.occurred_at ? Date.parse(String(a.occurred_at)) : 0;
+      const bT = b?.occurred_at ? Date.parse(String(b.occurred_at)) : 0;
+      return bT > aT ? b : a;
+    };
+
+    const loadOpenCase = async (caseId: string, opts: { deleted: "exclude" | "only" }) => {
+      let q = supabase
+        .from("cases")
+        .select("id,journey_id,is_chat,deleted_at,updated_at")
+        .eq("tenant_id", instance.tenant_id)
+        .eq("id", caseId)
+        .eq("status", "open");
+
+      if (opts.deleted === "exclude") q = q.is("deleted_at", null);
+      if (opts.deleted === "only") q = q.not("deleted_at", "is", null);
+
+      const { data } = await q.maybeSingle();
+      return (data as any) ?? null;
+    };
+
+    const findOpenCaseByRecentMessages = async (phones: string[]) => {
+      const msg = await pickLatestMessageWithCase(phones);
+      const caseId = (msg as any)?.case_id ? String((msg as any).case_id) : null;
+      if (!caseId) return null;
+      return await loadOpenCase(caseId, { deleted: "exclude" });
+    };
+
+    const findDeletedOpenCaseByRecentMessages = async (phones: string[]) => {
+      const msg = await pickLatestMessageWithCase(phones);
+      const caseId = (msg as any)?.case_id ? String((msg as any).case_id) : null;
+      if (!caseId) return null;
+      return await loadOpenCase(caseId, { deleted: "only" });
+    };
+
     // Outbound webhook capture (messages sent outside Byfrost):
     // - We DO NOT create cases here.
     // - We try to link to an existing case by customer phone (counterpart).
@@ -1030,6 +1095,12 @@ serve(async (req) => {
             if (caseId) break;
           }
         }
+
+        // 3) Fallback: last case that already has message history with this phone
+        if (!caseId) {
+          const c = await findOpenCaseByRecentMessages(counterpartVariants.length ? counterpartVariants : [counterpart]);
+          caseId = c?.id ? String(c.id) : null;
+        }
       } catch (e) {
         console.warn(`[${fn}] outbound_case_link_failed (ignored)`, { e: String((e as any)?.message ?? e) });
       }
@@ -1108,7 +1179,7 @@ serve(async (req) => {
           forced_direction: forced ?? null,
           inferred_direction: inferred,
           strong_outbound: strongOutbound,
-          linked_by: caseId ? "customer_phone" : null,
+          linked_by: caseId ? "customer_phone_or_history" : null,
         },
       });
 
@@ -1455,13 +1526,14 @@ serve(async (req) => {
           .eq("status", "open")
           .eq("customer_id", customerId)
           .in("journey_id", crmJourneyIds)
+          .is("deleted_at", null)
           .order("updated_at", { ascending: false })
           .limit(1)
           .maybeSingle();
         if ((data as any)?.id) return data as any;
       }
 
-      // 2) Any open case by customer_id
+      // 2) Any open case by customer_id (ACTIVE only)
       if (customerId) {
         const { data } = await supabase
           .from("cases")
@@ -1469,13 +1541,20 @@ serve(async (req) => {
           .eq("tenant_id", instance.tenant_id)
           .eq("status", "open")
           .eq("customer_id", customerId)
+          .is("deleted_at", null)
           .order("updated_at", { ascending: false })
           .limit(1)
           .maybeSingle();
         if ((data as any)?.id) return data as any;
       }
 
-      // 3) Fallback by meta_json stored phones (accept variants)
+      // 3) Fallback: last open case with message history (helps older cases that don't have meta_json phones)
+      {
+        const byHistory = await findOpenCaseByRecentMessages(phoneVariants.length ? phoneVariants : [inboundFromPhone]);
+        if (byHistory?.id) return byHistory as any;
+      }
+
+      // 4) Fallback by meta_json stored phones (accept variants)
       const keys = ["customer_phone", "counterpart_phone", "phone", "whatsapp"];
       for (const k of keys) {
         for (const p of phoneVariants.length ? phoneVariants : [inboundFromPhone]) {
@@ -1485,6 +1564,50 @@ serve(async (req) => {
             .eq("tenant_id", instance.tenant_id)
             .eq("status", "open")
             .contains("meta_json", { [k]: p })
+            .is("deleted_at", null)
+            .order("updated_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          if ((data as any)?.id) return data as any;
+        }
+      }
+
+      return null;
+    };
+
+    const findLatestDeletedOpenCase = async () => {
+      if (!inboundFromPhone) return null;
+
+      // Only consider deleted cases if we couldn't find an active one.
+      if (customerId) {
+        const { data } = await supabase
+          .from("cases")
+          .select("id,journey_id,is_chat,deleted_at,updated_at")
+          .eq("tenant_id", instance.tenant_id)
+          .eq("status", "open")
+          .eq("customer_id", customerId)
+          .not("deleted_at", "is", null)
+          .order("updated_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if ((data as any)?.id) return data as any;
+      }
+
+      // Fallback: deleted case by message history
+      const byHistory = await findDeletedOpenCaseByRecentMessages(phoneVariants.length ? phoneVariants : [inboundFromPhone]);
+      if (byHistory?.id) return byHistory as any;
+
+      // Fallback: deleted case by meta_json stored phone
+      const keys = ["customer_phone", "counterpart_phone", "phone", "whatsapp"];
+      for (const k of keys) {
+        for (const p of phoneVariants.length ? phoneVariants : [inboundFromPhone]) {
+          const { data } = await supabase
+            .from("cases")
+            .select("id,journey_id,is_chat,deleted_at,updated_at")
+            .eq("tenant_id", instance.tenant_id)
+            .eq("status", "open")
+            .contains("meta_json", { [k]: p })
+            .not("deleted_at", "is", null)
             .order("updated_at", { ascending: false })
             .limit(1)
             .maybeSingle();
@@ -1526,10 +1649,13 @@ serve(async (req) => {
         return (data as any) ?? null;
       }
 
-      // Regras pedidas: se já existe um case aberto para este número,
-      // reaproveita. Se estiver deletado, reativa. Se for is_chat=true, NÃO promove pro CRM.
-      const existing = await findExistingOpenCase();
-      if (existing?.id) return existing as any;
+      // Regra pedida: se já existe um case aberto para este número,
+      // reaproveita. Se estiver deletado, reativa (MAS somente se não existir nenhum aberto ativo).
+      const existingActive = await findExistingOpenCase();
+      if (existingActive?.id) return existingActive as any;
+
+      const existingDeleted = await findLatestDeletedOpenCase();
+      if (existingDeleted?.id) return existingDeleted as any;
 
       return null;
     };
@@ -1538,6 +1664,11 @@ serve(async (req) => {
       // Reuse existing open case when possible (keeps conversation inside a single case)
       const existing = await findLatestActiveCase();
       if (existing?.id) {
+        console.log(`[${fn}] case_reuse_candidate`, {
+          case_id: String(existing.id),
+          deleted_at: (existing as any)?.deleted_at ?? null,
+          customer_id: customerId,
+        });
         const bumped = await promoteOrBumpCaseToCrm(existing);
         return { caseId: bumped.caseId, created: false as const, skippedReason: null };
       }

@@ -34,6 +34,7 @@ import { CaseTagsCard } from "@/components/crm/CaseTagsCard";
 import { CaseProductsCard } from "@/components/crm/CaseProductsCard";
 import { CaseTasksCard } from "@/components/crm/CaseTasksCard";
 import { CaseNotesCard } from "@/components/crm/CaseNotesCard";
+import { CaseTechnicalReportDialog } from "@/components/case/CaseTechnicalReportDialog";
 import { ArrowLeft, ClipboardList, Image as ImageIcon, MessagesSquare, Trash2, UsersRound } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { showError, showSuccess } from "@/utils/toast";
@@ -412,6 +413,8 @@ export default function CrmCaseDetail() {
                   ) : null}
                 </div>
               </div>
+
+              {id ? <CaseTechnicalReportDialog caseId={id} /> : null}
 
               <AlertDialog>
                 <AlertDialogTrigger asChild>

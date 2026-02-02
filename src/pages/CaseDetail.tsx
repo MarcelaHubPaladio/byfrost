@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { WhatsAppConversation } from "@/components/case/WhatsAppConversation";
 import { CaseTimeline, type CaseTimelineEvent } from "@/components/case/CaseTimeline";
+import { CaseTechnicalReportDialog } from "@/components/case/CaseTechnicalReportDialog";
 import {
   ArrowLeft,
   CheckCircle2,
@@ -528,6 +529,8 @@ export default function CaseDetail() {
                   ) : null}
                 </div>
               </div>
+
+              {id ? <CaseTechnicalReportDialog caseId={id} /> : null}
 
               <AlertDialog>
                 <AlertDialogTrigger asChild>

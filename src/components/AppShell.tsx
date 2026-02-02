@@ -17,6 +17,7 @@ import {
   MessagesSquare,
   Clock3,
   ClipboardCheck,
+  Clapperboard,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -174,8 +175,27 @@ export function AppShell({
     },
   });
 
+  const metaContentEnabledQ = useQuery({
+    queryKey: ["nav_meta_content_enabled", activeTenantId],
+    enabled: Boolean(activeTenantId),
+    staleTime: 30_000,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("tenant_journeys")
+        .select("config_json, journeys!inner(key)")
+        .eq("tenant_id", activeTenantId!)
+        .eq("enabled", true)
+        .eq("journeys.key", "meta_content")
+        .limit(1)
+        .maybeSingle();
+      if (error) throw error;
+      return Boolean((data as any)?.config_json?.meta_content_enabled === true);
+    },
+  });
+
   const hasCrm = Boolean(crmEnabledQ.data);
   const hasPresence = Boolean(presenceEnabledQ.data);
+  const hasMetaContent = Boolean(metaContentEnabledQ.data);
   const isPresenceManager = isSuperAdmin || isPresenceManagerRole(activeTenant?.role);
 
   const palettePrimaryHex =
@@ -268,6 +288,7 @@ export function AppShell({
                 <NavTile to="/app" icon={LayoutGrid} label="Dashboard" />
                 <NavTile to="/app/chat" icon={MessagesSquare} label="Chat" />
                 {hasCrm && <NavTile to="/app/crm" icon={LayoutDashboard} label="CRM" />}
+                {hasMetaContent && <NavTile to="/app/content" icon={Clapperboard} label="Conteúdo" />}
                 {hasPresence && <NavTile to="/app/presence" icon={Clock3} label="Ponto" />}
                 {hasPresence && isPresenceManager && (
                   <NavTile to="/app/presence/manage" icon={ClipboardCheck} label="Gestão" />

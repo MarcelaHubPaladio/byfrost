@@ -425,6 +425,33 @@ export async function publishContentPublication({
       .eq("tenant_id", tenantId)
       .eq("id", publicationId);
 
+    // NEW: enqueue metrics snapshots (D+1, D+3, D+7)
+    try {
+      const windows = [1, 3, 7] as const;
+      for (const d of windows) {
+        const idempotencyKey = `META_COLLECT_METRICS:${publicationId}:D${d}`;
+        const runAfter = new Date(Date.now() + d * 24 * 60 * 60 * 1000).toISOString();
+
+        const { error } = await supabase.from("job_queue").insert({
+          tenant_id: tenantId,
+          type: "META_COLLECT_METRICS",
+          idempotency_key: idempotencyKey,
+          payload_json: { publication_id: publicationId, window_days: d },
+          status: "pending",
+          run_after: runAfter,
+        });
+
+        if (error) {
+          const msg = String((error as any)?.message ?? "").toLowerCase();
+          if (!msg.includes("duplicate")) {
+            console.warn(`[${fn}] Failed to enqueue META_COLLECT_METRICS (ignored)`, { tenantId, publicationId, d, error });
+          }
+        }
+      }
+    } catch (e: any) {
+      console.warn(`[${fn}] enqueue metrics jobs failed (ignored)`, { tenantId, publicationId, error: e?.message ?? String(e) });
+    }
+
     if (row.case_id) {
       await supabase.from("timeline_events").insert({
         tenant_id: tenantId,

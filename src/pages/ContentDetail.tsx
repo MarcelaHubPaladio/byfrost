@@ -13,6 +13,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { showError, showSuccess } from "@/utils/toast";
 import { cn } from "@/lib/utils";
+import { PublicationPerformancePanel, type MetricsSnapshot } from "@/components/content/PublicationPerformancePanel";
 import {
   ArrowLeft,
   CalendarDays,
@@ -30,6 +31,7 @@ const CONTENT_MEDIA_UPLOAD_URL =
   "https://pryoirzeghatrgecwrci.supabase.co/functions/v1/content-media-upload";
 
 const META_PUBLISH_URL = "https://pryoirzeghatrgecwrci.supabase.co/functions/v1/meta-publish";
+const META_METRICS_COLLECT_URL = "https://pryoirzeghatrgecwrci.supabase.co/functions/v1/meta-metrics-collect";
 
 type ContentItemRow = {
   id: string;
@@ -65,6 +67,23 @@ type PubRow = {
   meta_permalink: string | null;
   last_error: string | null;
   created_at: string;
+};
+
+type SnapshotRow = {
+  publication_id: string;
+  window_days: number;
+  impressions: number | null;
+  profile_visits: number | null;
+  follows: number | null;
+  messages: number | null;
+  collected_at: string;
+};
+
+type AnalystLogRow = {
+  id: string;
+  occurred_at: string;
+  reasoning_public: string | null;
+  why_json: any;
 };
 
 function publicUrl(bucket: string, path: string) {
@@ -153,6 +172,82 @@ export default function ContentDetail() {
       return (data ?? []) as any as PubRow[];
     },
   });
+
+  const pubIds = useMemo(() => (pubsQ.data ?? []).map((p) => p.id), [pubsQ.data]);
+
+  const metricsQ = useQuery({
+    queryKey: ["content_metrics_by_pub", activeTenantId, pubIds.join(",")],
+    enabled: Boolean(activeTenantId && pubIds.length),
+    staleTime: 12_000,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("content_metrics_snapshots")
+        .select("publication_id,window_days,impressions,profile_visits,follows,messages,collected_at")
+        .eq("tenant_id", activeTenantId!)
+        .in("publication_id", pubIds)
+        .order("window_days", { ascending: true })
+        .limit(500);
+      if (error) throw error;
+      return (data ?? []) as any as SnapshotRow[];
+    },
+  });
+
+  const analystLogsQ = useQuery({
+    queryKey: ["content_performance_logs", activeTenantId, caseId],
+    enabled: Boolean(activeTenantId && caseId),
+    staleTime: 10_000,
+    queryFn: async () => {
+      const { data: agent, error: aErr } = await supabase
+        .from("agents")
+        .select("id")
+        .eq("key", "performance_analyst_agent")
+        .limit(1)
+        .maybeSingle();
+      if (aErr) throw aErr;
+      if (!agent?.id) return [] as AnalystLogRow[];
+
+      const { data, error } = await supabase
+        .from("decision_logs")
+        .select("id,occurred_at,reasoning_public,why_json")
+        .eq("tenant_id", activeTenantId!)
+        .eq("case_id", caseId)
+        .eq("agent_id", agent.id)
+        .order("occurred_at", { ascending: false })
+        .limit(50);
+      if (error) throw error;
+      return (data ?? []) as any as AnalystLogRow[];
+    },
+  });
+
+  const snapshotsByPub = useMemo(() => {
+    const m = new Map<string, MetricsSnapshot[]>();
+    for (const s of metricsQ.data ?? []) {
+      const arr = m.get(s.publication_id) ?? [];
+      arr.push({
+        window_days: Number(s.window_days),
+        impressions: s.impressions ?? null,
+        profile_visits: s.profile_visits ?? null,
+        follows: s.follows ?? null,
+        messages: s.messages ?? null,
+        collected_at: s.collected_at,
+      });
+      m.set(s.publication_id, arr);
+    }
+    for (const arr of m.values()) arr.sort((a, b) => a.window_days - b.window_days);
+    return m;
+  }, [metricsQ.data]);
+
+  const latestReportByPub = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const r of analystLogsQ.data ?? []) {
+      const pubId = String((r as any)?.why_json?.publication_id ?? "");
+      if (!pubId) continue;
+      if (m.has(pubId)) continue;
+      const txt = (r.reasoning_public ?? "").trim();
+      if (txt) m.set(pubId, txt);
+    }
+    return m;
+  }, [analystLogsQ.data]);
 
   const draft = useMemo(() => {
     const it = itemQ.data;
@@ -351,6 +446,7 @@ export default function ContentDetail() {
   };
 
   const [publishingNowId, setPublishingNowId] = useState<string | null>(null);
+  const [collectingMetricsId, setCollectingMetricsId] = useState<string | null>(null);
 
   const publishNow = async (publicationId: string) => {
     if (!activeTenantId) return;
@@ -387,6 +483,39 @@ export default function ContentDetail() {
       showError(`Falha ao publicar: ${e?.message ?? "erro"}`);
     } finally {
       setPublishingNowId(null);
+    }
+  };
+
+  const collectMetrics = async (publicationId: string, windowDays: 1 | 3 | 7) => {
+    if (!activeTenantId) return;
+    setCollectingMetricsId(publicationId);
+
+    try {
+      const { data: sess } = await supabase.auth.getSession();
+      const token = sess.session?.access_token;
+      if (!token) throw new Error("Sessão inválida");
+
+      const res = await fetch(META_METRICS_COLLECT_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ tenantId: activeTenantId, publicationId, windowDays }),
+      });
+
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.ok) {
+        throw new Error(json?.error || `HTTP ${res.status}`);
+      }
+
+      showSuccess(`Métricas coletadas (D+${windowDays}).`);
+      await qc.invalidateQueries({ queryKey: ["content_metrics_by_pub", activeTenantId] });
+      await qc.invalidateQueries({ queryKey: ["content_performance_logs", activeTenantId, caseId] });
+    } catch (e: any) {
+      showError(`Falha ao coletar métricas: ${e?.message ?? "erro"}`);
+    } finally {
+      setCollectingMetricsId(null);
     }
   };
 
@@ -715,6 +844,10 @@ export default function ContentDetail() {
                     const canAuto = p.channel === "ig_story" || p.channel === "ig_feed";
                     const canPublishNow = canAuto && p.publish_status !== "PUBLISHED";
 
+                    const snaps = snapshotsByPub.get(p.id) ?? [];
+                    const reportText = latestReportByPub.get(p.id) ?? null;
+                    const canShowMetrics = p.publish_status === "PUBLISHED" && Boolean(p.meta_post_id) && canAuto;
+
                     return (
                       <div key={p.id} className="rounded-[20px] border border-slate-200 bg-slate-50 p-3">
                         <div className="flex items-start justify-between gap-3">
@@ -788,6 +921,22 @@ export default function ContentDetail() {
                             {p.last_error ? (
                               <div className="mt-3 rounded-2xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-900">
                                 {p.last_error}
+                              </div>
+                            ) : null}
+
+                            {canShowMetrics ? (
+                              <PublicationPerformancePanel
+                                channel={p.channel}
+                                snapshots={snaps}
+                                reportText={reportText}
+                                busy={collectingMetricsId === p.id}
+                                onCollect={(d) => collectMetrics(p.id, d)}
+                              />
+                            ) : null}
+
+                            {!canShowMetrics && canAuto && p.publish_status === "PUBLISHED" ? (
+                              <div className="mt-3 rounded-[18px] border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+                                Post publicado, mas não há <span className="font-semibold">meta_post_id</span> para coletar métricas.
                               </div>
                             ) : null}
                           </div>

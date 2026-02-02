@@ -3,6 +3,8 @@ import { corsHeaders } from "../_shared/cors.ts";
 import { createSupabaseAdmin } from "../_shared/supabaseAdmin.ts";
 import { fetchAsBase64 } from "../_shared/crypto.ts";
 import { publishContentPublication } from "../_shared/metaPublish.ts";
+import { collectContentMetricsSnapshot } from "../_shared/metaMetrics.ts";
+import { buildPerformanceReport } from "../_shared/performanceAnalyst.ts";
 
 type JobRow = {
   id: string;
@@ -256,6 +258,66 @@ serve(async (req) => {
 
           await supabase.from("job_queue").update({ status: "done" }).eq("id", job.id);
           results.push({ id: job.id, ok: true, type: job.type, publicationId, result: out });
+          continue;
+        }
+
+        if (job.type === "META_COLLECT_METRICS") {
+          const publicationId = String(job.payload_json?.publication_id ?? "").trim();
+          const windowDays = Number(job.payload_json?.window_days ?? 1);
+          if (!publicationId) throw new Error("Missing payload.publication_id");
+          if (![1, 3, 7].includes(windowDays)) throw new Error("Missing/invalid payload.window_days (1|3|7)");
+
+          const out = await collectContentMetricsSnapshot({
+            supabase,
+            tenantId,
+            publicationId,
+            windowDays: windowDays as 1 | 3 | 7,
+          });
+
+          // Generate a report from all snapshots available
+          if (out.ok) {
+            const { data: snaps } = await supabase
+              .from("content_metrics_snapshots")
+              .select("window_days,impressions,profile_visits,follows,messages")
+              .eq("tenant_id", tenantId)
+              .eq("publication_id", publicationId)
+              .order("window_days", { ascending: true })
+              .limit(10);
+
+            const points = (snaps ?? []).map((s: any) => ({
+              window_days: Number(s.window_days),
+              impressions: s.impressions ?? null,
+              profile_visits: s.profile_visits ?? null,
+              follows: s.follows ?? null,
+              messages: s.messages ?? null,
+            }));
+
+            const report = buildPerformanceReport({ points, channel: out.publication.channel });
+            const agentId = agentIdByKey.get("performance_analyst_agent") ?? null;
+
+            if (agentId) {
+              await supabase.from("decision_logs").insert({
+                tenant_id: tenantId,
+                case_id: out.publication.case_id,
+                agent_id: agentId,
+                input_summary: `Métricas D+${windowDays} (publicação ${publicationId.slice(0, 8)}…)`,
+                output_summary: `Relatório do guardião (D+${windowDays})`,
+                reasoning_public: report.reportText,
+                why_json: {
+                  kind: "content_performance_report",
+                  publication_id: publicationId,
+                  channel: out.publication.channel,
+                  points,
+                  derived: report.derived,
+                },
+                confidence_json: { overall: 0.72, method: "heuristic" },
+                occurred_at: new Date().toISOString(),
+              });
+            }
+          }
+
+          await supabase.from("job_queue").update({ status: "done" }).eq("id", job.id);
+          results.push({ id: job.id, ok: out.ok, type: job.type, publicationId, windowDays, result: out });
           continue;
         }
 

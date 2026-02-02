@@ -1,17 +1,77 @@
-import { useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { RequireAuth } from "@/components/RequireAuth";
 import { useTenant } from "@/providers/TenantProvider";
+import { useSession } from "@/providers/SessionProvider";
+import { supabase } from "@/lib/supabase";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+
+type MembershipRow = {
+  tenant_id: string;
+  role: string;
+  email: string | null;
+  deleted_at: string | null;
+  created_at?: string;
+};
 
 export default function TenantSelect() {
   const nav = useNavigate();
-  const { tenants, activeTenantId, setActiveTenantId, loading, isSuperAdmin, membershipHint } = useTenant();
+  const { user } = useSession();
+  const { tenants, activeTenantId, setActiveTenantId, loading, isSuperAdmin, membershipHint, refresh } = useTenant();
+
+  const [diagLoading, setDiagLoading] = useState(false);
+  const [diagError, setDiagError] = useState<string | null>(null);
+  const [membershipRows, setMembershipRows] = useState<MembershipRow[]>([]);
+
+  const userId = user?.id ?? "";
+  const userEmail = user?.email ?? "";
+
+  const loadDiag = async () => {
+    if (!userId) return;
+    setDiagLoading(true);
+    setDiagError(null);
+    try {
+      const { data, error } = await supabase
+        .from("users_profile")
+        .select("tenant_id, role, email, deleted_at, created_at")
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false })
+        .limit(20);
+      if (error) throw error;
+      setMembershipRows((data ?? []) as any);
+    } catch (e: any) {
+      setDiagError(String(e?.message ?? "erro"));
+      setMembershipRows([]);
+    } finally {
+      setDiagLoading(false);
+    }
+  };
 
   useEffect(() => {
     // Only auto-skip when there is nothing to choose.
     if (!loading && tenants.length === 1) nav("/app", { replace: true });
   }, [loading, tenants.length, nav]);
+
+  useEffect(() => {
+    if (!loading && userId) loadDiag();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, userId]);
+
+  const membershipSummary = useMemo(() => {
+    if (!membershipRows.length) return "nenhum";
+    const active = membershipRows.filter((r) => !r.deleted_at).length;
+    const soft = membershipRows.filter((r) => Boolean(r.deleted_at)).length;
+    return `${active} ativo(s) • ${soft} desativado(s)`;
+  }, [membershipRows]);
+
+  const copyText = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      // ignore
+    }
+  };
 
   return (
     <RequireAuth>
@@ -90,6 +150,61 @@ export default function TenantSelect() {
                   vincular.
                 </>
               )}
+
+              <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center">
+                <Button
+                  variant="secondary"
+                  className="h-10 rounded-2xl"
+                  onClick={async () => {
+                    await supabase.auth.refreshSession().catch(() => null);
+                    await refresh();
+                    await loadDiag();
+                  }}
+                  disabled={diagLoading}
+                >
+                  {diagLoading ? "Recarregando…" : "Recarregar vínculo"}
+                </Button>
+                <div className="text-xs text-amber-900/80">
+                  Diagnóstico: <span className="font-semibold">{membershipSummary}</span>
+                </div>
+              </div>
+
+              <div className="mt-3 rounded-2xl border border-amber-200 bg-white/70 p-3 text-xs text-slate-700">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <div className="text-[11px] font-semibold text-slate-800">Usuário</div>
+                    <div className="mt-0.5">
+                      email: <span className="font-medium text-slate-900">{userEmail || "—"}</span>
+                    </div>
+                    <div>
+                      id: <span className="font-mono text-[11px] text-slate-900">{userId || "—"}</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button variant="secondary" className="h-9 rounded-2xl" onClick={() => copyText(userId)}>
+                      Copiar ID
+                    </Button>
+                    <Button variant="secondary" className="h-9 rounded-2xl" onClick={() => copyText(userEmail)}>
+                      Copiar email
+                    </Button>
+                  </div>
+                </div>
+
+                {diagError && (
+                  <div className="mt-2 text-[11px] text-rose-700">
+                    Erro ao consultar users_profile: <span className="font-medium">{diagError}</span>
+                  </div>
+                )}
+
+                {membershipRows.length > 0 && (
+                  <div className="mt-2 overflow-auto">
+                    <div className="text-[11px] font-semibold text-slate-800">Linhas em users_profile (visão do próprio usuário)</div>
+                    <pre className="mt-1 max-h-[180px] overflow-auto rounded-xl bg-slate-50 p-2 text-[11px] text-slate-700">
+                      {JSON.stringify(membershipRows, null, 2)}
+                    </pre>
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </div>

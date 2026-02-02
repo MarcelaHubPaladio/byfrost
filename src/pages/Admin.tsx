@@ -187,6 +187,7 @@ export default function Admin() {
   const [selfRole, setSelfRole] = useState<UserRole>("admin");
 
   const [inviteLink, setInviteLink] = useState<string>("");
+  const [inviteTempPassword, setInviteTempPassword] = useState<string>("");
   const [inviteLinkOpen, setInviteLinkOpen] = useState(false);
 
   const [superAdminEmail, setSuperAdminEmail] = useState("");
@@ -439,9 +440,10 @@ export default function Admin() {
     },
   });
 
-  const openInviteLink = (link: string) => {
-    if (!link) return;
-    setInviteLink(link);
+  const openInviteLink = (link: string, tempPassword?: string) => {
+    if (!link && !tempPassword) return;
+    setInviteLink(link || "");
+    setInviteTempPassword(tempPassword || "");
     setInviteLinkOpen(true);
   };
 
@@ -450,6 +452,16 @@ export default function Admin() {
     try {
       await navigator.clipboard.writeText(inviteLink);
       showSuccess("Link copiado.");
+    } catch {
+      showError("Não consegui copiar automaticamente. Selecione e copie manualmente.");
+    }
+  };
+
+  const copyTempPassword = async () => {
+    if (!inviteTempPassword) return;
+    try {
+      await navigator.clipboard.writeText(inviteTempPassword);
+      showSuccess("Senha temporária copiada.");
     } catch {
       showError("Não consegui copiar automaticamente. Selecione e copie manualmente.");
     }
@@ -482,7 +494,7 @@ export default function Admin() {
           role: invRole,
           displayName: invName.trim() || null,
           phoneE164: normalizePhoneLoose(invPhone),
-          // Use a stable callback route so we can show better diagnostics (clock skew, missing membership, etc.)
+          // Use callback as base; the edge function derives /auth/reset for recovery link
           redirectTo: `${window.location.origin}/auth/callback`,
         }),
       });
@@ -493,11 +505,16 @@ export default function Admin() {
       }
 
       const link = typeof json?.inviteLink === "string" ? json.inviteLink : "";
-      const sentEmail = Boolean(json?.sentEmail);
+      const tempPassword = typeof json?.tempPassword === "string" ? json.tempPassword : "";
+      const createdNewUser = Boolean(json?.createdNewUser);
 
-      showSuccess(sentEmail ? "Convite enviado por email." : "Convite gerado. Compartilhe o link manual.");
+      if (createdNewUser) {
+        showSuccess("Usuário criado. Envie a senha temporária ou o link de reset para o 1º acesso.");
+      } else {
+        showSuccess("Vínculo atualizado. Envie o link de reset para o usuário acessar/definir senha.");
+      }
 
-      if (link) openInviteLink(link);
+      if (link || tempPassword) openInviteLink(link, tempPassword);
 
       setInvEmail("");
       setInvName("");
@@ -903,23 +920,44 @@ export default function Admin() {
         <Dialog open={inviteLinkOpen} onOpenChange={setInviteLinkOpen}>
           <DialogContent className="rounded-[22px]">
             <DialogHeader>
-              <DialogTitle>Convite manual</DialogTitle>
+              <DialogTitle>Primeiro acesso</DialogTitle>
               <DialogDescription>
-                Copie o link abaixo e compartilhe com o usuário (WhatsApp, etc.).
+                Você pode enviar um link de redefinição (recomendado) ou uma senha temporária.
               </DialogDescription>
             </DialogHeader>
 
-            <div className="grid gap-2">
-              <Label className="text-xs">Link</Label>
-              <div className="flex items-center gap-2">
-                <Input value={inviteLink} readOnly className="h-11 rounded-2xl bg-slate-50" />
-                <Button variant="secondary" className="h-11 rounded-2xl" onClick={copyInviteLink}>
-                  <Copy className="mr-2 h-4 w-4" />
-                  Copiar
-                </Button>
+            <div className="grid gap-4">
+              <div className="grid gap-2">
+                <Label className="text-xs">Link de reset (recomendado)</Label>
+                <div className="flex items-center gap-2">
+                  <Input value={inviteLink} readOnly className="h-11 rounded-2xl bg-slate-50" />
+                  <Button variant="secondary" className="h-11 rounded-2xl" onClick={copyInviteLink} disabled={!inviteLink}>
+                    <Copy className="mr-2 h-4 w-4" />
+                    Copiar
+                  </Button>
+                </div>
+                <div className="text-[11px] text-slate-500">
+                  O usuário abre o link e define a senha em <span className="font-medium">/auth/reset</span>.
+                </div>
               </div>
-              <div className="text-[11px] text-slate-500">
-                Dica: para voltar a enviar emails automaticamente, configure SMTP no Supabase (Auth → Email).
+
+              <div className="grid gap-2">
+                <Label className="text-xs">Senha temporária</Label>
+                <div className="flex items-center gap-2">
+                  <Input value={inviteTempPassword} readOnly className="h-11 rounded-2xl bg-slate-50 font-mono text-xs" />
+                  <Button
+                    variant="secondary"
+                    className="h-11 rounded-2xl"
+                    onClick={copyTempPassword}
+                    disabled={!inviteTempPassword}
+                  >
+                    <Copy className="mr-2 h-4 w-4" />
+                    Copiar
+                  </Button>
+                </div>
+                <div className="text-[11px] text-slate-500">
+                  Se usar senha temporária, o usuário pode trocar depois via "Esqueci minha senha".
+                </div>
               </div>
             </div>
 

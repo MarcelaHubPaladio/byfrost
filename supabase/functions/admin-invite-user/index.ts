@@ -4,7 +4,7 @@ import { createSupabaseAdmin } from "../_shared/supabaseAdmin.ts";
 
 type RoleKey = string;
 
-type GenerateLinkType = "invite" | "magiclink";
+type GenerateLinkType = "invite" | "magiclink" | "recovery";
 
 function normalizePhone(v: any): string | null {
   const s = String(v ?? "").trim();
@@ -16,9 +16,41 @@ function normalizePhone(v: any): string | null {
 
 function isAlreadyRegisteredError(message: string) {
   const msg = (message ?? "").toLowerCase();
-  return (
-    msg.includes("already") && (msg.includes("registered") || msg.includes("exists"))
-  );
+  return msg.includes("already") && (msg.includes("registered") || msg.includes("exists"));
+}
+
+function deriveResetRedirectTo(redirectTo: string | null) {
+  if (!redirectTo) return null;
+  try {
+    const u = new URL(redirectTo);
+    return `${u.origin}/auth/reset`;
+  } catch {
+    return null;
+  }
+}
+
+function randomTempPassword() {
+  // Simple, copyable, strong enough for a temporary password.
+  // User will be encouraged to change it on first access.
+  const bytes = crypto.getRandomValues(new Uint8Array(18));
+  const raw = btoa(String.fromCharCode(...bytes))
+    .replace(/\+/g, "A")
+    .replace(/\//g, "b")
+    .replace(/=/g, "");
+  return `Byfrost-${raw.slice(0, 18)}`;
+}
+
+async function findUserIdByEmail(supabase: any, email: string) {
+  const target = email.trim().toLowerCase();
+  // Avoid heavy scans: iterate a few pages (enough for typical MVP user counts).
+  for (let page = 1; page <= 10; page++) {
+    const { data, error } = await supabase.auth.admin.listUsers({ page, perPage: 200 });
+    if (error) throw error;
+    const found = (data?.users ?? []).find((u: any) => String(u.email ?? "").toLowerCase() === target);
+    if (found?.id) return String(found.id);
+    if ((data?.users ?? []).length < 200) break;
+  }
+  return null;
 }
 
 serve(async (req) => {
@@ -108,154 +140,53 @@ serve(async (req) => {
       });
     }
 
-    // Primary path: try to send the invite email.
-    // NOTE: This can fail when SMTP is not configured OR when the user already exists.
-    const { data: invited, error: inviteErr } = await supabase.auth.admin.inviteUserByEmail(email);
+    // --- NEW flow for email/password ---
+    // Create user with a temporary random password when it doesn't exist.
+    // If user already exists, we keep it and provide a password reset link.
+    let userId: string | null = null;
+    let tempPassword: string | null = null;
+    let createdNewUser = false;
 
-    // Secondary path: ALWAYS attempt to generate a link when invite email fails.
-    // This also fixes a common admin scenario:
-    // - user already exists in Auth (so inviteUserByEmail fails)
-    // - but the admin deleted users_profile and needs to re-attach the user to a tenant
-    // In that case, we generate a magiclink (login link) and still upsert users_profile.
-    if (inviteErr || !invited?.user) {
-      const errMsg = String(inviteErr?.message ?? "");
-      console.warn(`[${fn}] inviteUserByEmail failed; trying generateLink`, { errMsg });
+    const tmp = randomTempPassword();
+    const { data: created, error: createErr } = await supabase.auth.admin.createUser({
+      email,
+      password: tmp,
+      email_confirm: true,
+      user_metadata: displayName ? { full_name: displayName } : undefined,
+    } as any);
 
-      const firstTry: GenerateLinkType = isAlreadyRegisteredError(errMsg) ? "magiclink" : "invite";
-      const tryOrder: GenerateLinkType[] = firstTry === "invite" ? ["invite", "magiclink"] : ["magiclink", "invite"];
-
-      let linkData: any = null;
-      let linkTypeUsed: GenerateLinkType | null = null;
-      let lastLinkErr: any = null;
-
-      for (const t of tryOrder) {
-        const { data, error } = await supabase.auth.admin.generateLink({
-          type: t,
-          email,
-          options: redirectTo ? { redirectTo } : undefined,
-        } as any);
-
-        if (!error && data?.user && (data as any)?.properties?.action_link) {
-          linkData = data;
-          linkTypeUsed = t;
-          break;
-        }
-
-        lastLinkErr = error;
-        console.warn(`[${fn}] generateLink failed`, { type: t, errorMessage: String(error?.message ?? "") });
-      }
-
-      if (!linkData?.user || !linkData?.properties?.action_link) {
-        console.error(`[${fn}] generateLink exhausted`, { lastLinkErr });
-        return new Response(
-          JSON.stringify({
-            ok: false,
-            error: (lastLinkErr as any)?.message ?? inviteErr?.message ?? "Invite failed",
-            hint:
-              "Se o usuário já existe, use o link (magiclink) para ele entrar. Se SMTP estiver desligado, compartilhe o link manual.",
-          }),
-          {
-            status: 400,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          }
-        );
-      }
-
-      const userId = linkData.user.id;
-      const inviteLink = (linkData as any).properties.action_link as string;
-
-      const { error: profErr } = await supabase
-        .from("users_profile")
-        .upsert(
-          {
-            user_id: userId,
-            tenant_id: tenantId,
-            role,
-            display_name: displayName,
-            phone_e164: phoneE164,
-            email,
-            deleted_at: null,
-          } as any,
-          { onConflict: "user_id,tenant_id" }
-        );
-
-      if (profErr) {
-        console.error(`[${fn}] users_profile upsert failed`, { profErr });
-        return new Response(JSON.stringify({ ok: false, error: profErr.message }), {
-          status: 500,
+    if (createErr || !created?.user) {
+      const msg = String(createErr?.message ?? "");
+      if (!isAlreadyRegisteredError(msg)) {
+        console.error(`[${fn}] createUser failed`, { createErr });
+        return new Response(JSON.stringify({ ok: false, error: msg || "Create user failed" }), {
+          status: 400,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
 
-      // Store invite attempt for later retrieval in the admin panel
-      const { error: invErr } = await supabase.from("user_invites").insert({
-        tenant_id: tenantId,
-        user_id: userId,
-        email,
-        sent_email: false,
-        invite_link: inviteLink,
-        created_by_user_id: caller.id,
-      } as any);
-
-      if (invErr) {
-        console.warn(`[${fn}] user_invites insert failed (ignored)`, { invErr });
+      // Existing user: find by email
+      userId = await findUserIdByEmail(supabase, email);
+      if (!userId) {
+        return new Response(
+          JSON.stringify({ ok: false, error: "User exists but could not be resolved by email" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
       }
-
-      // Back-compat: keep vendors/leaders tables in sync when role is vendor/leader.
-      if (phoneE164 && (role === "vendor" || role === "leader")) {
-        const table = role === "vendor" ? "vendors" : "leaders";
-        const payload = {
-          tenant_id: tenantId,
-          phone_e164: phoneE164,
-          display_name: displayName,
-          active: true,
-          deleted_at: null,
-        };
-
-        const { error: upErr } = await supabase.from(table).upsert(payload as any, { onConflict: "tenant_id,phone_e164" });
-
-        if (upErr) {
-          console.warn(`[${fn}] ${table} upsert failed (ignored)`, { upErr });
-        }
-      }
-
-      console.log(`[${fn}] invited user (manual link)`, {
-        tenantId,
-        userId,
-        role,
-        email,
-        linkType: linkTypeUsed,
-        inviteErr: inviteErr ? String(inviteErr.message ?? "") : null,
-      });
-
-      return new Response(
-        JSON.stringify({
-          ok: true,
-          userId,
-          sentEmail: false,
-          inviteLink,
-          linkType: linkTypeUsed,
-          note:
-            linkTypeUsed === "magiclink"
-              ? "Usuário já existia no Auth; gerei magiclink e reativei o vínculo no tenant (users_profile)."
-              : "Gerei link de convite e reativei o vínculo no tenant (users_profile).",
-        }),
-        {
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
-      );
+    } else {
+      userId = created.user.id;
+      tempPassword = tmp;
+      createdNewUser = true;
     }
 
-    // Invite email succeeded.
-    const userId = invited.user.id;
-
+    // Ensure membership in tenant
     const { error: profErr } = await supabase
       .from("users_profile")
       .upsert(
         {
           user_id: userId,
           tenant_id: tenantId,
-          role, // users_profile.role guarda a key do cargo
+          role,
           display_name: displayName,
           phone_e164: phoneE164,
           email,
@@ -272,13 +203,29 @@ serve(async (req) => {
       });
     }
 
-    // Store invite attempt
+    // Provide a password reset link for first access (preferred over sharing temp password).
+    const resetRedirectTo = deriveResetRedirectTo(redirectTo) || redirectTo || undefined;
+    let passwordResetLink: string | null = null;
+
+    const { data: recData, error: recErr } = await supabase.auth.admin.generateLink({
+      type: "recovery" as GenerateLinkType,
+      email,
+      options: resetRedirectTo ? { redirectTo: resetRedirectTo } : undefined,
+    } as any);
+
+    if (recErr || !(recData as any)?.properties?.action_link) {
+      console.warn(`[${fn}] generateLink(recovery) failed (ignored)`, { recErr: recErr?.message ?? null });
+    } else {
+      passwordResetLink = (recData as any).properties.action_link as string;
+    }
+
+    // Store for later retrieval in the admin panel (use invite_link field to keep schema simple)
     const { error: invErr } = await supabase.from("user_invites").insert({
       tenant_id: tenantId,
       user_id: userId,
       email,
-      sent_email: true,
-      invite_link: null,
+      sent_email: false,
+      invite_link: passwordResetLink,
       created_by_user_id: caller.id,
     } as any);
 
@@ -304,11 +251,30 @@ serve(async (req) => {
       }
     }
 
-    console.log(`[${fn}] invited user`, { tenantId, userId, role, email });
-
-    return new Response(JSON.stringify({ ok: true, userId, sentEmail: true }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    console.log(`[${fn}] provisioned user`, {
+      tenantId,
+      userId,
+      role,
+      email,
+      createdNewUser,
+      hasResetLink: Boolean(passwordResetLink),
     });
+
+    return new Response(
+      JSON.stringify({
+        ok: true,
+        userId,
+        createdNewUser,
+        tempPassword,
+        passwordResetLink,
+        // Back-compat fields used by the UI
+        sentEmail: false,
+        inviteLink: passwordResetLink,
+      }),
+      {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      }
+    );
   } catch (e) {
     console.error(`[admin-invite-user] Unhandled error`, { e });
     return new Response("Internal error", { status: 500, headers: corsHeaders });

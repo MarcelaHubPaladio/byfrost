@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
-export type PresencePunchType = "ENTRY" | "BREAK_START" | "BREAK_END" | "EXIT";
+export type PresencePunchType = "ENTRY" | "BREAK_START" | "BREAK_END" | "BREAK2_START" | "BREAK2_END" | "EXIT";
 export type PresencePunchSource = "APP" | "WHATSAPP";
 
 type PresencePolicy = {

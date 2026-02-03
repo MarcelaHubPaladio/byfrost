@@ -1,4 +1,4 @@
-export type PresencePunchType = "ENTRY" | "BREAK_START" | "BREAK_END" | "EXIT";
+export type PresencePunchType = "ENTRY" | "BREAK_START" | "BREAK_END" | "BREAK2_START" | "BREAK2_END" | "EXIT";
 
 export function titleizePunchType(t: PresencePunchType) {
   switch (t) {
@@ -8,6 +8,10 @@ export function titleizePunchType(t: PresencePunchType) {
       return "Início do intervalo";
     case "BREAK_END":
       return "Fim do intervalo";
+    case "BREAK2_START":
+      return "Início do intervalo extra";
+    case "BREAK2_END":
+      return "Fim do intervalo extra";
     case "EXIT":
       return "Saída";
   }

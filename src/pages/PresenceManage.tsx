@@ -1427,6 +1427,32 @@ export default function PresenceManage() {
                                             );
                                           })}
                                         </div>
+
+                                        <div className="mt-3 flex items-center justify-between gap-2">
+                                          <div className="text-[11px] font-semibold text-slate-800">Intervalo extra (gestor)</div>
+                                          <div className="text-[11px] text-slate-500">opcional</div>
+                                        </div>
+                                        <div className="mt-2 flex flex-wrap gap-2">
+                                          {(["BREAK2_START", "BREAK2_END"] as PresencePunchType[]).map((t) => {
+                                            const already = (caseDetailQ.data?.punches ?? []).some((p: any) => String(p.type) === t);
+                                            return (
+                                              <Button
+                                                key={t}
+                                                size="sm"
+                                                variant={already ? "secondary" : "outline"}
+                                                disabled={already}
+                                                onClick={() => openPunchDialogForAdd(t)}
+                                                className={cn(
+                                                  "h-9 rounded-2xl",
+                                                  already ? "opacity-60" : "border-[hsl(var(--byfrost-accent)/0.35)]"
+                                                )}
+                                              >
+                                                {titleizePunchType(t)}
+                                              </Button>
+                                            );
+                                          })}
+                                        </div>
+
                                         <div className="mt-2 text-[11px] text-slate-500">
                                           Para qualquer adição/ajuste, uma <span className="font-semibold">nota é obrigatória</span> e fica registrada no histórico.
                                         </div>

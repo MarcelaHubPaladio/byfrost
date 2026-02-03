@@ -17,6 +17,7 @@ import {
   titleizePunchType,
   type PresencePunchType,
 } from "@/lib/presence";
+import { LocationHelpDialog, type LocationHelpReason } from "@/components/presence/LocationHelpDialog";
 import { ArrowRight, Compass, MapPin, ShieldAlert } from "lucide-react";
 
 type TenantJourneyPresence = {
@@ -51,6 +52,19 @@ type PendencyRow = {
   answered_text: string | null;
 };
 
+function inferLocationHelpReason(e: any): LocationHelpReason {
+  // GeolocationPositionError
+  const code = Number(e?.code ?? NaN);
+  if (code === 1) return "permission_denied";
+  if (code === 2) return "position_unavailable";
+  if (code === 3) return "timeout";
+
+  const msg = String(e?.message ?? "").toLowerCase();
+  if (msg.includes("insecure") || msg.includes("https")) return "insecure_context";
+  if (msg.includes("permission")) return "permission_denied";
+  return "unknown";
+}
+
 export default function Presence() {
   const { activeTenantId, activeTenant } = useTenant();
   const { user } = useSession();
@@ -59,6 +73,8 @@ export default function Presence() {
   const [punching, setPunching] = useState(false);
   const [justificationDraft, setJustificationDraft] = useState<Record<string, string>>({});
   const [geoHint, setGeoHint] = useState<"idle" | "ok" | "denied">("idle");
+  const [locationHelpOpen, setLocationHelpOpen] = useState(false);
+  const [locationHelpReason, setLocationHelpReason] = useState<LocationHelpReason>("unknown");
 
   const presenceCfgQ = useQuery({
     queryKey: ["presence_cfg", activeTenantId],
@@ -206,14 +222,24 @@ export default function Presence() {
       return;
     }
 
+    // Geolocation only works in secure contexts (HTTPS / localhost)
+    if (typeof window !== "undefined" && window.isSecureContext === false) {
+      setGeoHint("denied");
+      setLocationHelpReason("insecure_context");
+      setLocationHelpOpen(true);
+      showError("A batida exige localização");
+      return;
+    }
+
     setPunching(true);
     try {
       const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
         if (!navigator.geolocation) return reject(new Error("Geolocalização indisponível"));
+        // IMPORTANT: maximumAge=0 forces a fresh validation on every punch.
         navigator.geolocation.getCurrentPosition(resolve, reject, {
           enableHighAccuracy: true,
-          maximumAge: 10_000,
-          timeout: 12_000,
+          maximumAge: 0,
+          timeout: 15_000,
         });
       });
 
@@ -241,6 +267,7 @@ export default function Presence() {
         throw new Error(json?.error ?? `Falha ao bater ponto (${res.status})`);
       }
 
+      setGeoHint("ok");
       showSuccess(`Batida registrada: ${titleizePunchType(json.nextType as PresencePunchType)}`);
 
       await Promise.all([
@@ -249,8 +276,13 @@ export default function Presence() {
         qc.invalidateQueries({ queryKey: ["presence_pendencies_today", activeTenantId, caseQ.data?.id] }),
       ]);
     } catch (e: any) {
-      if (String(e?.message ?? "").toLowerCase().includes("permission")) setGeoHint("denied");
-      showError(e?.message ?? "Falha ao bater ponto");
+      const reason = inferLocationHelpReason(e);
+      if (reason === "permission_denied" || reason === "unavailable" || reason === "insecure_context") setGeoHint("denied");
+      setLocationHelpReason(
+        !navigator.geolocation ? "unavailable" : typeof window !== "undefined" && window.isSecureContext === false ? "insecure_context" : reason
+      );
+      setLocationHelpOpen(true);
+      showError("A batida exige localização");
     } finally {
       setPunching(false);
     }
@@ -316,6 +348,16 @@ export default function Presence() {
     <RequireAuth>
       <AppShell>
         <div className="rounded-[28px] border border-slate-200 bg-white/65 p-4 shadow-sm backdrop-blur md:p-5">
+          <LocationHelpDialog
+            open={locationHelpOpen}
+            onOpenChange={setLocationHelpOpen}
+            reason={locationHelpReason}
+            onRetry={() => {
+              setLocationHelpOpen(false);
+              clockNow();
+            }}
+          />
+
           <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
             <div className="min-w-0">
               <div className="inline-flex items-center gap-2 rounded-full bg-[hsl(var(--byfrost-accent)/0.10)] px-3 py-1.5 text-xs font-semibold text-[hsl(var(--byfrost-accent))]">

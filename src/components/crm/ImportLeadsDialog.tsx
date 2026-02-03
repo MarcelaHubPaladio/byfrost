@@ -516,14 +516,20 @@ export function ImportLeadsDialog({
       .limit(10_000);
     if (cErr) throw cErr;
 
-    // Users (for owner mapping)
-    const { data: users, error: uErr } = await supabase
-      .from("users_profile")
-      .select("user_id,email,phone_e164,display_name,role")
-      .eq("tenant_id", tenantId)
-      .is("deleted_at", null)
-      .limit(2000);
+    // Users (for owner mapping) - via RPC (evita depender de RLS ampla em users_profile)
+    const { data: users, error: uErr } = await supabase.rpc("list_tenant_users_profiles", {
+      p_tenant_id: tenantId,
+      p_include_deleted: false,
+    });
     if (uErr) throw uErr;
+
+    const usersLite = ((users ?? []) as any[]).map((u) => ({
+      user_id: String(u.user_id),
+      email: (u.email ?? null) as any,
+      phone_e164: (u.phone_e164 ?? null) as any,
+      display_name: (u.display_name ?? null) as any,
+      role: String(u.role ?? ""),
+    })) as UserProfileLite[];
 
     // Vendors cache
     const { data: vendors, error: vErr } = await supabase
@@ -588,7 +594,7 @@ export function ImportLeadsDialog({
     }
 
     setCustomersCache((customers ?? []) as any);
-    setUsersCache((users ?? []) as any);
+    setUsersCache(usersLite);
     setVendorsCache((vendors ?? []) as any);
     setNonChatCasesCache((nonChatCases ?? []) as any);
     setChatCasesCache((chatCases ?? []) as any);

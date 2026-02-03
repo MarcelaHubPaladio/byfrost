@@ -375,15 +375,20 @@ export default function PresenceManage() {
     enabled: Boolean(activeTenantId && manager),
     staleTime: 30_000,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("users_profile")
-        .select("user_id,role,display_name,email,deleted_at")
-        .eq("tenant_id", activeTenantId!)
-        .is("deleted_at", null)
-        .order("display_name", { ascending: true })
-        .limit(800);
+      const { data, error } = await supabase.rpc("list_tenant_users_profiles", {
+        p_tenant_id: activeTenantId!,
+        p_include_deleted: false,
+      });
       if (error) throw error;
-      return (data ?? []) as any as EmployeeRow[];
+      return ((data ?? []) as any as EmployeeRow[])
+        .map((r) => ({
+          user_id: String((r as any).user_id),
+          role: String((r as any).role ?? ""),
+          display_name: (r as any).display_name ?? null,
+          email: (r as any).email ?? null,
+          deleted_at: (r as any).deleted_at ?? null,
+        }))
+        .filter((r) => !r.deleted_at);
     },
   });
 

@@ -1,5 +1,5 @@
 import { PropsWithChildren, useEffect, useMemo, useState } from "react";
-import { Link, NavLink, useNavigate } from "react-router-dom";
+import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { useTenant } from "@/providers/TenantProvider";
@@ -90,6 +90,62 @@ function tintBgFromHsl(h: number, s: number) {
   // Keep background very light but aligned to tenant primary hue.
   const sat = Math.min(35, Math.max(10, Math.round(s * 0.35)));
   return { h, s: sat, l: 97 };
+}
+
+function hslFromHexOrFallback(hex: string | null) {
+  if (hex) {
+    const rgb = hexToRgb(hex);
+    if (rgb) return rgbToHsl(rgb.r, rgb.g, rgb.b);
+  }
+  return { h: 252, s: 86, l: 62 };
+}
+
+function setFaviconSvg(svg: string) {
+  const encoded = encodeURIComponent(svg)
+    .replace(/'/g, "%27")
+    .replace(/"/g, "%22");
+  const href = `data:image/svg+xml,${encoded}`;
+
+  let link = document.querySelector<HTMLLinkElement>('link[rel~="icon"]');
+  if (!link) {
+    link = document.createElement("link");
+    link.rel = "icon";
+    document.head.appendChild(link);
+  }
+  link.type = "image/svg+xml";
+  link.href = href;
+}
+
+function applyTenantFavicon(primaryHex: string | null) {
+  const accent = hslFromHexOrFallback(primaryHex);
+  const fill = `hsl(${accent.h} ${accent.s}% ${accent.l}%)`;
+
+  // 64x64 so it's crisp on desktop and mobile.
+  const svg = `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <rect x="6" y="6" width="52" height="52" rx="16" fill="${fill}" />
+  <text x="32" y="40" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial" font-size="34" font-weight="800" fill="#ffffff">B</text>
+</svg>`;
+
+  setFaviconSvg(svg);
+}
+
+function getPageName(pathname: string) {
+  if (pathname === "/" || pathname === "/app" || pathname.startsWith("/app/j/")) return "Dashboard";
+  if (pathname.startsWith("/app/chat")) return "Chat";
+  if (pathname.startsWith("/app/crm")) return "CRM";
+  if (pathname.startsWith("/crm/cases/")) return "Case (CRM)";
+  if (pathname.startsWith("/app/cases/")) return "Case";
+  if (pathname.startsWith("/app/content")) return "Conteúdo";
+  if (pathname.startsWith("/app/presence/manage")) return "Gestão de Presença";
+  if (pathname.startsWith("/app/presence")) return "Ponto";
+  if (pathname.startsWith("/app/settings")) return "Configurações";
+  if (pathname.startsWith("/app/me")) return "Meu usuário";
+  if (pathname.startsWith("/app/admin")) return "Admin";
+  if (pathname.startsWith("/app/simulator")) return "Simulador";
+  if (pathname.startsWith("/login")) return "Login";
+  if (pathname.startsWith("/tenants")) return "Tenants";
+  return "Byfrost";
 }
 
 function NavTile({
@@ -227,6 +283,7 @@ export function AppShell({
   hideTopBar,
 }: PropsWithChildren<{ hideTopBar?: boolean }>) {
   const nav = useNavigate();
+  const loc = useLocation();
   const { activeTenant, isSuperAdmin, activeTenantId } = useTenant();
   const { user } = useSession();
   const [userMenuOpen, setUserMenuOpen] = useState(false);
@@ -332,8 +389,7 @@ export function AppShell({
   const hasMetaContent = Boolean(metaContentEnabledQ.data);
   const isPresenceManager = isSuperAdmin || isPresenceManagerRole(activeTenant?.role);
 
-  const palettePrimaryHex =
-    (activeTenant?.branding_json?.palette?.primary?.hex as string | undefined) ?? null;
+  const palettePrimaryHex = (activeTenant?.branding_json?.palette?.primary?.hex as string | undefined) ?? null;
 
   const logoUrl = useMemo(() => {
     const logo = activeTenant?.branding_json?.logo;
@@ -364,6 +420,14 @@ export function AppShell({
     root.style.setProperty("--tenant-accent", `${accent.h} ${accent.s}% ${accent.l}%`);
     root.style.setProperty("--tenant-bg", `${bg.h} ${bg.s}% ${bg.l}%`);
   }, [palettePrimaryHex, activeTenant?.id]);
+
+  // Branding: favicon + document title
+  useEffect(() => {
+    applyTenantFavicon(palettePrimaryHex);
+
+    const pageName = getPageName(loc.pathname);
+    document.title = `Byfrost by M30 - ${pageName}`;
+  }, [palettePrimaryHex, loc.pathname]);
 
   const signOut = async () => {
     await supabase.auth.signOut();

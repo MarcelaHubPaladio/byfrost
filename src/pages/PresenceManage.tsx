@@ -1249,270 +1249,273 @@ export default function PresenceManage() {
                                 />
                               </div>
                             </SheetTrigger>
-                            <SheetContent className="w-full sm:max-w-[720px]">
+                            <SheetContent className="w-full sm:max-w-[720px] overflow-y-auto overscroll-contain">
                               <SheetHeader>
                                 <SheetTitle>Presença do dia</SheetTitle>
                               </SheetHeader>
 
-                              <div className="mt-4 grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-3">
-                                <div className="flex flex-wrap items-center justify-between gap-2">
-                                  <div className="text-sm font-semibold text-slate-900">
-                                    {(c.meta_json?.presence?.employee_label as string | undefined) ?? shortId(c.entity_id)}
-                                  </div>
-                                  <div className="flex items-center gap-2">
-                                    <Badge className="rounded-full border-0 bg-white text-slate-800 ring-1 ring-slate-200">
-                                      {titleizeCaseState(c.state)}
-                                    </Badge>
-                                    {manager && (
-                                      <Badge className="rounded-full border-0 bg-slate-100 text-slate-800">
-                                        Banco: <span className="ml-1 font-semibold">{fmtBalance(bankBalanceByEmployee.get(String(c.entity_id)))}</span>
+                              {/* NOTE: SheetContent in shadcn doesn't scroll by default; enable overflow so this panel is usable on smaller screens. */}
+                              <div className="pb-6">
+                                <div className="mt-4 grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                                  <div className="flex flex-wrap items-center justify-between gap-2">
+                                    <div className="text-sm font-semibold text-slate-900">
+                                      {(c.meta_json?.presence?.employee_label as string | undefined) ?? shortId(c.entity_id)}
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                      <Badge className="rounded-full border-0 bg-white text-slate-800 ring-1 ring-slate-200">
+                                        {titleizeCaseState(c.state)}
                                       </Badge>
-                                    )}
-                                  </div>
-                                </div>
-                                <div className="text-xs text-slate-600">case_id: {c.id}</div>
-                              </div>
-
-                              {manager && (
-                                <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-3">
-                                  <div className="text-xs font-semibold text-slate-900">Correção manual (admin)</div>
-                                  <div className="mt-2 grid gap-2">
-                                    <div className="grid grid-cols-2 gap-2">
-                                      <div>
-                                        <div className="text-[11px] font-semibold text-slate-700">Etapa</div>
-                                        <select
-                                          value={manualState}
-                                          onChange={(e) => setManualState(e.target.value)}
-                                          className="mt-1 h-10 w-full rounded-2xl border border-slate-200 bg-white px-3 text-sm"
-                                        >
-                                          {presenceStates.map((s) => (
-                                            <option key={s} value={s}>
-                                              {titleizeCaseState(s)}
-                                            </option>
-                                          ))}
-                                        </select>
-                                      </div>
-                                      <div>
-                                        <div className="text-[11px] font-semibold text-slate-700">Observação</div>
-                                        <Input
-                                          value={manualNote}
-                                          onChange={(e) => setManualNote(e.target.value)}
-                                          placeholder="Motivo da correção"
-                                          className="mt-1 h-10 rounded-2xl"
-                                        />
-                                      </div>
-                                    </div>
-                                    <Button onClick={applyManualState} className="h-11 rounded-2xl">
-                                      Aplicar correção
-                                    </Button>
-                                    <div className="text-[11px] text-slate-500">
-                                      Isso registra um evento na timeline. Se você escolher <span className="font-semibold">Fechado</span>, as validações do sistema ainda podem mover para pendências.
+                                      {manager && (
+                                        <Badge className="rounded-full border-0 bg-slate-100 text-slate-800">
+                                          Banco: <span className="ml-1 font-semibold">{fmtBalance(bankBalanceByEmployee.get(String(c.entity_id)))}</span>
+                                        </Badge>
+                                      )}
                                     </div>
                                   </div>
+                                  <div className="text-xs text-slate-600">case_id: {c.id}</div>
                                 </div>
-                              )}
 
-                              <div className="mt-4 grid gap-4 lg:grid-cols-2">
-                                <div className="rounded-2xl border border-slate-200 bg-white p-3">
-                                  <div className="flex items-center justify-between gap-2">
-                                    <div className="text-xs font-semibold text-slate-900">Batidas</div>
-                                    {manager && (
-                                      <Button
-                                        size="sm"
-                                        variant="secondary"
-                                        onClick={() => {
-                                          // default: try ENTRY first
-                                          const has = new Set((caseDetailQ.data?.punches ?? []).map((p: any) => String(p.type)));
-                                          const firstMissing = (["ENTRY", "BREAK_START", "BREAK_END", "EXIT"] as PresencePunchType[]).find(
-                                            (t) => !has.has(t)
-                                          );
-                                          openPunchDialogForAdd(firstMissing ?? "ENTRY");
-                                        }}
-                                        className="h-9 rounded-2xl"
-                                      >
-                                        <Plus className="mr-2 h-4 w-4" />
-                                        Adicionar
+                                {manager && (
+                                  <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-3">
+                                    <div className="text-xs font-semibold text-slate-900">Correção manual (admin)</div>
+                                    <div className="mt-2 grid gap-2">
+                                      <div className="grid grid-cols-2 gap-2">
+                                        <div>
+                                          <div className="text-[11px] font-semibold text-slate-700">Etapa</div>
+                                          <select
+                                            value={manualState}
+                                            onChange={(e) => setManualState(e.target.value)}
+                                            className="mt-1 h-10 w-full rounded-2xl border border-slate-200 bg-white px-3 text-sm"
+                                          >
+                                            {presenceStates.map((s) => (
+                                              <option key={s} value={s}>
+                                                {titleizeCaseState(s)}
+                                              </option>
+                                            ))}
+                                          </select>
+                                        </div>
+                                        <div>
+                                          <div className="text-[11px] font-semibold text-slate-700">Observação</div>
+                                          <Input
+                                            value={manualNote}
+                                            onChange={(e) => setManualNote(e.target.value)}
+                                            placeholder="Motivo da correção"
+                                            className="mt-1 h-10 rounded-2xl"
+                                          />
+                                        </div>
+                                      </div>
+                                      <Button onClick={applyManualState} className="h-11 rounded-2xl">
+                                        Aplicar correção
                                       </Button>
-                                    )}
+                                      <div className="text-[11px] text-slate-500">
+                                        Isso registra um evento na timeline. Se você escolher <span className="font-semibold">Fechado</span>, as validações do sistema ainda podem mover para pendências.
+                                      </div>
+                                    </div>
                                   </div>
+                                )}
 
-                                  <div className="mt-2 space-y-2">
-                                    {(caseDetailQ.data?.punches ?? []).map((p: any) => {
-                                      const adjs = adjustmentsByPunch.get(String(p.id)) ?? [];
-                                      const lastAdj = adjs[0] ?? null;
-
-                                      return (
-                                        <div
-                                          key={p.id}
-                                          className={cn(
-                                            "rounded-2xl border bg-slate-50 px-3 py-2",
-                                            adjs.length ? "border-[hsl(var(--byfrost-accent)/0.35)]" : "border-slate-200"
-                                          )}
+                                <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                                  <div className="rounded-2xl border border-slate-200 bg-white p-3">
+                                    <div className="flex items-center justify-between gap-2">
+                                      <div className="text-xs font-semibold text-slate-900">Batidas</div>
+                                      {manager && (
+                                        <Button
+                                          size="sm"
+                                          variant="secondary"
+                                          onClick={() => {
+                                            // default: try ENTRY first
+                                            const has = new Set((caseDetailQ.data?.punches ?? []).map((p: any) => String(p.type)));
+                                            const firstMissing = (["ENTRY", "BREAK_START", "BREAK_END", "EXIT"] as PresencePunchType[]).find(
+                                              (t) => !has.has(t)
+                                            );
+                                            openPunchDialogForAdd(firstMissing ?? "ENTRY");
+                                          }}
+                                          className="h-9 rounded-2xl"
                                         >
-                                          <div className="flex items-start justify-between gap-2">
-                                            <div className="min-w-0">
-                                              <div className="flex flex-wrap items-center gap-2">
-                                                <div className="text-sm font-semibold text-slate-900">{titleizePunchType(p.type)}</div>
-                                                {adjs.length > 0 && (
-                                                  <Badge className="rounded-full border-0 bg-[hsl(var(--byfrost-accent)/0.12)] text-[hsl(var(--byfrost-accent))]">
-                                                    ajustado ({adjs.length})
-                                                  </Badge>
+                                          <Plus className="mr-2 h-4 w-4" />
+                                          Adicionar
+                                        </Button>
+                                      )}
+                                    </div>
+
+                                    <div className="mt-2 space-y-2">
+                                      {(caseDetailQ.data?.punches ?? []).map((p: any) => {
+                                        const adjs = adjustmentsByPunch.get(String(p.id)) ?? [];
+                                        const lastAdj = adjs[0] ?? null;
+
+                                        return (
+                                          <div
+                                            key={p.id}
+                                            className={cn(
+                                              "rounded-2xl border bg-slate-50 px-3 py-2",
+                                              adjs.length ? "border-[hsl(var(--byfrost-accent)/0.35)]" : "border-slate-200"
+                                            )}
+                                          >
+                                            <div className="flex items-start justify-between gap-2">
+                                              <div className="min-w-0">
+                                                <div className="flex flex-wrap items-center gap-2">
+                                                  <div className="text-sm font-semibold text-slate-900">{titleizePunchType(p.type)}</div>
+                                                  {adjs.length > 0 && (
+                                                    <Badge className="rounded-full border-0 bg-[hsl(var(--byfrost-accent)/0.12)] text-[hsl(var(--byfrost-accent))]">
+                                                      ajustado ({adjs.length})
+                                                    </Badge>
+                                                  )}
+                                                </div>
+                                                <div className="mt-0.5 text-[11px] text-slate-600">
+                                                  {new Date(p.timestamp).toLocaleTimeString()} • {p.source} • {p.status}
+                                                </div>
+                                                {lastAdj && (
+                                                  <div className="mt-2 rounded-2xl bg-white px-3 py-2 text-[11px] text-slate-700 ring-1 ring-slate-200">
+                                                    <div className="font-semibold text-slate-800">
+                                                      Último ajuste: {new Date(lastAdj.created_at).toLocaleString()}
+                                                    </div>
+                                                    <div className="mt-0.5 text-slate-700">{lastAdj.note}</div>
+                                                  </div>
                                                 )}
                                               </div>
-                                              <div className="mt-0.5 text-[11px] text-slate-600">
-                                                {new Date(p.timestamp).toLocaleTimeString()} • {p.source} • {p.status}
-                                              </div>
-                                              {lastAdj && (
-                                                <div className="mt-2 rounded-2xl bg-white px-3 py-2 text-[11px] text-slate-700 ring-1 ring-slate-200">
-                                                  <div className="font-semibold text-slate-800">
-                                                    Último ajuste: {new Date(lastAdj.created_at).toLocaleString()}
-                                                  </div>
-                                                  <div className="mt-0.5 text-slate-700">{lastAdj.note}</div>
+
+                                              <div className="flex flex-col items-end gap-2">
+                                                <div className="text-right text-[11px] text-slate-600">
+                                                  {typeof p.distance_from_location === "number" ? `${Math.round(p.distance_from_location)}m` : "—"}
                                                 </div>
-                                              )}
-                                            </div>
 
-                                            <div className="flex flex-col items-end gap-2">
-                                              <div className="text-right text-[11px] text-slate-600">
-                                                {typeof p.distance_from_location === "number" ? `${Math.round(p.distance_from_location)}m` : "—"}
+                                                {manager && (
+                                                  <Button
+                                                    size="sm"
+                                                    variant="ghost"
+                                                    onClick={() => openPunchDialogForEdit(p)}
+                                                    className="h-9 rounded-2xl border border-slate-200 bg-white/70"
+                                                  >
+                                                    <Pencil className="mr-2 h-4 w-4" />
+                                                    Ajustar
+                                                  </Button>
+                                                )}
                                               </div>
-
-                                              {manager && (
-                                                <Button
-                                                  size="sm"
-                                                  variant="ghost"
-                                                  onClick={() => openPunchDialogForEdit(p)}
-                                                  className="h-9 rounded-2xl border border-slate-200 bg-white/70"
-                                                >
-                                                  <Pencil className="mr-2 h-4 w-4" />
-                                                  Ajustar
-                                                </Button>
-                                              )}
                                             </div>
                                           </div>
+                                        );
+                                      })}
+                                      {!caseDetailQ.data?.punches?.length && (
+                                        <div className="rounded-2xl border border-dashed border-slate-200 bg-white/60 p-3 text-sm text-slate-600">
+                                          Sem batidas.
                                         </div>
-                                      );
-                                    })}
-                                    {!caseDetailQ.data?.punches?.length && (
-                                      <div className="rounded-2xl border border-dashed border-slate-200 bg-white/60 p-3 text-sm text-slate-600">
-                                        Sem batidas.
+                                      )}
+                                    </div>
+
+                                    {manager && (
+                                      <div className="mt-3 rounded-2xl border border-slate-200 bg-white p-3">
+                                        <div className="text-[11px] font-semibold text-slate-800">Adicionar rápido</div>
+                                        <div className="mt-2 flex flex-wrap gap-2">
+                                          {(["ENTRY", "BREAK_START", "BREAK_END", "EXIT"] as PresencePunchType[]).map((t) => {
+                                            const already = (caseDetailQ.data?.punches ?? []).some((p: any) => String(p.type) === t);
+                                            return (
+                                              <Button
+                                                key={t}
+                                                size="sm"
+                                                variant={already ? "secondary" : "default"}
+                                                disabled={already}
+                                                onClick={() => openPunchDialogForAdd(t)}
+                                                className={cn(
+                                                  "h-9 rounded-2xl",
+                                                  already
+                                                    ? "opacity-60"
+                                                    : "bg-[hsl(var(--byfrost-accent))] text-white hover:bg-[hsl(var(--byfrost-accent)/0.92)]"
+                                                )}
+                                              >
+                                                {titleizePunchType(t)}
+                                              </Button>
+                                            );
+                                          })}
+                                        </div>
+                                        <div className="mt-2 text-[11px] text-slate-500">
+                                          Para qualquer adição/ajuste, uma <span className="font-semibold">nota é obrigatória</span> e fica registrada no histórico.
+                                        </div>
                                       </div>
                                     )}
                                   </div>
 
-                                  {manager && (
-                                    <div className="mt-3 rounded-2xl border border-slate-200 bg-white p-3">
-                                      <div className="text-[11px] font-semibold text-slate-800">Adicionar rápido</div>
-                                      <div className="mt-2 flex flex-wrap gap-2">
-                                        {(["ENTRY", "BREAK_START", "BREAK_END", "EXIT"] as PresencePunchType[]).map((t) => {
-                                          const already = (caseDetailQ.data?.punches ?? []).some((p: any) => String(p.type) === t);
-                                          return (
-                                            <Button
-                                              key={t}
-                                              size="sm"
-                                              variant={already ? "secondary" : "default"}
-                                              disabled={already}
-                                              onClick={() => openPunchDialogForAdd(t)}
-                                              className={cn(
-                                                "h-9 rounded-2xl",
-                                                already
-                                                  ? "opacity-60"
-                                                  : "bg-[hsl(var(--byfrost-accent))] text-white hover:bg-[hsl(var(--byfrost-accent)/0.92)]"
-                                              )}
-                                            >
-                                              {titleizePunchType(t)}
-                                            </Button>
-                                          );
-                                        })}
-                                      </div>
-                                      <div className="mt-2 text-[11px] text-slate-500">
-                                        Para qualquer adição/ajuste, uma <span className="font-semibold">nota é obrigatória</span> e fica registrada no histórico.
-                                      </div>
-                                    </div>
-                                  )}
-                                </div>
-
-                                <div className="rounded-2xl border border-slate-200 bg-white p-3">
-                                  <div className="text-xs font-semibold text-slate-900">Banco de horas</div>
-                                  <div className="mt-2 space-y-2">
-                                    {(caseDetailQ.data?.bankLedger ?? []).slice(0, 8).map((r: any) => (
-                                      <div key={r.id} className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
-                                        <div className="min-w-0">
-                                          <div className="text-sm font-semibold text-slate-900">{fmtMinutes(r.minutes_delta)}</div>
-                                          <div className="mt-0.5 text-[11px] text-slate-600">
-                                            {new Date(r.created_at).toLocaleString()} • {r.source}
+                                  <div className="rounded-2xl border border-slate-200 bg-white p-3">
+                                    <div className="text-xs font-semibold text-slate-900">Banco de horas</div>
+                                    <div className="mt-2 space-y-2">
+                                      {(caseDetailQ.data?.bankLedger ?? []).slice(0, 8).map((r: any) => (
+                                        <div key={r.id} className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
+                                          <div className="min-w-0">
+                                            <div className="text-sm font-semibold text-slate-900">{fmtMinutes(r.minutes_delta)}</div>
+                                            <div className="mt-0.5 text-[11px] text-slate-600">
+                                              {new Date(r.created_at).toLocaleString()} • {r.source}
+                                            </div>
+                                          </div>
+                                          <div className="text-right text-[11px] font-semibold text-slate-800">
+                                            saldo {fmtBalance(r.balance_after)}
                                           </div>
                                         </div>
-                                        <div className="text-right text-[11px] font-semibold text-slate-800">
-                                          saldo {fmtBalance(r.balance_after)}
+                                      ))}
+                                      {!caseDetailQ.data?.bankLedger?.length && (
+                                        <div className="rounded-2xl border border-dashed border-slate-200 bg-white/60 p-3 text-sm text-slate-600">
+                                          Sem lançamentos ainda. O lançamento automático ocorre ao fechar o dia.
                                         </div>
-                                      </div>
-                                    ))}
-                                    {!caseDetailQ.data?.bankLedger?.length && (
-                                      <div className="rounded-2xl border border-dashed border-slate-200 bg-white/60 p-3 text-sm text-slate-600">
-                                        Sem lançamentos ainda. O lançamento automático ocorre ao fechar o dia.
-                                      </div>
-                                    )}
-                                  </div>
-                                </div>
-                              </div>
-
-                              <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-3">
-                                <div className="flex items-center justify-between gap-2">
-                                  <div className="text-xs font-semibold text-slate-900">Timeline</div>
-                                  <div className="text-[11px] text-slate-500">{caseDetailQ.data?.timeline?.length ?? 0}</div>
-                                </div>
-                                <ScrollArea className="mt-2 h-[220px]">
-                                  <div className="space-y-2 pr-3">
-                                    {(caseDetailQ.data?.timeline ?? []).map((t: any) => (
-                                      <div key={t.id} className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
-                                        <div className="flex items-center justify-between gap-2">
-                                          <div className="text-[11px] font-semibold text-slate-800">{t.event_type}</div>
-                                          <div className="text-[11px] text-slate-500">
-                                            {new Date(t.occurred_at).toLocaleTimeString()}
-                                          </div>
-                                        </div>
-                                        {t.message && <div className="mt-1 text-sm text-slate-800">{t.message}</div>}
-                                      </div>
-                                    ))}
-                                  </div>
-                                </ScrollArea>
-                              </div>
-
-                              <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-3">
-                                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                                  <div>
-                                    <div className="text-xs font-semibold text-slate-900">Ações humanas</div>
-                                    <div className="mt-0.5 text-[11px] text-slate-600">
-                                      Somente gestores podem fechar. Ajustes/saldo não são automáticos.
+                                      )}
                                     </div>
                                   </div>
-                                  <div className="flex items-center gap-2">
-                                    <Textarea
-                                      value={closeNote}
-                                      onChange={(e) => setCloseNote(e.target.value)}
-                                      className="min-h-[40px] w-[280px] rounded-2xl bg-white"
-                                      placeholder="Nota (opcional)"
-                                    />
-                                    <Button
-                                      onClick={closeDay}
-                                      disabled={closing || !manager || c.state === "FECHADO"}
-                                      className="h-11 rounded-2xl bg-[hsl(var(--byfrost-accent))] text-white hover:bg-[hsl(var(--byfrost-accent)/0.92)]"
-                                    >
-                                      {closing ? "Fechando…" : "Fechar dia"}
-                                    </Button>
+                                </div>
+
+                                <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-3">
+                                  <div className="flex items-center justify-between gap-2">
+                                    <div className="text-xs font-semibold text-slate-900">Timeline</div>
+                                    <div className="text-[11px] text-slate-500">{caseDetailQ.data?.timeline?.length ?? 0}</div>
+                                  </div>
+                                  <ScrollArea className="mt-2 h-[220px]">
+                                    <div className="space-y-2 pr-3">
+                                      {(caseDetailQ.data?.timeline ?? []).map((t: any) => (
+                                        <div key={t.id} className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
+                                          <div className="flex items-center justify-between gap-2">
+                                            <div className="text-[11px] font-semibold text-slate-800">{t.event_type}</div>
+                                            <div className="text-[11px] text-slate-500">
+                                              {new Date(t.occurred_at).toLocaleTimeString()}
+                                            </div>
+                                          </div>
+                                          {t.message && <div className="mt-1 text-sm text-slate-800">{t.message}</div>}
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </ScrollArea>
+                                </div>
+
+                                <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                                    <div>
+                                      <div className="text-xs font-semibold text-slate-900">Ações humanas</div>
+                                      <div className="mt-0.5 text-[11px] text-slate-600">
+                                        Somente gestores podem fechar. Ajustes/saldo não são automáticos.
+                                      </div>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                      <Textarea
+                                        value={closeNote}
+                                        onChange={(e) => setCloseNote(e.target.value)}
+                                        className="min-h-[40px] w-[280px] rounded-2xl bg-white"
+                                        placeholder="Nota (opcional)"
+                                      />
+                                      <Button
+                                        onClick={closeDay}
+                                        disabled={closing || !manager || c.state === "FECHADO"}
+                                        className="h-11 rounded-2xl bg-[hsl(var(--byfrost-accent))] text-white hover:bg-[hsl(var(--byfrost-accent)/0.92)]"
+                                      >
+                                        {closing ? "Fechando…" : "Fechar dia"}
+                                      </Button>
+                                    </div>
                                   </div>
                                 </div>
-                              </div>
 
-                              <PunchAdjustDialog
-                                open={punchDialogOpen}
-                                onOpenChange={setPunchDialogOpen}
-                                mode={punchDialogMode}
-                                caseDate={String(c.case_date ?? selectedDate)}
-                                hasLedgerForCase={hasLedgerForOpenCase}
-                                onSubmit={submitPunchAdjust}
-                              />
+                                <PunchAdjustDialog
+                                  open={punchDialogOpen}
+                                  onOpenChange={setPunchDialogOpen}
+                                  mode={punchDialogMode}
+                                  caseDate={String(c.case_date ?? selectedDate)}
+                                  hasLedgerForCase={hasLedgerForOpenCase}
+                                  onSubmit={submitPunchAdjust}
+                                />
+                              </div>
                             </SheetContent>
                           </Sheet>
                         );

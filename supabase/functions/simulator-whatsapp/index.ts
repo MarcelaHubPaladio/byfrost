@@ -69,7 +69,9 @@ serve(async (req) => {
     if (!body) return new Response("Invalid JSON", { status: 400, headers: corsHeaders });
 
     const tenantId = body.tenantId as string | undefined;
-    const instanceId = body.instanceId as string | undefined; // wa_instances.id
+    const instanceIdRaw = body.instanceId as string | undefined; // wa_instances.id (opcional)
+    const instanceId = instanceIdRaw ? String(instanceIdRaw).trim() : null;
+
     const type = (body.type as string | undefined) ?? "text";
     const from = normalizePhoneE164Like(body.from);
     const to = normalizePhoneE164Like(body.to);
@@ -78,8 +80,8 @@ serve(async (req) => {
     const mediaBase64 = (body.mediaBase64 as string | undefined) ?? null;
     const location = body.location as { lat: number; lng: number } | undefined;
 
-    if (!tenantId || !instanceId || !from) {
-      return new Response(JSON.stringify({ ok: false, error: "Missing tenantId/instanceId/from" }), {
+    if (!tenantId || !from) {
+      return new Response(JSON.stringify({ ok: false, error: "Missing tenantId/from" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -219,16 +221,30 @@ serve(async (req) => {
       if (mediaUrl || mediaBase64) {
         const ocr = await runOcrGoogleVision({ imageUrl: mediaUrl, imageBase64: mediaBase64 });
         if (ocr.ok) {
-          await supabase.from("case_fields").upsert({ tenant_id: tenantId, case_id: caseId, key: "ocr_text", value_text: ocr.text, confidence: 0.85, source: "ocr", last_updated_by: "ocr_agent" });
+          await supabase.from("case_fields").upsert({
+            tenant_id: tenantId,
+            case_id: caseId,
+            key: "ocr_text",
+            value_text: ocr.text,
+            confidence: 0.85,
+            source: "ocr",
+            last_updated_by: "ocr_agent",
+          });
           const extracted = extractFieldsFromText(ocr.text);
 
           const upserts: any[] = [];
-          if (extracted.name) upserts.push({ tenant_id: tenantId, case_id: caseId, key: "name", value_text: extracted.name, confidence: 0.7, source: "ocr", last_updated_by: "extract" });
-          if (extracted.cpf) upserts.push({ tenant_id: tenantId, case_id: caseId, key: "cpf", value_text: extracted.cpf, confidence: extracted.cpf.length === 11 ? 0.8 : 0.4, source: "ocr", last_updated_by: "extract" });
-          if (extracted.rg) upserts.push({ tenant_id: tenantId, case_id: caseId, key: "rg", value_text: extracted.rg, confidence: extracted.rg.length >= 7 ? 0.7 : 0.4, source: "ocr", last_updated_by: "extract" });
-          if (extracted.birth_date_text) upserts.push({ tenant_id: tenantId, case_id: caseId, key: "birth_date_text", value_text: extracted.birth_date_text, confidence: 0.65, source: "ocr", last_updated_by: "extract" });
-          if (extracted.phone_raw) upserts.push({ tenant_id: tenantId, case_id: caseId, key: "phone", value_text: extracted.phone_raw, confidence: 0.65, source: "ocr", last_updated_by: "extract" });
-          if (extracted.total_raw) upserts.push({ tenant_id: tenantId, case_id: caseId, key: "total_raw", value_text: extracted.total_raw, confidence: 0.6, source: "ocr", last_updated_by: "extract" });
+          if (extracted.name)
+            upserts.push({ tenant_id: tenantId, case_id: caseId, key: "name", value_text: extracted.name, confidence: 0.7, source: "ocr", last_updated_by: "extract" });
+          if (extracted.cpf)
+            upserts.push({ tenant_id: tenantId, case_id: caseId, key: "cpf", value_text: extracted.cpf, confidence: extracted.cpf.length === 11 ? 0.8 : 0.4, source: "ocr", last_updated_by: "extract" });
+          if (extracted.rg)
+            upserts.push({ tenant_id: tenantId, case_id: caseId, key: "rg", value_text: extracted.rg, confidence: extracted.rg.length >= 7 ? 0.7 : 0.4, source: "ocr", last_updated_by: "extract" });
+          if (extracted.birth_date_text)
+            upserts.push({ tenant_id: tenantId, case_id: caseId, key: "birth_date_text", value_text: extracted.birth_date_text, confidence: 0.65, source: "ocr", last_updated_by: "extract" });
+          if (extracted.phone_raw)
+            upserts.push({ tenant_id: tenantId, case_id: caseId, key: "phone", value_text: extracted.phone_raw, confidence: 0.65, source: "ocr", last_updated_by: "extract" });
+          if (extracted.total_raw)
+            upserts.push({ tenant_id: tenantId, case_id: caseId, key: "total_raw", value_text: extracted.total_raw, confidence: 0.6, source: "ocr", last_updated_by: "extract" });
           upserts.push({ tenant_id: tenantId, case_id: caseId, key: "signature_present", value_text: extracted.signaturePresent ? "yes" : "no", confidence: 0.5, source: "ocr", last_updated_by: "extract" });
 
           if (upserts.length) await supabase.from("case_fields").upsert(upserts);
@@ -237,12 +253,30 @@ serve(async (req) => {
 
       // apply location if provided
       if (location) {
-        await supabase.from("case_fields").upsert({ tenant_id: tenantId, case_id: caseId, key: "location", value_json: location, value_text: `${location.lat},${location.lng}`, confidence: 1, source: "vendor", last_updated_by: "simulator" });
-        await supabase.from("pendencies").update({ status: "answered", answered_text: "Localização enviada", answered_payload_json: location }).eq("tenant_id", tenantId).eq("case_id", caseId).eq("type", "need_location");
+        await supabase.from("case_fields").upsert({
+          tenant_id: tenantId,
+          case_id: caseId,
+          key: "location",
+          value_json: location,
+          value_text: `${location.lat},${location.lng}`,
+          confidence: 1,
+          source: "vendor",
+          last_updated_by: "simulator",
+        });
+        await supabase
+          .from("pendencies")
+          .update({ status: "answered", answered_text: "Localização enviada", answered_payload_json: location })
+          .eq("tenant_id", tenantId)
+          .eq("case_id", caseId)
+          .eq("type", "need_location");
       }
 
       // Validate
-      const { data: fields } = await supabase.from("case_fields").select("key, value_text, value_json").eq("tenant_id", tenantId).eq("case_id", caseId);
+      const { data: fields } = await supabase
+        .from("case_fields")
+        .select("key, value_text, value_json")
+        .eq("tenant_id", tenantId)
+        .eq("case_id", caseId);
       const fm = new Map<string, any>();
       for (const f of fields ?? []) fm.set(f.key, f.value_text ?? f.value_json);
 
@@ -312,7 +346,7 @@ serve(async (req) => {
       .eq("correlation_id", correlationId)
       .order("occurred_at", { ascending: true });
 
-    return new Response(JSON.stringify({ ok: true, correlationId, caseId, outbox: outbox ?? [] }), {
+    return new Response(JSON.stringify({ ok: true, correlationId, caseId, instanceId, outbox: outbox ?? [] }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (e) {

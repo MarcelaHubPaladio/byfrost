@@ -68,8 +68,9 @@ export default function Simulator() {
     if (!activeTenantId) return;
     setLoading(true);
     try {
-      // auto-pick first instance if not provided
-      let instId = instanceId;
+      // instanceId é opcional: o simulador pode rodar sem wa_instance.
+      // Se existir instância e você quiser vincular a ela, preencha o UUID.
+      let instId = instanceId.trim();
       if (!instId) {
         const { data: inst } = await supabase
           .from("wa_instances")
@@ -81,17 +82,16 @@ export default function Simulator() {
         instId = inst?.id ?? "";
       }
 
-      if (!instId) throw new Error("Crie ao menos uma wa_instance para o tenant.");
-
       const { data: sess } = await supabase.auth.getSession();
       const token = sess.session?.access_token;
 
       const payload: any = {
         tenantId: activeTenantId,
-        instanceId: instId,
         type,
         from,
         to,
+        // Envia instanceId somente se existir (senão fica null no backend).
+        ...(instId ? { instanceId: instId } : {}),
       };
       if (type === "image") payload.mediaBase64 = mediaBase64;
       if (type === "text") payload.text = text;
@@ -168,9 +168,12 @@ export default function Simulator() {
                 <Input
                   value={instanceId}
                   onChange={(e) => setInstanceId(e.target.value)}
-                  placeholder="Se vazio, pega a primeira instância do tenant"
+                  placeholder="Se vazio, tenta pegar a primeira instância; se não existir, simula sem instância"
                   className="mt-1 rounded-2xl"
                 />
+                <div className="mt-1 text-[11px] text-slate-500">
+                  Dica: wa_instance é o cadastro da conexão WhatsApp (ex.: Z-API). Para testar apenas o pipeline, não é obrigatório.
+                </div>
               </div>
 
               {type === "image" && (

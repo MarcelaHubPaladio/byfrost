@@ -75,6 +75,111 @@ function normalizeOcrTextForExtraction(rawText: string) {
   return text;
 }
 
+function stripDiacritics(s: string) {
+  try {
+    return String(s ?? "")
+      .normalize("NFD")
+      .replace(/\p{Diacritic}/gu, "");
+  } catch {
+    return String(s ?? "");
+  }
+}
+
+function normalizeKeyText(s: string) {
+  return stripDiacritics(String(s ?? ""))
+    .toUpperCase()
+    .replace(/[^A-Z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function parsePtBrMoneyToCents(input: string | null | undefined) {
+  const raw = String(input ?? "");
+  const m = raw.match(/([0-9]{1,3}(?:\.[0-9]{3})*,[0-9]{2})/);
+  if (!m?.[1]) return null;
+  const normalized = m[1].replace(/\./g, "").replace(/,/g, ".");
+  const n = Number(normalized);
+  if (!Number.isFinite(n)) return null;
+  return Math.round(n * 100);
+}
+
+function extractTotalCents(text: string) {
+  const t = String(text ?? "");
+  // Prefer explicit TOTAL label
+  const labeled = t.match(/\bTOTAL\b[^\d]{0,30}([0-9]{1,3}(?:\.[0-9]{3})*,[0-9]{2})/i);
+  if (labeled?.[1]) return parsePtBrMoneyToCents(labeled[1]);
+
+  // Fallback: first currency-like occurrence
+  const rs = t.match(/R\$\s*([0-9]{1,3}(?:\.[0-9]{3})*,[0-9]{2})/i);
+  if (rs?.[1]) return parsePtBrMoneyToCents(rs[1]);
+
+  return null;
+}
+
+async function sha256Hex(text: string) {
+  const bytes = new TextEncoder().encode(text);
+  const hash = await crypto.subtle.digest("SHA-256", bytes);
+  const arr = Array.from(new Uint8Array(hash));
+  return arr.map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+async function computeSalesOrderFingerprint(args: {
+  clientKey: string;
+  totalCents: number;
+  itemLines: string[];
+}) {
+  const clientKey = normalizeKeyText(args.clientKey);
+  const totalCents = Number(args.totalCents);
+  const itemKey = args.itemLines
+    .map((l) => normalizeKeyText(l))
+    .filter(Boolean)
+    .join(" | ");
+
+  // Para evitar falso-positivo, só deduplica quando temos:
+  // - cliente (cpf/telefone/nome) + total + ao menos 1 linha de item
+  if (!clientKey || !Number.isFinite(totalCents) || totalCents <= 0) return null;
+  if (!itemKey || itemKey.length < 8) return null;
+
+  const base = `${clientKey}::${totalCents}::${itemKey}`;
+  return await sha256Hex(base);
+}
+
+async function mergeDuplicateCase(args: {
+  supabase: any;
+  tenantId: string;
+  duplicateCaseId: string;
+  keepCaseId: string;
+  fingerprint: string;
+}) {
+  const { supabase, tenantId, duplicateCaseId, keepCaseId, fingerprint } = args;
+
+  // Move entities to the kept case (best-effort)
+  await supabase.from("wa_messages").update({ case_id: keepCaseId }).eq("tenant_id", tenantId).eq("case_id", duplicateCaseId);
+  await supabase.from("case_attachments").update({ case_id: keepCaseId }).eq("tenant_id", tenantId).eq("case_id", duplicateCaseId);
+  await supabase.from("pendencies").update({ case_id: keepCaseId }).eq("tenant_id", tenantId).eq("case_id", duplicateCaseId);
+  await supabase.from("case_items").update({ case_id: keepCaseId }).eq("case_id", duplicateCaseId);
+  await supabase.from("case_fields").update({ case_id: keepCaseId }).eq("case_id", duplicateCaseId);
+
+  // Soft-delete duplicate case
+  await supabase
+    .from("cases")
+    .update({ deleted_at: new Date().toISOString() })
+    .eq("tenant_id", tenantId)
+    .eq("id", duplicateCaseId);
+
+  // Audit
+  await supabase.from("timeline_events").insert({
+    tenant_id: tenantId,
+    case_id: keepCaseId,
+    event_type: "duplicate_detected",
+    actor_type: "system",
+    actor_id: null,
+    message: "Pedido duplicado detectado. Consolidamos mensagens/anexos no caso existente.",
+    meta_json: { duplicate_case_id: duplicateCaseId, fingerprint },
+    occurred_at: new Date().toISOString(),
+  });
+}
+
 function extractFieldsFromText(text: string) {
   const cpfMatch = text.match(/\b(\d{3}\.?(\d{3})\.?(\d{3})-?(\d{2}))\b/);
   const cpf = cpfMatch ? toDigits(cpfMatch[1]) : null;
@@ -598,29 +703,113 @@ serve(async (req) => {
             .eq("key", "ocr_text")
             .maybeSingle();
 
-          const text = (ocrField?.value_text as string | null) ?? "";
-          const cleanedText = normalizeOcrTextForExtraction(text);
+          const rawText = (ocrField?.value_text as string | null) ?? "";
+          const cleanedText = normalizeOcrTextForExtraction(rawText);
           const extracted = extractFieldsFromText(cleanedText);
 
+          // Dedupe (Agroforte sales_order):
+          // evita abrir mais de 1 caso com o MESMO cliente + MESMO total + MESMAS linhas de itens.
+          // Observação: só roda quando temos dados suficientes (para evitar falso-positivo).
+          let targetCaseId = caseId;
+          let mergedInto: string | null = null;
+
+          try {
+            const { data: cRow } = await supabase
+              .from("cases")
+              .select("id, meta_json")
+              .eq("tenant_id", tenantId)
+              .eq("id", caseId)
+              .maybeSingle();
+
+            const meta = (cRow as any)?.meta_json ?? {};
+            const journeyKey = String(meta?.journey_key ?? "");
+            const looksAgroforte = /\bagroforte\b/i.test(rawText);
+
+            const clientKey =
+              extracted.cpf ||
+              (extracted.phone_raw ? toDigits(extracted.phone_raw) : "") ||
+              extracted.name ||
+              "";
+
+            const totalCents = extractTotalCents(cleanedText) ?? parsePtBrMoneyToCents(extracted.total_raw) ?? null;
+
+            const fingerprint =
+              journeyKey === "sales_order" && looksAgroforte && clientKey && totalCents
+                ? await computeSalesOrderFingerprint({
+                    clientKey,
+                    totalCents,
+                    itemLines: extracted.itemLines ?? [],
+                  })
+                : null;
+
+            if (fingerprint) {
+              const nextMeta = {
+                ...meta,
+                sales_order_fingerprint: fingerprint,
+                sales_order_client_key: extracted.cpf ? `cpf:${extracted.cpf}` : extracted.phone_raw ? `phone:${toDigits(extracted.phone_raw)}` : extracted.name ? `name:${normalizeKeyText(extracted.name)}` : null,
+                sales_order_total_cents: totalCents,
+              };
+
+              await supabase
+                .from("cases")
+                .update({ meta_json: nextMeta })
+                .eq("tenant_id", tenantId)
+                .eq("id", caseId);
+
+              const { data: existing } = await supabase
+                .from("cases")
+                .select("id,updated_at")
+                .eq("tenant_id", tenantId)
+                .is("deleted_at", null)
+                .contains("meta_json", { sales_order_fingerprint: fingerprint })
+                .neq("id", caseId)
+                .order("updated_at", { ascending: false })
+                .limit(1)
+                .maybeSingle();
+
+              const keepId = (existing as any)?.id ? String((existing as any).id) : null;
+              if (keepId) {
+                await mergeDuplicateCase({
+                  supabase,
+                  tenantId,
+                  duplicateCaseId: caseId,
+                  keepCaseId: keepId,
+                  fingerprint,
+                });
+
+                targetCaseId = keepId;
+                mergedInto = keepId;
+              }
+            }
+          } catch (e: any) {
+            // Não falha o job por dedupe. Seguimos com a extração normal.
+            console.warn(`[${fn}] dedupe_check_failed (ignored)`, { caseId, e: e?.message ?? String(e) });
+          }
+
+          // Se o case foi consolidado em outro, escrevemos os campos no case "keep".
           const upserts: any[] = [];
-          if (extracted.name) upserts.push({ tenant_id: tenantId, case_id: caseId, key: "name", value_text: extracted.name, confidence: 0.7, source: "ocr", last_updated_by: "extract" });
-          if (extracted.cpf) upserts.push({ tenant_id: tenantId, case_id: caseId, key: "cpf", value_text: extracted.cpf, confidence: extracted.cpf.length === 11 ? 0.8 : 0.4, source: "ocr", last_updated_by: "extract" });
-          if (extracted.rg) upserts.push({ tenant_id: tenantId, case_id: caseId, key: "rg", value_text: extracted.rg, confidence: extracted.rg.length >= 7 ? 0.7 : 0.4, source: "ocr", last_updated_by: "extract" });
-          if (extracted.birth_date_text) upserts.push({ tenant_id: tenantId, case_id: caseId, key: "birth_date_text", value_text: extracted.birth_date_text, confidence: 0.65, source: "ocr", last_updated_by: "extract" });
-          if (extracted.phone_raw) upserts.push({ tenant_id: tenantId, case_id: caseId, key: "phone", value_text: extracted.phone_raw, confidence: 0.65, source: "ocr", last_updated_by: "extract" });
-          if (extracted.total_raw) upserts.push({ tenant_id: tenantId, case_id: caseId, key: "total_raw", value_text: extracted.total_raw, confidence: 0.6, source: "ocr", last_updated_by: "extract" });
-          upserts.push({ tenant_id: tenantId, case_id: caseId, key: "signature_present", value_text: extracted.signaturePresent ? "yes" : "no", confidence: 0.5, source: "ocr", last_updated_by: "extract" });
+          if (extracted.name) upserts.push({ tenant_id: tenantId, case_id: targetCaseId, key: "name", value_text: extracted.name, confidence: 0.7, source: "ocr", last_updated_by: "extract" });
+          if (extracted.cpf) upserts.push({ tenant_id: tenantId, case_id: targetCaseId, key: "cpf", value_text: extracted.cpf, confidence: extracted.cpf.length === 11 ? 0.8 : 0.4, source: "ocr", last_updated_by: "extract" });
+          if (extracted.rg) upserts.push({ tenant_id: tenantId, case_id: targetCaseId, key: "rg", value_text: extracted.rg, confidence: extracted.rg.length >= 7 ? 0.7 : 0.4, source: "ocr", last_updated_by: "extract" });
+          if (extracted.birth_date_text) upserts.push({ tenant_id: tenantId, case_id: targetCaseId, key: "birth_date_text", value_text: extracted.birth_date_text, confidence: 0.65, source: "ocr", last_updated_by: "extract" });
+          if (extracted.phone_raw) upserts.push({ tenant_id: tenantId, case_id: targetCaseId, key: "phone", value_text: extracted.phone_raw, confidence: 0.65, source: "ocr", last_updated_by: "extract" });
+          if (extracted.total_raw) upserts.push({ tenant_id: tenantId, case_id: targetCaseId, key: "total_raw", value_text: extracted.total_raw, confidence: 0.6, source: "ocr", last_updated_by: "extract" });
+          upserts.push({ tenant_id: tenantId, case_id: targetCaseId, key: "signature_present", value_text: extracted.signaturePresent ? "yes" : "no", confidence: 0.5, source: "ocr", last_updated_by: "extract" });
 
           if (upserts.length) await supabase.from("case_fields").upsert(upserts);
 
           await supabase.from("decision_logs").insert({
             tenant_id: tenantId,
-            case_id: caseId,
+            case_id: targetCaseId,
             agent_id: agentIdByKey.get("validation_agent") ?? null,
             input_summary: "Texto OCR",
-            output_summary: "Campos iniciais extraídos",
+            output_summary: mergedInto ? "Campos extraídos e caso consolidado" : "Campos iniciais extraídos",
             reasoning_public: "Extração baseada em padrões (MVP). Se faltar algo, geraremos pendências ao vendedor.",
-            why_json: { extracted_keys: upserts.map((u) => u.key), ocr_preprocess: cleanedText !== text ? "header_trim" : "none" },
+            why_json: {
+              extracted_keys: upserts.map((u) => u.key),
+              ocr_preprocess: cleanedText !== rawText ? "header_trim" : "none",
+              merged_into: mergedInto,
+            },
             confidence_json: { overall: 0.65 },
             occurred_at: new Date().toISOString(),
           });
@@ -630,13 +819,13 @@ serve(async (req) => {
           await supabase.from("job_queue").insert({
             tenant_id: tenantId,
             type: "VALIDATE_FIELDS",
-            idempotency_key: `VALIDATE_FIELDS:${caseId}:${Date.now()}`,
-            payload_json: { case_id: caseId },
+            idempotency_key: `VALIDATE_FIELDS:${targetCaseId}:${Date.now()}`,
+            payload_json: { case_id: targetCaseId },
             status: "pending",
             run_after: new Date().toISOString(),
           });
 
-          results.push({ id: job.id, ok: true });
+          results.push({ id: job.id, ok: true, mergedInto });
           continue;
         }
 

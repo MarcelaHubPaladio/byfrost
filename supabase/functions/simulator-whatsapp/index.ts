@@ -67,8 +67,14 @@ type ExtractedFields = {
   ie?: string | null;
   rg?: string | null;
 
+  // Representative / signatures
+  representative_code?: string | null;
+  representative_name?: string | null;
+  customer_signature_present?: boolean;
+
   // Items
   items?: ExtractedItem[];
+  items_sum_total_raw?: string | null;
 
   // Payment
   payment_terms?: string | null;
@@ -81,9 +87,8 @@ type ExtractedFields = {
   delivery_forecast_text?: string | null;
   obs?: string | null;
 
-  // Totals / signature
+  // Totals
   total_raw?: string | null;
-  signaturePresent?: boolean;
 
   // Raw helpers
   ocr_text_preview?: string | null;
@@ -135,7 +140,8 @@ function extractFieldsFromText(text: string) {
   const supplierCnpj = pickByLineRegex(/\bCNPJ\b\s*[:\-]?\s*([0-9\.\/-]{11,18})/i);
   extracted.supplier_cnpj = supplierCnpj ? toDigits(supplierCnpj) : null;
 
-  const supplierPhone = pickByLineRegex(/\bFone\b\s*[:\-]?\s*(.+)/i) ?? pickByLineRegex(/\bFone\b\s*\(?\d{2}\)?\s*9?\s*\d{4}[-\s]?\d{4}/i);
+  const supplierPhone =
+    pickByLineRegex(/\bFone\b\s*[:\-]?\s*(.+)/i) ?? pickByLineRegex(/\bFone\b\s*\(?\d{2}\)?\s*9?\s*\d{4}[-\s]?\d{4}/i);
   if (supplierPhone) {
     const m = supplierPhone.match(/(\(?\d{2}\)?\s*9?\s*\d{4}[-\s]?\d{4})/);
     extracted.supplier_phone = m?.[1] ? normalizeLine(m[1]) : null;
@@ -170,8 +176,7 @@ function extractFieldsFromText(text: string) {
   }
 
   extracted.email = pickLabelFromLine(/\bE-?mail\b/i);
-  extracted.birth_date_text =
-    parsePtBrDateFromText(pickLabelFromLine(/\bData\s+de\s+Nascimento\b/i) ?? "") ?? null;
+  extracted.birth_date_text = parsePtBrDateFromText(pickLabelFromLine(/\bData\s+de\s+Nascimento\b/i) ?? "") ?? null;
   extracted.address = pickLabelFromLine(/\bEndere[cç]o\b/i);
 
   // Phone: only accept if explicitly labeled
@@ -181,7 +186,6 @@ function extractFieldsFromText(text: string) {
     extracted.phone_raw = m?.[1] ? normalizeLine(m[1]) : null;
   }
 
-  // Cidade / CEP / Estado / UF often appear on same line
   extracted.city = pickLabelFromLine(/\bCidade\b/i);
   extracted.cep = pickByLineRegex(/\bCEP\b\s*[:\-]?\s*([0-9]{5}-?[0-9]{3})/i);
   extracted.state = pickLabelFromLine(/\bEstado\b/i);
@@ -230,9 +234,6 @@ function extractFieldsFromText(text: string) {
       const line = normalizeLine(raw);
       if (!line) continue;
 
-      // Skip obvious footer/headers
-      if (/\bCondi[cç][oõ]es\b/i.test(line)) break;
-
       // Try parse: CODE ... QTY ... VALUE
       // Example: "CS3B PENEIRA ... 01 16.027,00"
       const moneyAll = Array.from(line.matchAll(moneyRe)).map((m) => m[1]);
@@ -242,7 +243,7 @@ function extractFieldsFromText(text: string) {
       const qtyMatch = line.match(/\b(\d{1,3})\b\s*(?:\d{1,3}(?:\.\d{3})*,\d{2})\s*$/);
       const qty = qtyMatch ? Number(qtyMatch[1]) : null;
 
-      const codeMatch = line.match(/^([A-Z0-9]{2,10})\b\s*(.*)$/i);
+      const codeMatch = line.match(/^([A-Z0-9]{2,12})\b\s*(.*)$/i);
       const code = codeMatch ? normalizeLine(codeMatch[1]) : null;
 
       // New row when it has a code and either a qty or a value
@@ -251,8 +252,8 @@ function extractFieldsFromText(text: string) {
         const rest = normalizeLine(codeMatch?.[2] ?? "");
         // remove trailing qty + value
         let desc = rest;
-        if (lastMoney) desc = desc.replace(new RegExp(`\\b${qty ?? ""}\\b\\s*${lastMoney.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&")}\\s*$`), "");
-        desc = desc.replace(lastMoney ?? "", "").trim();
+        if (lastMoney) desc = desc.replace(lastMoney ?? "", "").trim();
+        if (qty !== null) desc = desc.replace(new RegExp(`\\b${qty}\\b\\s*$`), "").trim();
         current = {
           line_no: items.length + 1,
           code,
@@ -274,7 +275,7 @@ function extractFieldsFromText(text: string) {
       if (!/\bQuant\.?\b/i.test(line) && !/\bValor\b/i.test(line)) {
         current = {
           line_no: items.length + 1,
-          code: code && code.length <= 10 ? code : null,
+          code: code && code.length <= 12 ? code : null,
           description: line,
           qty,
           value_raw: lastMoney,
@@ -288,6 +289,14 @@ function extractFieldsFromText(text: string) {
 
   extracted.items = items;
 
+  const itemsSum = items.reduce((acc, it) => acc + (it.value_num ?? 0), 0);
+  if (itemsSum > 0) {
+    const raw = itemsSum.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    extracted.items_sum_total_raw = `R$ ${raw}`;
+  } else {
+    extracted.items_sum_total_raw = null;
+  }
+
   // ----------------------
   // Payment section
   // ----------------------
@@ -299,9 +308,10 @@ function extractFieldsFromText(text: string) {
   }
 
   extracted.payment_origin = pickLabelFromLine(/\bOrigem\s+Financeira\b/i);
+
   // A second "Local:" exists in payment area; take the one after payment section if possible
   if (paymentIdx >= 0) {
-    for (let i = paymentIdx; i < Math.min(lines.length, paymentIdx + 25); i++) {
+    for (let i = paymentIdx; i < Math.min(lines.length, paymentIdx + 30); i++) {
       const l = lines[i];
       const m = l.match(/\bLocal\b\s*:\s*(.+)/i);
       if (m?.[1]) {
@@ -311,48 +321,61 @@ function extractFieldsFromText(text: string) {
     }
   }
 
-  extracted.payment_signal_date_text =
-    parsePtBrDateFromText(pickLabelFromLine(/\bSinal\s+de\s+neg[oó]cio\s+em\b/i) ?? "") ?? null;
-  extracted.payment_due_date_text =
-    parsePtBrDateFromText(pickLabelFromLine(/\bCom\s+vencimento\s+em\b/i) ?? "") ?? null;
-  extracted.proposal_validity_date_text =
-    parsePtBrDateFromText(pickLabelFromLine(/\bValidade\s+da\s+Proposta\b/i) ?? "") ?? null;
+  extracted.payment_signal_date_text = parsePtBrDateFromText(pickLabelFromLine(/\bSinal\s+de\s+neg[oó]cio\s+em\b/i) ?? "") ?? null;
+  extracted.payment_due_date_text = parsePtBrDateFromText(pickLabelFromLine(/\bCom\s+vencimento\s+em\b/i) ?? "") ?? null;
+  extracted.proposal_validity_date_text = parsePtBrDateFromText(pickLabelFromLine(/\bValidade\s+da\s+Proposta\b/i) ?? "") ?? null;
 
   extracted.delivery_forecast_text = pickLabelFromLine(/\bData\s+prevista\s+para\s+entrega\b/i);
   extracted.obs = pickLabelFromLine(/\bObs\.?\b/i);
 
   // Payment signal value: look for R$ in payment block
   if (paymentIdx >= 0) {
-    const block = lines.slice(paymentIdx, Math.min(lines.length, paymentIdx + 30)).join("\n");
+    const block = lines.slice(paymentIdx, Math.min(lines.length, paymentIdx + 40)).join("\n");
     const m = block.match(/\bR\$\s*(\d{1,3}(?:\.\d{3})*,\d{2})/);
     extracted.payment_signal_value_raw = m?.[1] ? `R$ ${m[1]}` : null;
   }
 
   // ----------------------
-  // Total and signature
+  // Representative + client signature
   // ----------------------
-  // Total: pick the largest pt-BR money-like value across the doc (works for forms with totals)
-  const moneyMatches = Array.from(String(text ?? "").matchAll(/(?:R\$\s*)?(\d{1,3}(?:\.\d{3})*,\d{2})/g));
-  let bestMoney: { raw: string; value: number } | null = null;
-  for (const mm of moneyMatches) {
-    const raw = mm?.[1] ?? "";
-    const n = parsePtBrMoneyToNumber(raw);
-    if (n === null) continue;
-    if (!bestMoney || n > bestMoney.value) bestMoney = { raw, value: n };
+  // Representative code: label exists on the form
+  extracted.representative_code = pickLabelFromLine(/\bC[oó]digo\s+do\s+Representante\b/i);
+
+  // Representative name is usually handwritten near the representative signature box;
+  // heuristic: look for a line right before "Código do Representante"
+  const repCodeIdx = lines.findIndex((l) => /\bC[oó]digo\s+do\s+Representante\b/i.test(l));
+  if (repCodeIdx > 0) {
+    for (let i = repCodeIdx - 1; i >= Math.max(0, repCodeIdx - 4); i--) {
+      const cand = normalizeLine(lines[i]);
+      if (!cand) continue;
+      if (/agroforte/i.test(cand)) continue;
+      if (/condi[cç][oõ]es/i.test(cand)) continue;
+      if (/cliente\s*:/i.test(cand)) continue;
+      // prefer "word-like" lines
+      if (cand.length >= 3 && cand.length <= 40) {
+        extracted.representative_name = cand;
+        break;
+      }
+    }
   }
 
-  // If table items have values but the document doesn't show explicit total, sum items.
-  const itemsSum = items.reduce((acc, it) => acc + (it.value_num ?? 0), 0);
-  if (bestMoney) {
-    extracted.total_raw = `R$ ${bestMoney.raw}`;
-  } else if (itemsSum > 0) {
-    const raw = itemsSum.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    extracted.total_raw = `R$ ${raw}`;
-  } else {
-    extracted.total_raw = null;
+  // Customer signature presence: OCR may not read scribble; best-effort heuristic.
+  // If OCR captures any content after "CLIENTE:", treat as signed.
+  let customerSig = false;
+  for (const line of lines) {
+    const m = line.match(/\bCLIENTE\b\s*:\s*(.+)$/i);
+    if (m?.[1] && normalizeLine(m[1]).length >= 2) {
+      customerSig = true;
+      break;
+    }
   }
+  extracted.customer_signature_present = customerSig;
 
-  extracted.signaturePresent = /assinatura/i.test(text) || /\bCLIENTE\b\s*:/i.test(text);
+  // ----------------------
+  // Total
+  // ----------------------
+  // Prefer sum(items) since you confirmed Valor = total per item.
+  extracted.total_raw = extracted.items_sum_total_raw;
 
   return extracted;
 }
@@ -753,6 +776,46 @@ serve(async (req) => {
           await upsertCaseField(caseId, "supplier_phone", extracted.supplier_phone ?? null, 0.75, "ocr", "extract");
           await upsertCaseField(caseId, "supplier_city_uf", extracted.supplier_city_uf ?? null, 0.6, "ocr", "extract");
 
+          // --- Representative / signature ---
+          await upsertCaseField(caseId, "representative_code", extracted.representative_code ?? null, 0.6, "ocr", "extract");
+          await upsertCaseField(caseId, "representative_name", extracted.representative_name ?? null, 0.55, "ocr", "extract");
+          await upsertCaseField(
+            caseId,
+            "customer_signature_present",
+            extracted.customer_signature_present ? "yes" : "no",
+            0.5,
+            "ocr",
+            "extract"
+          );
+
+          // Create a pendency if customer signature is missing/undetected
+          if (!extracted.customer_signature_present) {
+            const { data: sigPend } = await supabase
+              .from("pendencies")
+              .select("id")
+              .eq("case_id", caseId)
+              .eq("type", "need_customer_signature")
+              .maybeSingle();
+
+            if (!sigPend?.id) {
+              const { error: spErr } = await supabase.from("pendencies").insert({
+                case_id: caseId,
+                type: "need_customer_signature",
+                assigned_to_role: "vendor",
+                question_text: "Faltou a assinatura do cliente no pedido. Envie uma foto/close da assinatura (ou reenvie a folha com a assinatura visível).",
+                required: true,
+                status: "open",
+                due_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+              });
+              if (spErr) {
+                console.error(`[${fn}] Failed to insert need_customer_signature pendency`, { spErr });
+                debug.notes.push("Failed to insert need_customer_signature pendency");
+              } else {
+                debug.created.pendencies += 1;
+              }
+            }
+          }
+
           // --- Payment ---
           await upsertCaseField(caseId, "payment_terms", extracted.payment_terms ?? null, 0.6, "ocr", "extract");
           await upsertCaseField(caseId, "payment_signal_date_text", extracted.payment_signal_date_text ?? null, 0.65, "ocr", "extract");
@@ -764,9 +827,9 @@ serve(async (req) => {
           await upsertCaseField(caseId, "delivery_forecast_text", extracted.delivery_forecast_text ?? null, 0.6, "ocr", "extract");
           await upsertCaseField(caseId, "obs", extracted.obs ?? null, 0.55, "ocr", "extract");
 
-          // --- Totals / signature ---
-          await upsertCaseField(caseId, "total_raw", extracted.total_raw ?? null, extracted.total_raw ? 0.75 : 0.0, "ocr", "extract");
-          await upsertCaseField(caseId, "signature_present", extracted.signaturePresent ? "yes" : "no", 0.5, "ocr", "extract");
+          // --- Totals ---
+          await upsertCaseField(caseId, "items_sum_total_raw", extracted.items_sum_total_raw ?? null, 0.75, "ocr", "extract");
+          await upsertCaseField(caseId, "total_raw", extracted.total_raw ?? null, 0.8, "ocr", "extract");
 
           // --- Items ---
           if (Array.isArray(extracted.items) && extracted.items.length) {
@@ -775,7 +838,7 @@ serve(async (req) => {
 
             const rows = extracted.items
               .filter((it) => normalizeLine(it.description))
-              .slice(0, 50)
+              .slice(0, 80)
               .map((it, idx) => ({
                 case_id: caseId,
                 line_no: idx + 1,
@@ -783,6 +846,7 @@ serve(async (req) => {
                 description: normalizeLine(it.description),
                 qty: it.qty,
                 price: null,
+                // user confirmed: Valor is TOTAL per item
                 total: it.value_num,
                 confidence_json: { source: "ocr", value_raw: it.value_raw },
               }));

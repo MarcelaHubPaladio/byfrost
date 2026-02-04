@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { CaseCustomerDataEditorCard } from "@/components/case/CaseCustomerDataEditorCard";
 import { SalesOrderItemsEditorCard } from "@/components/case/SalesOrderItemsEditorCard";
+import { ZoomableImage } from "@/components/case/ZoomableImage";
 import { ExternalLink, Image as ImageIcon } from "lucide-react";
 
 type FieldRow = {
@@ -45,7 +46,7 @@ export function SalesOrderReviewDialog(props: {
                   Revisão do pedido
                 </DialogTitle>
                 <DialogDescription className="mt-1 text-xs text-slate-600">
-                  Abra a imagem e preencha manualmente os dados ao lado.
+                  Dê zoom na imagem e preencha manualmente os dados ao lado.
                 </DialogDescription>
               </div>
 
@@ -67,13 +68,7 @@ export function SalesOrderReviewDialog(props: {
             {/* Left: image */}
             <div className="relative overflow-hidden border-t border-slate-200 bg-slate-50 md:border-r">
               {safeUrl ? (
-                <div className="h-full w-full">
-                  <img
-                    src={safeUrl}
-                    alt="Anexo do pedido"
-                    className="h-full w-full object-contain"
-                  />
-                </div>
+                <ZoomableImage src={safeUrl} alt="Anexo do pedido" className="h-full w-full" />
               ) : (
                 <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-slate-600">
                   <div className="grid h-12 w-12 place-items-center rounded-2xl bg-white shadow-sm">

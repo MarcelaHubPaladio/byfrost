@@ -211,7 +211,9 @@ export function SalesOrderItemsEditorCard(props: { caseId: string; className?: s
         </div>
         <div className="shrink-0 text-right">
           <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Total</div>
-          <div className="text-lg font-semibold text-slate-900">{moneyPtBr(grandTotal)}</div>
+          <div className="text-lg font-semibold tabular-nums text-slate-900 whitespace-nowrap">
+            {moneyPtBr(grandTotal)}
+          </div>
         </div>
       </div>
 
@@ -223,12 +225,12 @@ export function SalesOrderItemsEditorCard(props: { caseId: string; className?: s
 
       <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200">
         {/* Header (desktop) */}
-        <div className="hidden grid-cols-12 gap-2 bg-slate-50 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-600 sm:grid">
-          <div className="col-span-2">ID</div>
-          <div className="col-span-5">Descrição</div>
-          <div className="col-span-2 text-right">Quant</div>
-          <div className="col-span-2 text-right">Valor Unit.</div>
-          <div className="col-span-1 text-right">Total</div>
+        <div className="hidden grid-cols-[120px_1fr_92px_140px_140px] gap-2 bg-slate-50 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-600 sm:grid">
+          <div>ID</div>
+          <div>Descrição</div>
+          <div className="text-right">Quant</div>
+          <div className="text-right">Valor Unit.</div>
+          <div className="text-right">Total</div>
         </div>
 
         <div className="divide-y divide-slate-200 bg-white">
@@ -264,7 +266,7 @@ export function SalesOrderItemsEditorCard(props: { caseId: string; className?: s
                             prev.map((x) => (x.line_no === row.line_no ? { ...x, qty: e.target.value } : x))
                           )
                         }
-                        className="mt-1 h-10 rounded-2xl text-right"
+                        className="mt-1 h-10 rounded-2xl text-right tabular-nums"
                         inputMode="decimal"
                         placeholder="1"
                       />
@@ -295,14 +297,14 @@ export function SalesOrderItemsEditorCard(props: { caseId: string; className?: s
                             prev.map((x) => (x.line_no === row.line_no ? { ...x, price: e.target.value } : x))
                           )
                         }
-                        className="mt-1 h-10 rounded-2xl text-right"
+                        className="mt-1 h-10 rounded-2xl text-right tabular-nums"
                         inputMode="decimal"
                         placeholder="0,00"
                       />
                     </div>
                     <div>
                       <Label className="text-[11px] text-slate-600">Total</Label>
-                      <div className="mt-1 flex h-10 items-center justify-end rounded-2xl border border-slate-200 bg-slate-50 px-3 text-sm font-semibold text-slate-900">
+                      <div className="mt-1 flex h-10 items-center justify-end rounded-2xl border border-slate-200 bg-slate-50 px-3 text-sm font-semibold tabular-nums text-slate-900 whitespace-nowrap">
                         {moneyPtBr(total)}
                       </div>
                     </div>
@@ -322,8 +324,8 @@ export function SalesOrderItemsEditorCard(props: { caseId: string; className?: s
                 </div>
 
                 {/* Desktop/table layout */}
-                <div className="hidden grid-cols-12 items-start gap-2 sm:grid">
-                  <div className="col-span-2">
+                <div className="hidden grid-cols-[120px_1fr_92px_140px_140px] items-start gap-2 sm:grid">
+                  <div>
                     <Input
                       value={row.code}
                       onChange={(e) =>
@@ -335,7 +337,7 @@ export function SalesOrderItemsEditorCard(props: { caseId: string; className?: s
                       placeholder="12345"
                     />
                   </div>
-                  <div className="col-span-5">
+                  <div>
                     <Input
                       value={row.description}
                       onChange={(e) =>
@@ -347,7 +349,7 @@ export function SalesOrderItemsEditorCard(props: { caseId: string; className?: s
                       placeholder="Descrição do item"
                     />
                   </div>
-                  <div className="col-span-2">
+                  <div>
                     <Input
                       value={row.qty}
                       onChange={(e) =>
@@ -355,12 +357,12 @@ export function SalesOrderItemsEditorCard(props: { caseId: string; className?: s
                           prev.map((x) => (x.line_no === row.line_no ? { ...x, qty: e.target.value } : x))
                         )
                       }
-                      className="h-10 rounded-2xl text-right"
+                      className="h-10 rounded-2xl text-right tabular-nums"
                       inputMode="decimal"
                       placeholder="1"
                     />
                   </div>
-                  <div className="col-span-2">
+                  <div>
                     <Input
                       value={row.price}
                       onChange={(e) =>
@@ -368,18 +370,18 @@ export function SalesOrderItemsEditorCard(props: { caseId: string; className?: s
                           prev.map((x) => (x.line_no === row.line_no ? { ...x, price: e.target.value } : x))
                         )
                       }
-                      className="h-10 rounded-2xl text-right"
+                      className="h-10 rounded-2xl text-right tabular-nums"
                       inputMode="decimal"
                       placeholder="0,00"
                     />
                   </div>
-                  <div className="col-span-1 flex items-start justify-end gap-2">
-                    <div className="mt-1.5 text-right text-sm font-semibold text-slate-900">
+                  <div className="flex items-start justify-end">
+                    <div className="mt-1.5 text-right text-sm font-semibold tabular-nums text-slate-900 whitespace-nowrap">
                       {moneyPtBr(total)}
                     </div>
                   </div>
 
-                  <div className="col-span-12 flex justify-end">
+                  <div className="col-span-5 flex justify-end">
                     <Button
                       type="button"
                       variant="secondary"

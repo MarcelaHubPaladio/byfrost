@@ -218,6 +218,14 @@ serve(async (req) => {
     // Case creation flow (MVP)
     let caseId: string | null = null;
 
+    // Debug payload to help you validate what happened
+    const debug: any = {
+      journey: { journeyId, journeyKey: journeyKey || "(default: sales_order)" },
+      ocr: { attempted: false, ok: false, error: null as string | null },
+      created: { pendencies: 0, case_fields: 0, attachments: 0, timeline: 0, wa_messages: 0 },
+      notes: [] as string[],
+    };
+
     if (type === "image") {
       const { data: createdCase, error: cErr } = await supabase
         .from("cases")
@@ -248,134 +256,203 @@ serve(async (req) => {
       caseId = createdCase.id;
 
       // Persist inbound (linked to case)
-      await supabase.from("wa_messages").insert({
-        tenant_id: tenantId,
-        instance_id: instanceId,
-        case_id: caseId,
-        direction: "inbound",
-        from_phone: from,
-        to_phone: to,
-        type: type === "image" ? "image" : type === "audio" ? "audio" : type === "location" ? "location" : "text",
-        body_text: text,
-        media_url: mediaUrl,
-        payload_json: body,
-        correlation_id: correlationId,
-        occurred_at: new Date().toISOString(),
-      });
+      {
+        const { error: wErr } = await supabase.from("wa_messages").insert({
+          tenant_id: tenantId,
+          instance_id: instanceId,
+          case_id: caseId,
+          direction: "inbound",
+          from_phone: from,
+          to_phone: to,
+          type: type === "image" ? "image" : type === "audio" ? "audio" : type === "location" ? "location" : "text",
+          body_text: text,
+          media_url: mediaUrl,
+          payload_json: body,
+          correlation_id: correlationId,
+          occurred_at: new Date().toISOString(),
+        });
+        if (wErr) {
+          console.error(`[${fn}] Failed to insert inbound wa_message`, { wErr });
+          debug.notes.push("Failed to insert inbound wa_message");
+        } else {
+          debug.created.wa_messages += 1;
+        }
+      }
 
       // attachment (URL-based) or placeholder (inline base64)
       if (mediaUrl) {
-        await supabase.from("case_attachments").insert({
-          tenant_id: tenantId,
+        const { error: aErr } = await supabase.from("case_attachments").insert({
           case_id: caseId,
           kind: "image",
           storage_path: mediaUrl,
           meta_json: { source: "simulator" },
         });
+        if (aErr) {
+          console.error(`[${fn}] Failed to insert case_attachment`, { aErr });
+          debug.notes.push("Failed to insert case_attachment (mediaUrl)");
+        } else {
+          debug.created.attachments += 1;
+        }
       } else if (mediaBase64) {
-        await supabase.from("case_attachments").insert({
-          tenant_id: tenantId,
+        const { error: aErr } = await supabase.from("case_attachments").insert({
           case_id: caseId,
           kind: "image",
           storage_path: `inline://simulator/${correlationId}`,
           meta_json: { source: "simulator", inline_base64: true, note: "inline image not stored" },
         });
+        if (aErr) {
+          console.error(`[${fn}] Failed to insert case_attachment`, { aErr });
+          debug.notes.push("Failed to insert case_attachment (mediaBase64)");
+        } else {
+          debug.created.attachments += 1;
+        }
       }
 
-      await supabase.from("pendencies").insert([
-        {
-          tenant_id: tenantId,
-          case_id: caseId,
-          type: "need_location",
-          assigned_to_role: "vendor",
-          question_text: "Envie sua localização (WhatsApp: Compartilhar localização). Sem isso não conseguimos registrar o pedido.",
-          required: true,
-          status: "open",
-          due_at: new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString(),
-        },
-        {
-          tenant_id: tenantId,
-          case_id: caseId,
-          type: "need_more_pages",
-          assigned_to_role: "vendor",
-          question_text: "Tem mais alguma folha desse pedido? Se sim, envie as próximas fotos. Se não, responda: última folha.",
-          required: false,
-          status: "open",
-          due_at: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
-        },
-      ]);
+      // IMPORTANT: pendencies table is keyed by case_id (no tenant_id column)
+      {
+        const { error: pErr } = await supabase.from("pendencies").insert([
+          {
+            case_id: caseId,
+            type: "need_location",
+            assigned_to_role: "vendor",
+            question_text: "Envie sua localização (WhatsApp: Compartilhar localização). Sem isso não conseguimos registrar o pedido.",
+            required: true,
+            status: "open",
+            due_at: new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString(),
+          },
+          {
+            case_id: caseId,
+            type: "need_more_pages",
+            assigned_to_role: "vendor",
+            question_text: "Tem mais alguma folha desse pedido? Se sim, envie as próximas fotos. Se não, responda: última folha.",
+            required: false,
+            status: "open",
+            due_at: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+          },
+        ]);
+        if (pErr) {
+          console.error(`[${fn}] Failed to insert pendencies`, { pErr });
+          debug.notes.push("Failed to insert pendencies");
+        } else {
+          debug.created.pendencies += 2;
+        }
+      }
 
-      await supabase.from("timeline_events").insert({
-        tenant_id: tenantId,
-        case_id: caseId,
-        event_type: "sim_inbound_image",
-        actor_type: "vendor",
-        actor_id: vendorId,
-        message: "Simulador: foto do pedido recebida.",
-        meta_json: { correlation_id: correlationId },
-        occurred_at: new Date().toISOString(),
-      });
+      {
+        const { error: tErr } = await supabase.from("timeline_events").insert({
+          tenant_id: tenantId,
+          case_id: caseId,
+          event_type: "sim_inbound_image",
+          actor_type: "vendor",
+          actor_id: vendorId,
+          message: "Simulador: foto do pedido recebida.",
+          meta_json: { correlation_id: correlationId },
+          occurred_at: new Date().toISOString(),
+        });
+        if (tErr) {
+          console.error(`[${fn}] Failed to insert timeline event`, { tErr });
+          debug.notes.push("Failed to insert timeline event");
+        } else {
+          debug.created.timeline += 1;
+        }
+      }
 
       // OCR + extraction + validation (inline)
       if (mediaUrl || mediaBase64) {
+        debug.ocr.attempted = true;
         const ocr = await runOcrGoogleVision({ imageUrl: mediaUrl, imageBase64: mediaBase64 });
         if (ocr.ok) {
-          await supabase.from("case_fields").upsert({
-            tenant_id: tenantId,
-            case_id: caseId,
-            key: "ocr_text",
-            value_text: ocr.text,
-            confidence: 0.85,
-            source: "ocr",
-            last_updated_by: "ocr_agent",
-          });
+          debug.ocr.ok = true;
+
+          // case_fields table is keyed by case_id (no tenant_id column)
+          {
+            const { error: fErr } = await supabase.from("case_fields").upsert({
+              case_id: caseId,
+              key: "ocr_text",
+              value_text: ocr.text,
+              confidence: 0.85,
+              source: "ocr",
+              last_updated_by: "ocr_agent",
+            });
+            if (fErr) {
+              console.error(`[${fn}] Failed to upsert case_field ocr_text`, { fErr });
+              debug.notes.push("Failed to upsert case_field ocr_text");
+            } else {
+              debug.created.case_fields += 1;
+            }
+          }
+
           const extracted = extractFieldsFromText(ocr.text);
 
           const upserts: any[] = [];
           if (extracted.name)
-            upserts.push({ tenant_id: tenantId, case_id: caseId, key: "name", value_text: extracted.name, confidence: 0.7, source: "ocr", last_updated_by: "extract" });
+            upserts.push({ case_id: caseId, key: "name", value_text: extracted.name, confidence: 0.7, source: "ocr", last_updated_by: "extract" });
           if (extracted.cpf)
-            upserts.push({ tenant_id: tenantId, case_id: caseId, key: "cpf", value_text: extracted.cpf, confidence: extracted.cpf.length === 11 ? 0.8 : 0.4, source: "ocr", last_updated_by: "extract" });
+            upserts.push({ case_id: caseId, key: "cpf", value_text: extracted.cpf, confidence: extracted.cpf.length === 11 ? 0.8 : 0.4, source: "ocr", last_updated_by: "extract" });
           if (extracted.rg)
-            upserts.push({ tenant_id: tenantId, case_id: caseId, key: "rg", value_text: extracted.rg, confidence: extracted.rg.length >= 7 ? 0.7 : 0.4, source: "ocr", last_updated_by: "extract" });
+            upserts.push({ case_id: caseId, key: "rg", value_text: extracted.rg, confidence: extracted.rg.length >= 7 ? 0.7 : 0.4, source: "ocr", last_updated_by: "extract" });
           if (extracted.birth_date_text)
-            upserts.push({ tenant_id: tenantId, case_id: caseId, key: "birth_date_text", value_text: extracted.birth_date_text, confidence: 0.65, source: "ocr", last_updated_by: "extract" });
+            upserts.push({ case_id: caseId, key: "birth_date_text", value_text: extracted.birth_date_text, confidence: 0.65, source: "ocr", last_updated_by: "extract" });
           if (extracted.phone_raw)
-            upserts.push({ tenant_id: tenantId, case_id: caseId, key: "phone", value_text: extracted.phone_raw, confidence: 0.65, source: "ocr", last_updated_by: "extract" });
+            upserts.push({ case_id: caseId, key: "phone", value_text: extracted.phone_raw, confidence: 0.65, source: "ocr", last_updated_by: "extract" });
           if (extracted.total_raw)
-            upserts.push({ tenant_id: tenantId, case_id: caseId, key: "total_raw", value_text: extracted.total_raw, confidence: 0.6, source: "ocr", last_updated_by: "extract" });
-          upserts.push({ tenant_id: tenantId, case_id: caseId, key: "signature_present", value_text: extracted.signaturePresent ? "yes" : "no", confidence: 0.5, source: "ocr", last_updated_by: "extract" });
+            upserts.push({ case_id: caseId, key: "total_raw", value_text: extracted.total_raw, confidence: 0.6, source: "ocr", last_updated_by: "extract" });
+          upserts.push({ case_id: caseId, key: "signature_present", value_text: extracted.signaturePresent ? "yes" : "no", confidence: 0.5, source: "ocr", last_updated_by: "extract" });
 
-          if (upserts.length) await supabase.from("case_fields").upsert(upserts);
+          if (upserts.length) {
+            const { error: fuErr } = await supabase.from("case_fields").upsert(upserts);
+            if (fuErr) {
+              console.error(`[${fn}] Failed to upsert extracted case_fields`, { fuErr });
+              debug.notes.push("Failed to upsert extracted case_fields");
+            } else {
+              debug.created.case_fields += upserts.length;
+            }
+          }
+        } else {
+          debug.ocr.ok = false;
+          debug.ocr.error = ocr.error;
+          console.warn(`[${fn}] OCR failed`, { error: ocr.error });
         }
       }
 
       // apply location if provided
       if (location) {
-        await supabase.from("case_fields").upsert({
-          tenant_id: tenantId,
-          case_id: caseId,
-          key: "location",
-          value_json: location,
-          value_text: `${location.lat},${location.lng}`,
-          confidence: 1,
-          source: "vendor",
-          last_updated_by: "simulator",
-        });
+        {
+          const { error: lErr } = await supabase.from("case_fields").upsert({
+            case_id: caseId,
+            key: "location",
+            value_json: location,
+            value_text: `${location.lat},${location.lng}`,
+            confidence: 1,
+            source: "vendor",
+            last_updated_by: "simulator",
+          });
+          if (lErr) {
+            console.error(`[${fn}] Failed to upsert case_field location`, { lErr });
+            debug.notes.push("Failed to upsert case_field location");
+          } else {
+            debug.created.case_fields += 1;
+          }
+        }
+
         await supabase
           .from("pendencies")
           .update({ status: "answered", answered_text: "Localização enviada", answered_payload_json: location })
-          .eq("tenant_id", tenantId)
           .eq("case_id", caseId)
           .eq("type", "need_location");
       }
 
       // Validate
-      const { data: fields } = await supabase
+      const { data: fields, error: fieldsErr } = await supabase
         .from("case_fields")
         .select("key, value_text, value_json")
-        .eq("tenant_id", tenantId)
         .eq("case_id", caseId);
+
+      if (fieldsErr) {
+        console.error(`[${fn}] Failed to read case_fields for validation`, { fieldsErr });
+        debug.notes.push("Failed to read case_fields for validation");
+      }
+
       const fm = new Map<string, any>();
       for (const f of fields ?? []) fm.set(f.key, f.value_text ?? f.value_json);
 
@@ -388,19 +465,23 @@ serve(async (req) => {
       if (!fm.get("location")) missing.push("localizacao");
 
       // Outbox preview (pendency list)
-      const { data: pends } = await supabase
+      const { data: pends, error: pendsErr } = await supabase
         .from("pendencies")
         .select("question_text, required")
-        .eq("tenant_id", tenantId)
         .eq("case_id", caseId)
         .eq("assigned_to_role", "vendor")
         .eq("status", "open")
         .order("created_at", { ascending: true });
 
+      if (pendsErr) {
+        console.error(`[${fn}] Failed to load pendencies for outbox preview`, { pendsErr });
+        debug.notes.push("Failed to load pendencies for outbox preview");
+      }
+
       if (pends?.length) {
         const list = pends.map((p, i) => `${i + 1}) ${p.question_text}${p.required ? "" : " (opcional)"}`).join("\n");
         const msg = `Byfrost.ia — Pendências do pedido:\n\n${list}`;
-        await supabase.from("wa_messages").insert({
+        const { error: oErr } = await supabase.from("wa_messages").insert({
           tenant_id: tenantId,
           instance_id: instanceId,
           case_id: caseId,
@@ -413,6 +494,12 @@ serve(async (req) => {
           correlation_id: correlationId,
           occurred_at: new Date().toISOString(),
         });
+        if (oErr) {
+          console.error(`[${fn}] Failed to insert outbound wa_message`, { oErr });
+          debug.notes.push("Failed to insert outbound wa_message");
+        } else {
+          debug.created.wa_messages += 1;
+        }
       }
 
       await supabase.rpc("append_audit_ledger", {
@@ -445,9 +532,12 @@ serve(async (req) => {
       .eq("correlation_id", correlationId)
       .order("occurred_at", { ascending: true });
 
-    return new Response(JSON.stringify({ ok: true, correlationId, caseId, instanceId, journeyId, outbox: outbox ?? [] }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return new Response(
+      JSON.stringify({ ok: true, correlationId, caseId, instanceId, journeyId, outbox: outbox ?? [], debug }),
+      {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      }
+    );
   } catch (e) {
     console.error(`[simulator-whatsapp] Unhandled error`, { e });
     return new Response("Internal error", { status: 500, headers: corsHeaders });

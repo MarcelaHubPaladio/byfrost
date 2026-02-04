@@ -549,16 +549,34 @@ serve(async (req) => {
 
     const lookupInstanceByZapiId = async (zapiInstanceId: string | null) => {
       if (!zapiInstanceId) return null;
+
+      // IMPORTANT: We cannot use maybeSingle() here because, in the real world, it's common to
+      // accidentally have duplicated rows (e.g. one deleted row + one active row) sharing the same
+      // zapi_instance_id. We'll pick the most recently updated ACTIVE row.
       const { data, error } = await supabase
         .from("wa_instances")
-        .select("id, tenant_id, name, webhook_secret, default_journey_id, phone_number, assigned_user_id")
+        .select("id, tenant_id, name, webhook_secret, default_journey_id, phone_number, assigned_user_id, status, deleted_at, updated_at")
         .eq("zapi_instance_id", zapiInstanceId)
-        .maybeSingle();
+        .eq("status", "active")
+        .is("deleted_at", null)
+        .order("updated_at", { ascending: false })
+        .limit(2);
+
       if (error) {
         console.error(`[${fn}] Failed to load wa_instance`, { error });
         return null;
       }
-      return data as any;
+
+      const rows = (data as any[]) ?? [];
+      if (rows.length > 1) {
+        console.warn(`[${fn}] Duplicate wa_instances rows for zapi_instance_id (using the latest)`, {
+          zapi_instance_id: zapiInstanceId,
+          picked_instance_id: rows[0]?.id,
+          other_instance_id: rows[1]?.id,
+        });
+      }
+
+      return rows?.[0] ?? null;
     };
 
     const logInboxLite = async (args: {

@@ -136,8 +136,6 @@ export function NewSalesOrderDialog(props: {
     if (!open) return;
     if (draftCreated) return;
 
-    // Only create draft if user intends to use manual tab.
-    // (If they switch to OCR, we keep it but will delete if OCR is submitted.)
     setSaving(true);
     createDraftCase()
       .then((id) => {
@@ -183,10 +181,6 @@ export function NewSalesOrderDialog(props: {
   const finalizeManual = async () => {
     if (!draftCaseId) return;
 
-    // Required set (same cards as the opened case):
-    // - customer data saved into case_fields
-    // - at least 1 item saved into case_items
-    // - payment format (we treat payment_terms as required)
     const fields = fieldsQ.data ?? [];
     const name = getField(fields, "name").trim();
     const phone = getField(fields, "phone").trim();
@@ -360,8 +354,14 @@ export function NewSalesOrderDialog(props: {
         onOpenChange(v);
       }}
     >
-      <DialogContent className="w-[95vw] max-w-[980px] rounded-[24px] border-slate-200 bg-white p-0 shadow-xl">
-        <div className="p-5">
+      <DialogContent
+        className={cn(
+          "w-[95vw] max-w-[980px] rounded-[24px] border-slate-200 bg-white p-0 shadow-xl",
+          // Keep centered but guarantee scrolling on small screens
+          "max-h-[90vh] overflow-hidden"
+        )}
+      >
+        <div className="max-h-[90vh] overflow-y-auto p-5">
           <DialogHeader>
             <DialogTitle className="text-base font-semibold text-slate-900">Novo pedido</DialogTitle>
             <DialogDescription className="text-sm text-slate-600">

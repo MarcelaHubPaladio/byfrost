@@ -59,6 +59,84 @@ async function runOcrGoogleVision(input: { imageUrl?: string | null; imageBase64
   return { ok: true as const, text: annotation?.text ?? "", raw: json?.responses?.[0] ?? json };
 }
 
+async function ensureSalesOrderJourney(supabase: ReturnType<typeof createSupabaseAdmin>) {
+  const fn = "simulator-whatsapp";
+
+  // 1) Try to find the expected seeded journey
+  const { data: journeyExisting, error: jErr } = await supabase
+    .from("journeys")
+    .select("id")
+    .eq("key", "sales_order")
+    .maybeSingle();
+
+  if (jErr) {
+    console.error(`[${fn}] Failed to query journeys`, { jErr });
+  }
+
+  if (journeyExisting?.id) return journeyExisting.id as string;
+
+  // 2) If missing (db without seeds), recreate minimal catalog rows so simulator can run.
+  console.warn(`[${fn}] Journey sales_order missing; attempting to (re)seed minimal catalog rows`);
+
+  let sectorId: string | null = null;
+  const { data: sector } = await supabase.from("sectors").select("id").eq("name", "Vendas").maybeSingle();
+  sectorId = sector?.id ?? null;
+
+  if (!sectorId) {
+    const { data: createdSector, error: sErr } = await supabase
+      .from("sectors")
+      .insert({ name: "Vendas", description: "Templates para fluxos de vendas" })
+      .select("id")
+      .single();
+
+    if (sErr || !createdSector?.id) {
+      console.error(`[${fn}] Failed to create sector Vendas`, { sErr });
+      return null;
+    }
+
+    sectorId = createdSector.id;
+  }
+
+  const defaultStateMachine = {
+    states: [
+      "new",
+      "awaiting_ocr",
+      "awaiting_location",
+      "pending_vendor",
+      "ready_for_review",
+      "confirmed",
+      "in_separation",
+      "in_route",
+      "delivered",
+      "finalized",
+    ],
+    default: "new",
+  };
+
+  const { data: createdJourney, error: cjErr } = await supabase
+    .from("journeys")
+    .upsert(
+      {
+        sector_id: sectorId,
+        key: "sales_order",
+        name: "Pedido (WhatsApp + Foto)",
+        description: "Captura de pedido por foto com OCR e pendências",
+        default_state_machine_json: defaultStateMachine,
+      },
+      { onConflict: "sector_id,key" }
+    )
+    .select("id")
+    .single();
+
+  if (cjErr || !createdJourney?.id) {
+    console.error(`[${fn}] Failed to upsert journey sales_order`, { cjErr });
+    return null;
+  }
+
+  console.log(`[${fn}] Seeded journey sales_order`, { journeyId: createdJourney.id });
+  return createdJourney.id as string;
+}
+
 serve(async (req) => {
   const fn = "simulator-whatsapp";
   try {
@@ -109,8 +187,8 @@ serve(async (req) => {
       vendorId = createdVendor?.id ?? null;
     }
 
-    const { data: journeyRow } = await supabase.from("journeys").select("id").eq("key", "sales_order").maybeSingle();
-    if (!journeyRow?.id) {
+    const journeyId = await ensureSalesOrderJourney(supabase);
+    if (!journeyId) {
       return new Response(JSON.stringify({ ok: false, error: "Journey sales_order missing" }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -125,7 +203,7 @@ serve(async (req) => {
         .from("cases")
         .insert({
           tenant_id: tenantId,
-          journey_id: journeyRow.id,
+          journey_id: journeyId,
           case_type: "order",
           status: "in_progress",
           state: "awaiting_ocr",

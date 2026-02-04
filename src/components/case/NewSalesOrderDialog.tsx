@@ -1,6 +1,6 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Dialog,
   DialogContent,
@@ -12,15 +12,25 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
-import { showError } from "@/utils/toast";
-import { Image as ImageIcon, ScanText, UserPlus } from "lucide-react";
+import { showError, showSuccess } from "@/utils/toast";
+import { Image as ImageIcon, ScanText, UserPlus, ArrowRight } from "lucide-react";
+import { CaseCustomerDataEditorCard } from "@/components/case/CaseCustomerDataEditorCard";
+import { SalesOrderItemsEditorCard } from "@/components/case/SalesOrderItemsEditorCard";
 
 const SIM_URL = "https://pryoirzeghatrgecwrci.supabase.co/functions/v1/simulator-whatsapp";
 
 type OcrProvider = "google_vision" | "google_document_ai";
+
+type CaseFieldRow = {
+  key: string;
+  value_text: string | null;
+  value_json?: any;
+  confidence?: number | null;
+  source?: string | null;
+  updated_at?: string;
+};
 
 async function fileToBase64(file: File) {
   const buf = await file.arrayBuffer();
@@ -38,6 +48,10 @@ function cleanOrNull(s: string) {
   return v ? v : null;
 }
 
+function getField(fields: CaseFieldRow[] | undefined, key: string) {
+  return (fields ?? []).find((f) => f.key === key)?.value_text ?? "";
+}
+
 export function NewSalesOrderDialog(props: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -50,35 +64,28 @@ export function NewSalesOrderDialog(props: {
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  // ------------------
-  // Manual
-  // ------------------
-  const [manualName, setManualName] = useState("");
-  const [manualPhone, setManualPhone] = useState("");
-  const [manualTitle, setManualTitle] = useState("");
-  const [manualNotes, setManualNotes] = useState("");
+  const [tab, setTab] = useState<"manual" | "ocr">("manual");
+  const [saving, setSaving] = useState(false);
 
-  // ------------------
+  // Manual mode: create a draft case so we can reuse the same editor cards
+  // (dados do cliente + itens + financeiro) as in the opened case.
+  const [draftCaseId, setDraftCaseId] = useState<string | null>(null);
+  const [draftCreated, setDraftCreated] = useState(false);
+  const [finalized, setFinalized] = useState(false);
+
   // OCR
-  // ------------------
   const [ocrProvider, setOcrProvider] = useState<OcrProvider>("google_document_ai");
   const [ocrBase64, setOcrBase64] = useState<string>("");
   const [ocrMimeType, setOcrMimeType] = useState<string>("image/jpeg");
   const [ocrPreviewUrl, setOcrPreviewUrl] = useState<string>("");
   const [readingImage, setReadingImage] = useState(false);
 
-  const [tab, setTab] = useState<"manual" | "ocr">("manual");
-  const [saving, setSaving] = useState(false);
-
-  const canCreateManual = Boolean(cleanOrNull(manualName) || cleanOrNull(manualPhone));
   const canRunOcr = Boolean(ocrBase64);
 
-  const resetAll = () => {
-    setManualName("");
-    setManualPhone("");
-    setManualTitle("");
-    setManualNotes("");
+  const resetLocal = () => {
+    setTab("manual");
 
+    setOcrProvider("google_document_ai");
     setOcrBase64("");
     setOcrMimeType("image/jpeg");
     setOcrPreviewUrl((prev) => {
@@ -87,8 +94,162 @@ export function NewSalesOrderDialog(props: {
     });
     if (fileInputRef.current) fileInputRef.current.value = "";
 
-    setTab("manual");
-    setOcrProvider("google_document_ai");
+    setDraftCaseId(null);
+    setDraftCreated(false);
+    setFinalized(false);
+  };
+
+  const createDraftCase = async () => {
+    if (!tenantId || !journeyId) return null;
+
+    const { data: created, error } = await supabase
+      .from("cases")
+      .insert({
+        tenant_id: tenantId,
+        journey_id: journeyId,
+        case_type: "sales_order",
+        status: "open",
+        state: "new",
+        created_by_channel: "panel",
+        title: "Pedido (rascunho)",
+        meta_json: { created_from: "sales_order_new", mode: "manual", draft: true },
+      })
+      .select("id")
+      .single();
+
+    if (error) throw error;
+    const id = String((created as any)?.id ?? "");
+    if (!id) throw new Error("Falha ao criar rascunho.");
+    return id;
+  };
+
+  const softDeleteCase = async (caseId: string) => {
+    await supabase
+      .from("cases")
+      .update({ deleted_at: new Date().toISOString() })
+      .eq("tenant_id", tenantId)
+      .eq("id", caseId);
+  };
+
+  // When opening dialog, prepare a draft case for manual entry.
+  useEffect(() => {
+    if (!open) return;
+    if (draftCreated) return;
+
+    // Only create draft if user intends to use manual tab.
+    // (If they switch to OCR, we keep it but will delete if OCR is submitted.)
+    setSaving(true);
+    createDraftCase()
+      .then((id) => {
+        setDraftCaseId(id);
+        setDraftCreated(true);
+      })
+      .catch((e: any) => {
+        showError(`Falha ao preparar rascunho: ${e?.message ?? "erro"}`);
+      })
+      .finally(() => setSaving(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  const fieldsQ = useQuery({
+    queryKey: ["case_fields", tenantId, draftCaseId],
+    enabled: Boolean(open && tenantId && draftCaseId),
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("case_fields")
+        .select("key,value_text,value_json,confidence,source,updated_at")
+        .eq("case_id", draftCaseId!)
+        .limit(3000);
+      if (error) throw error;
+      return (data ?? []) as any as CaseFieldRow[];
+    },
+  });
+
+  const itemsCountQ = useQuery({
+    queryKey: ["case_items_count", draftCaseId],
+    enabled: Boolean(open && draftCaseId),
+    queryFn: async () => {
+      // Cheap count: fetch 1 row only.
+      const { data, error } = await supabase
+        .from("case_items")
+        .select("id")
+        .eq("case_id", draftCaseId!)
+        .limit(1);
+      if (error) throw error;
+      return (data ?? []).length;
+    },
+  });
+
+  const finalizeManual = async () => {
+    if (!draftCaseId) return;
+
+    // Required set (same cards as the opened case):
+    // - customer data saved into case_fields
+    // - at least 1 item saved into case_items
+    // - payment format (we treat payment_terms as required)
+    const fields = fieldsQ.data ?? [];
+    const name = getField(fields, "name").trim();
+    const phone = getField(fields, "phone").trim();
+    const paymentTerms = getField(fields, "payment_terms").trim();
+
+    if (!name && !phone) {
+      showError('Preencha "Nome" ou "Telefone" e clique em "Salvar dados".');
+      return;
+    }
+
+    if (!paymentTerms) {
+      showError('Preencha "Condições de pagamento" e clique em "Salvar dados".');
+      return;
+    }
+
+    const hasItems = (itemsCountQ.data ?? 0) > 0;
+    if (!hasItems) {
+      showError('Adicione ao menos 1 item e clique em "Salvar itens".');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const title = name || phone || "Pedido";
+
+      const { data: cRow } = await supabase
+        .from("cases")
+        .select("meta_json")
+        .eq("tenant_id", tenantId)
+        .eq("id", draftCaseId)
+        .maybeSingle();
+
+      const meta = (cRow as any)?.meta_json ?? {};
+
+      const { error } = await supabase
+        .from("cases")
+        .update({
+          title,
+          meta_json: { ...meta, draft: false, finalized_at: new Date().toISOString() },
+        })
+        .eq("tenant_id", tenantId)
+        .eq("id", draftCaseId);
+
+      if (error) throw error;
+
+      setFinalized(true);
+
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["cases_by_tenant", tenantId] }),
+        qc.invalidateQueries({ queryKey: ["case", tenantId, draftCaseId] }),
+        qc.invalidateQueries({ queryKey: ["case_fields", tenantId, draftCaseId] }),
+        qc.invalidateQueries({ queryKey: ["case_items", draftCaseId] }),
+      ]);
+
+      showSuccess("Pedido aberto.");
+
+      onOpenChange(false);
+      nav(`/app/cases/${draftCaseId}`);
+    } catch (e: any) {
+      showError(`Falha ao abrir pedido: ${e?.message ?? "erro"}`);
+    } finally {
+      setSaving(false);
+    }
   };
 
   const onPickImage = async (file?: File | null) => {
@@ -117,75 +278,6 @@ export function NewSalesOrderDialog(props: {
     }
   };
 
-  const createManual = async () => {
-    if (!tenantId || !journeyId) return;
-    if (!canCreateManual) {
-      showError("Preencha ao menos Nome ou Telefone.");
-      return;
-    }
-
-    setSaving(true);
-    try {
-      const title = cleanOrNull(manualTitle) ?? cleanOrNull(manualName) ?? "Pedido (manual)";
-
-      const { data: created, error } = await supabase
-        .from("cases")
-        .insert({
-          tenant_id: tenantId,
-          journey_id: journeyId,
-          case_type: "sales_order",
-          status: "open",
-          state: "new",
-          created_by_channel: "panel",
-          title,
-          meta_json: { created_from: "sales_order_new", mode: "manual" },
-        })
-        .select("id")
-        .single();
-
-      if (error) throw error;
-      const caseId = String((created as any)?.id ?? "");
-      if (!caseId) throw new Error("Falha ao criar case.");
-
-      const fields = [
-        { key: "name", value_text: cleanOrNull(manualName) },
-        { key: "phone", value_text: cleanOrNull(manualPhone) },
-        { key: "obs", value_text: cleanOrNull(manualNotes) },
-      ].filter((f) => f.value_text !== null);
-
-      if (fields.length) {
-        const { error: fErr } = await supabase
-          .from("case_fields")
-          .upsert(
-            fields.map((f) => ({
-              case_id: caseId,
-              key: f.key,
-              value_text: f.value_text,
-              confidence: 1,
-              source: "admin",
-              last_updated_by: "panel",
-            })) as any,
-            { onConflict: "case_id,key" }
-          );
-        if (fErr) throw fErr;
-      }
-
-      await Promise.all([
-        qc.invalidateQueries({ queryKey: ["cases_by_tenant", tenantId] }),
-        qc.invalidateQueries({ queryKey: ["case", tenantId, caseId] }),
-        qc.invalidateQueries({ queryKey: ["case_fields", tenantId, caseId] }),
-      ]);
-
-      onOpenChange(false);
-      resetAll();
-      nav(`/app/cases/${caseId}`);
-    } catch (e: any) {
-      showError(`Falha ao criar pedido manual: ${e?.message ?? "erro"}`);
-    } finally {
-      setSaving(false);
-    }
-  };
-
   const runOcr = async () => {
     if (!tenantId) return;
     if (!canRunOcr) {
@@ -195,10 +287,16 @@ export function NewSalesOrderDialog(props: {
 
     setSaving(true);
     try {
+      // If the user created a manual draft but decided to OCR instead, delete the draft.
+      if (draftCaseId && !finalized) {
+        await softDeleteCase(draftCaseId);
+        setDraftCaseId(null);
+        setDraftCreated(false);
+      }
+
       const { data: sess } = await supabase.auth.getSession();
       const token = sess.session?.access_token ?? null;
 
-      // NOTE: simulator requires a valid "from" to map a vendor. We keep a stable default.
       const payload: any = {
         tenantId,
         type: "image",
@@ -233,9 +331,7 @@ export function NewSalesOrderDialog(props: {
         qc.invalidateQueries({ queryKey: ["wa_messages_case", tenantId, caseId] }),
       ]);
 
-      // If it was deduped/merged, simulator already returns the kept caseId.
       onOpenChange(false);
-      resetAll();
       nav(`/app/cases/${caseId}`);
     } catch (e: any) {
       showError(`Falha ao ler imagem: ${e?.message ?? "erro"}`);
@@ -253,17 +349,23 @@ export function NewSalesOrderDialog(props: {
   return (
     <Dialog
       open={open}
-      onOpenChange={(v) => {
+      onOpenChange={async (v) => {
+        if (!v) {
+          // Closing: if draft wasn't finalized, delete it.
+          if (draftCaseId && !finalized) {
+            await softDeleteCase(draftCaseId);
+          }
+          resetLocal();
+        }
         onOpenChange(v);
-        if (!v) resetAll();
       }}
     >
-      <DialogContent className="w-[95vw] max-w-[860px] rounded-[24px] border-slate-200 bg-white p-0 shadow-xl">
+      <DialogContent className="w-[95vw] max-w-[980px] rounded-[24px] border-slate-200 bg-white p-0 shadow-xl">
         <div className="p-5">
           <DialogHeader>
             <DialogTitle className="text-base font-semibold text-slate-900">Novo pedido</DialogTitle>
             <DialogDescription className="text-sm text-slate-600">
-              Crie um pedido manualmente ou envie uma foto para leitura automática (OCR).
+              Abra um pedido manualmente (mesmos campos do case) ou envie uma foto para leitura automática.
             </DialogDescription>
           </DialogHeader>
 
@@ -285,69 +387,45 @@ export function NewSalesOrderDialog(props: {
               </TabsList>
 
               <TabsContent value="manual" className="mt-4">
-                <div className="grid gap-3">
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <div>
-                      <Label className="text-xs">Nome do cliente</Label>
-                      <Input
-                        value={manualName}
-                        onChange={(e) => setManualName(e.target.value)}
-                        className="mt-1 h-10 rounded-2xl"
-                        placeholder="Ex: João da Silva"
-                      />
+                {!draftCaseId ? (
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+                    Preparando rascunho…
+                  </div>
+                ) : (
+                  <div className="grid gap-3">
+                    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+                      Preencha <span className="font-semibold">Dados do cliente</span>, <span className="font-semibold">Financeiro</span>
+                      (Condições de pagamento) e <span className="font-semibold">Itens do pedido</span>. Depois clique em
+                      <span className="font-semibold"> Abrir pedido</span>.
                     </div>
-                    <div>
-                      <Label className="text-xs">Telefone (opcional)</Label>
-                      <Input
-                        value={manualPhone}
-                        onChange={(e) => setManualPhone(e.target.value)}
-                        className="mt-1 h-10 rounded-2xl"
-                        placeholder="Ex: +55..."
-                      />
+
+                    {/* Same cards as the opened sales_order case */}
+                    <CaseCustomerDataEditorCard caseId={draftCaseId} fields={fieldsQ.data as any} />
+                    <SalesOrderItemsEditorCard caseId={draftCaseId} />
+
+                    <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between">
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        className="h-11 rounded-2xl"
+                        onClick={() => onOpenChange(false)}
+                        disabled={saving}
+                      >
+                        Cancelar
+                      </Button>
+
+                      <Button
+                        type="button"
+                        className="h-11 rounded-2xl bg-[hsl(var(--byfrost-accent))] px-5 text-white hover:bg-[hsl(var(--byfrost-accent)/0.92)]"
+                        onClick={finalizeManual}
+                        disabled={saving}
+                        title="Valida se dados/itens foram salvos e abre o case"
+                      >
+                        Abrir pedido <ArrowRight className="ml-2 h-4 w-4" />
+                      </Button>
                     </div>
                   </div>
-
-                  <div>
-                    <Label className="text-xs">Título do pedido (opcional)</Label>
-                    <Input
-                      value={manualTitle}
-                      onChange={(e) => setManualTitle(e.target.value)}
-                      className="mt-1 h-10 rounded-2xl"
-                      placeholder="Ex: Pedido Agroforte"
-                    />
-                    <div className="mt-1 text-[11px] text-slate-500">Se vazio, usamos o nome do cliente.</div>
-                  </div>
-
-                  <div>
-                    <Label className="text-xs">Observações (opcional)</Label>
-                    <Textarea
-                      value={manualNotes}
-                      onChange={(e) => setManualNotes(e.target.value)}
-                      className="mt-1 min-h-[92px] rounded-2xl"
-                      placeholder="Ex: cliente pediu entrega amanhã..."
-                    />
-                  </div>
-
-                  <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-end">
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      className="h-11 rounded-2xl"
-                      onClick={() => onOpenChange(false)}
-                      disabled={saving}
-                    >
-                      Cancelar
-                    </Button>
-                    <Button
-                      type="button"
-                      className="h-11 rounded-2xl bg-[hsl(var(--byfrost-accent))] px-5 text-white hover:bg-[hsl(var(--byfrost-accent)/0.92)]"
-                      onClick={createManual}
-                      disabled={saving || !canCreateManual}
-                    >
-                      {saving ? "Criando…" : "Criar pedido"}
-                    </Button>
-                  </div>
-                </div>
+                )}
               </TabsContent>
 
               <TabsContent value="ocr" className="mt-4">
@@ -378,7 +456,7 @@ export function NewSalesOrderDialog(props: {
                         <div className="min-w-0">
                           <div className="text-sm font-semibold text-slate-900">Leitura automática</div>
                           <div className="mt-1 text-xs text-slate-600">
-                            Envie uma foto; o sistema cria um case e tenta extrair campos/itens.
+                            Envie uma foto; o sistema cria o pedido e extrai campos/itens.
                           </div>
                         </div>
                         <div className="grid h-10 w-10 place-items-center rounded-2xl bg-[hsl(var(--byfrost-accent)/0.12)] text-[hsl(var(--byfrost-accent))]">
@@ -442,7 +520,7 @@ export function NewSalesOrderDialog(props: {
                         </div>
 
                         <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3 text-[11px] text-slate-600">
-                          Se o sistema detectar que é um pedido repetido, ele consolida no case existente e você será direcionado para ele.
+                          Se o sistema detectar que é uma atualização (pedido repetido), ele consolida no case existente e você será direcionado para ele.
                         </div>
                       </div>
                     </div>

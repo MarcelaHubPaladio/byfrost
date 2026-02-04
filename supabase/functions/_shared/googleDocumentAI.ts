@@ -5,6 +5,18 @@ export type DocAIProcessResult = {
   [k: string]: any;
 };
 
+function inferDocAiHostFromProcessorName(processorName: string) {
+  // processorName format: projects/.../locations/<location>/processors/...
+  const m = String(processorName ?? "").match(/\/locations\/([^/]+)\//i);
+  const location = m?.[1] ? String(m[1]).trim() : "";
+
+  // Use regional endpoint whenever we can infer a location.
+  // This avoids 404s that can happen when calling a regional processor via the global host.
+  if (location) return `${location}-documentai.googleapis.com`;
+
+  return "documentai.googleapis.com";
+}
+
 export async function processWithGoogleDocumentAI(input: {
   processorName: string; // full resource name: projects/.../locations/.../processors/...
   serviceAccountJson: string;
@@ -16,7 +28,9 @@ export async function processWithGoogleDocumentAI(input: {
     scopes: ["https://www.googleapis.com/auth/cloud-platform"],
   });
 
-  const endpoint = `https://documentai.googleapis.com/v1/${input.processorName}:process`;
+  const host = inferDocAiHostFromProcessorName(input.processorName);
+  const endpoint = `https://${host}/v1/${input.processorName}:process`;
+
   const payload = {
     rawDocument: {
       content: input.contentBase64,
@@ -35,7 +49,10 @@ export async function processWithGoogleDocumentAI(input: {
 
   const json = (await res.json().catch(() => null)) as DocAIProcessResult | null;
   if (!res.ok || !json) {
-    throw new Error(`Document AI error: ${res.status}`);
+    const errMsg = (json as any)?.error?.message ? String((json as any).error.message) : "";
+    const errStatus = (json as any)?.error?.status ? String((json as any).error.status) : "";
+    const suffix = [errStatus, errMsg].filter(Boolean).join(" - ");
+    throw new Error(`Document AI error: ${res.status}${suffix ? ` (${suffix})` : ""}`);
   }
 
   return json;

@@ -883,6 +883,8 @@ serve(async (req) => {
 
         let ocrText = "";
         let docAiDoc: any = null;
+        let docAiError: string | null = null;
+        let visionError: string | null = null;
 
         try {
           if (ocrProvider === "google_document_ai") {
@@ -894,6 +896,7 @@ serve(async (req) => {
             } else {
               debug.ocr.ok = false;
               debug.ocr.error = da.error;
+              docAiError = da.error;
             }
           } else {
             const v = await runOcrGoogleVision({ imageBase64: content });
@@ -903,11 +906,14 @@ serve(async (req) => {
             } else {
               debug.ocr.ok = false;
               debug.ocr.error = v.error;
+              visionError = v.error;
             }
           }
         } catch (e: any) {
           debug.ocr.ok = false;
           debug.ocr.error = e?.message ?? String(e);
+          if (ocrProvider === "google_document_ai") docAiError = debug.ocr.error;
+          else visionError = debug.ocr.error;
         }
 
         // Fallback: if DocAI fails, run Vision automatically
@@ -918,6 +924,10 @@ serve(async (req) => {
             ocrText = v.text ?? "";
             debug.ocr.ok = true;
             debug.ocr.error = null;
+          } else {
+            visionError = v.error;
+            debug.ocr.ok = false;
+            debug.ocr.error = `DocAI failed (${docAiError ?? "unknown"}); Vision failed (${visionError ?? "unknown"})`;
           }
         }
 

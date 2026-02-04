@@ -18,6 +18,15 @@ function normalizeLine(s: string) {
   return (s ?? "").replace(/\s+/g, " ").trim();
 }
 
+function isMeaningfulValue(s: string | null) {
+  const v = normalizeLine(s ?? "");
+  if (!v) return false;
+  // Avoid punctuation-only artifacts from OCR like "." or ".:"
+  if (/^[\p{P}\p{S}\s]+$/u.test(v)) return false;
+  if (v.length < 2) return false;
+  return true;
+}
+
 function parsePtBrMoneyToNumber(value: string) {
   // "16.029,00" -> 16029.00
   const v = (value ?? "").trim();
@@ -111,7 +120,7 @@ function extractFieldsFromText(text: string) {
   const pickByLineRegex = (re: RegExp) => {
     for (const line of lines) {
       const m = line.match(re);
-      if (m?.[1]) return normalizeLine(m[1]);
+      if (m?.[1] && isMeaningfulValue(m[1])) return normalizeLine(m[1]);
     }
     return null;
   };
@@ -120,8 +129,8 @@ function extractFieldsFromText(text: string) {
     for (const line of lines) {
       if (!label.test(line)) continue;
       const idx = line.search(label);
-      const after = normalizeLine(line.slice(idx).replace(label, "").replace(/^\s*[:\-]?\s*/g, ""));
-      if (after) return after;
+      const after = normalizeLine(line.slice(idx).replace(label, "").replace(/^\s*[:\-\.]?\s*/g, ""));
+      if (isMeaningfulValue(after)) return after;
     }
     return null;
   };
@@ -143,7 +152,8 @@ function extractFieldsFromText(text: string) {
   // ----------------------
   extracted.supplier_name = pickByLineRegex(/\bAGROFORTE\b.*\bLTDA\b\.?/i) ?? "AGROFORTE SOLUÇÕES AGRÍCOLAS LTDA.";
 
-  const supplierCnpj = pickByLineRegex(/\bCNPJ\b\s*[:\-]?\s*([0-9\.\/-]{11,18})/i);
+  // Accept OCR punctuation after CNPJ ("CNPJ." / "CNPJ:" / "CNPJ -")
+  const supplierCnpj = pickByLineRegex(/\bCNPJ\b\s*[\.:\-]?\s*([0-9\.\/-]{11,18})/i);
   extracted.supplier_cnpj = supplierCnpj ? toDigits(supplierCnpj) : null;
 
   const supplierPhone =
@@ -153,14 +163,28 @@ function extractFieldsFromText(text: string) {
     extracted.supplier_phone = m?.[1] ? normalizeLine(m[1]) : null;
   }
 
-  // e.g. "Prudentópolis / PR"
-  extracted.supplier_city_uf = pickByLineRegex(/\b([A-Za-zÀ-ÿ]+)\s*\/\s*([A-Z]{2})\b/) ?? null;
+  // e.g. "Prudentópolis / PR" (return full string)
+  {
+    let cityUf: string | null = null;
+    for (const line of lines) {
+      const m = line.match(/\b([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ\s'.-]{2,})\s*\/\s*([A-Z]{2})\b/);
+      if (m?.[1] && m?.[2]) {
+        const city = normalizeLine(m[1]);
+        const uf = normalizeLine(m[2]);
+        if (isMeaningfulValue(city) && isMeaningfulValue(uf)) {
+          cityUf = `${city} / ${uf}`;
+          break;
+        }
+      }
+    }
+    extracted.supplier_city_uf = cityUf;
+  }
 
   // ----------------------
   // Customer header fields
   // ----------------------
   // Local + Data may appear on same line
-  const localData = pickFromCombinedLine(/\bLocal\b\s*:\s*(.*?)\s*(?:\bData\b\s*:\s*(.*))?$/i);
+  const localData = pickFromCombinedLine(/\bLocal\b\s*:\s*(.*?)\s*(?:\bData\b\s*[:\-]\s*(.*))?$/i);
   if (localData) {
     extracted.local = normalizeLine(localData[1] ?? "") || null;
     extracted.order_date_text = parsePtBrDateFromText(localData[2] ?? "") ?? null;
@@ -193,15 +217,24 @@ function extractFieldsFromText(text: string) {
   }
 
   extracted.city = pickLabelFromLine(/\bCidade\b/i);
-  extracted.cep = pickByLineRegex(/\bCEP\b\s*[:\-]?\s*([0-9]{5}-?[0-9]{3})/i);
+
+  // CEP is often OCR'ed with punctuation ("84400.00" / "84400-000" / "84400000")
+  {
+    const cepRaw =
+      pickByLineRegex(/\bCEP\b\s*[:\-]?\s*([0-9.\-]{7,12})/i) ??
+      pickByLineRegex(/\bCEP\b\s*[:\-]?\s*([0-9]{5}\s*[\-\.]?\s*[0-9]{3})/i);
+    const d = cepRaw ? toDigits(cepRaw) : "";
+    extracted.cep = d.length === 8 ? `${d.slice(0, 5)}-${d.slice(5)}` : null;
+  }
+
   extracted.state = pickLabelFromLine(/\bEstado\b/i);
   extracted.uf = pickByLineRegex(/\bUF\b\s*[:\-]?\s*([A-Z]{2})\b/);
 
   // Documents
   const cpfCnpjRaw =
-    pickByLineRegex(/\bcpf\s*\/?\s*cnpj\b\s*[:\-]?\s*([0-9\.\/-]{11,18})/i) ??
-    pickByLineRegex(/\bcnpj\b\s*[:\-]?\s*([0-9\.\/-]{11,18})/i) ??
-    pickByLineRegex(/\bcpf\b\s*[:\-]?\s*([0-9\.\/-]{11,18})/i);
+    pickByLineRegex(/\bcpf\s*\/?\s*cnpj\b\s*[\.:\-]?\s*([0-9\.\/-]{11,18})/i) ??
+    pickByLineRegex(/\bcnpj\b\s*[\.:\-]?\s*([0-9\.\/-]{11,18})/i) ??
+    pickByLineRegex(/\bcpf\b\s*[\.:\-]?\s*([0-9\.\/-]{11,18})/i);
 
   const cpfCnpjDigits = cpfCnpjRaw ? toDigits(cpfCnpjRaw) : null;
   extracted.cpf = cpfCnpjDigits && cpfCnpjDigits.length === 11 ? cpfCnpjDigits : null;
@@ -210,81 +243,81 @@ function extractFieldsFromText(text: string) {
   extracted.ie = pickLabelFromLine(/\bInscr\.?\s*Est\.?\b/i);
 
   // RG: only accept if explicitly labeled as RG (avoid picking dates)
-  const rgRaw = pickByLineRegex(/\bRG\b\s*[:\-]?\s*([0-9\.\-]{6,14})/i);
+  const rgRaw = pickByLineRegex(/\bRG\b\s*[\.:\-]?\s*([0-9\.\-]{6,14})/i);
   extracted.rg = rgRaw ? toDigits(rgRaw) : null;
 
   // ----------------------
   // Items table (text fallback)
   // ----------------------
-  const headerIdx = lines.findIndex((l) => /\bC[oó]d\.?\b/i.test(l) && /\bDescri[cç][aã]o\b/i.test(l));
+  // OCR frequently breaks header across multiple lines ("Descrição" alone).
+  const descrIdx = lines.findIndex((l) => /\bDescri[cç][aã]o\b/i.test(l));
   const paymentIdx = lines.findIndex((l) => /\bCondi[cç][oõ]es\s+de\s+Pagamento\b/i.test(l));
 
   const items: ExtractedItem[] = [];
-  if (headerIdx >= 0) {
-    const start = headerIdx + 1;
+
+  if (descrIdx >= 0) {
+    const start = descrIdx + 1;
     const end = paymentIdx > start ? paymentIdx : lines.length;
     const tableLines = lines.slice(start, end).filter((l) => !/^[-_]+$/.test(l));
 
-    let current: ExtractedItem | null = null;
+    const moneyRe = /^(?:R\$\s*)?(\d{1,3}(?:\.\d{3})*,\d{2})$/;
+    const qtyOnlyRe = /^(\d{1,3})$/;
 
-    const moneyRe = /(\d{1,3}(?:\.\d{3})*,\d{2})/g;
+    // Heuristic state:
+    // - accumulate description lines
+    // - when we see qty-only and next is money, we emit an item
+    let descParts: string[] = [];
 
-    const flush = () => {
-      if (!current) return;
-      current.description = normalizeLine(current.description);
-      if (current.description) items.push(current);
-      current = null;
+    const flushDesc = () => {
+      const s = normalizeLine(descParts.join(" "));
+      descParts = [];
+      return s;
     };
 
-    for (const raw of tableLines) {
-      const line = normalizeLine(raw);
+    for (let i = 0; i < tableLines.length; i++) {
+      const line = normalizeLine(tableLines[i]);
       if (!line) continue;
 
-      const moneyAll = Array.from(line.matchAll(moneyRe)).map((m) => m[1]);
-      const lastMoney = moneyAll.length ? moneyAll[moneyAll.length - 1] : null;
-      const valueNum = lastMoney ? parsePtBrMoneyToNumber(lastMoney) : null;
+      // Skip obvious non-item headers
+      if (/^(c[oó]d\.?|inscr\.?|rg|uf|quant\.?|valor)$/i.test(line)) continue;
 
-      const qtyMatch = line.match(/\b(\d{1,3})\b\s*(?:\d{1,3}(?:\.\d{3})*,\d{2})\s*$/);
-      const qty = qtyMatch ? Number(qtyMatch[1]) : null;
+      const qtyM = line.match(qtyOnlyRe);
+      const next = normalizeLine(tableLines[i + 1] ?? "");
+      const moneyM = next.match(moneyRe);
 
-      const codeMatch = line.match(/^([A-Z0-9]{2,12})\b\s*(.*)$/i);
-      const code = codeMatch ? normalizeLine(codeMatch[1]) : null;
+      if (qtyM && moneyM) {
+        const qty = Number(qtyM[1]);
+        const money = moneyM[1];
+        const valueNum = parsePtBrMoneyToNumber(money);
+        const description = flushDesc();
 
-      if (code && (qty !== null || valueNum !== null)) {
-        flush();
-        const rest = normalizeLine(codeMatch?.[2] ?? "");
-        let desc = rest;
-        if (lastMoney) desc = desc.replace(lastMoney ?? "", "").trim();
-        if (qty !== null) desc = desc.replace(new RegExp(`\\b${qty}\\b\\s*$`), "").trim();
-        current = {
-          line_no: items.length + 1,
-          code,
-          description: desc,
-          qty,
-          value_raw: lastMoney,
-          value_num: valueNum,
-        };
+        if (isMeaningfulValue(description)) {
+          items.push({
+            line_no: items.length + 1,
+            code: null,
+            description,
+            qty: Number.isFinite(qty) ? qty : null,
+            value_raw: money,
+            value_num: valueNum,
+          });
+        }
+
+        i += 1; // consume the money line too
         continue;
       }
 
-      if (current) {
-        current.description = `${current.description}\n${line}`;
-        continue;
-      }
+      // If this looks like a standalone money line, ignore (usually totals/labels)
+      if (moneyRe.test(line)) continue;
 
-      if (!/\bQuant\.?\b/i.test(line) && !/\bValor\b/i.test(line)) {
-        current = {
-          line_no: items.length + 1,
-          code: code && code.length <= 12 ? code : null,
-          description: line,
-          qty,
-          value_raw: lastMoney,
-          value_num: valueNum,
-        };
+      // Otherwise, treat as description (multi-line)
+      descParts.push(line);
+
+      // Prevent runaway description
+      if (descParts.join(" ").length > 240) {
+        // best-effort: cut and keep going
+        flushDesc();
       }
     }
-
-    flush();
   }
 
   extracted.items = items;
@@ -301,7 +334,7 @@ function extractFieldsFromText(text: string) {
   const payTermsLine = lines.find((l) => /\bCondi[cç][oõ]es\s+de\s+Pagamento\b/i.test(l));
   if (payTermsLine) {
     const t = payTermsLine.replace(/.*Condi[cç][oõ]es\s+de\s+Pagamento\b\s*/i, "").trim();
-    extracted.payment_terms = t || null;
+    extracted.payment_terms = isMeaningfulValue(t) ? t : null;
   }
 
   extracted.payment_origin = pickLabelFromLine(/\bOrigem\s+Financeira\b/i);
@@ -309,8 +342,8 @@ function extractFieldsFromText(text: string) {
   if (paymentIdx >= 0) {
     for (let i = paymentIdx; i < Math.min(lines.length, paymentIdx + 30); i++) {
       const l = lines[i];
-      const m = l.match(/\bLocal\b\s*:\s*(.+)/i);
-      if (m?.[1]) {
+      const m = l.match(/\bLocal\b\s*[:\-]\s*(.+)/i);
+      if (m?.[1] && isMeaningfulValue(m[1])) {
         extracted.payment_local = normalizeLine(m[1]);
         break;
       }
@@ -325,9 +358,12 @@ function extractFieldsFromText(text: string) {
   extracted.obs = pickLabelFromLine(/\bObs\.?\b/i);
 
   if (paymentIdx >= 0) {
-    const block = lines.slice(paymentIdx, Math.min(lines.length, paymentIdx + 40)).join("\n");
-    const m = block.match(/\bR\$\s*(\d{1,3}(?:\.\d{3})*,\d{2})/);
-    extracted.payment_signal_value_raw = m?.[1] ? `R$ ${m[1]}` : null;
+    const block = lines.slice(paymentIdx, Math.min(lines.length, paymentIdx + 60)).join("\n");
+    // Prefer the signal value if present; otherwise fall back to the first money in the block.
+    const mSignal = block.match(/\bSinal\b[\s\S]{0,120}?R\$\s*(\d{1,3}(?:\.\d{3})*,\d{2})/i);
+    const mAny = block.match(/\bR\$\s*(\d{1,3}(?:\.\d{3})*,\d{2})/);
+    const v = mSignal?.[1] ?? mAny?.[1] ?? null;
+    extracted.payment_signal_value_raw = v ? `R$ ${v}` : null;
   }
 
   // ----------------------

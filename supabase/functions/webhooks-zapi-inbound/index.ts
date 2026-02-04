@@ -1366,11 +1366,63 @@ serve(async (req) => {
 
     // -------------------- INBOUND routing below --------------------
 
+    // Determine whether the inbound sender is a *vendor user* (users_profile.role='vendor').
+    // This is used to support using the same WhatsApp instance for both:
+    // - sales_order (vendor -> company number)
+    // - CRM (customer -> company number)
+    const inboundFromVariants = inboundFromPhone ? Array.from(buildBrPhoneVariantsE164(inboundFromPhone)) : [];
+
+    const { data: vendorUserProfile, error: vendorUserErr } = inboundFromPhone
+      ? await supabase
+          .from("users_profile")
+          .select("user_id,role,display_name,email,phone_e164")
+          .eq("tenant_id", instance.tenant_id)
+          .eq("role", "vendor")
+          .in("phone_e164", inboundFromVariants.length ? inboundFromVariants : [inboundFromPhone])
+          .is("deleted_at", null)
+          .limit(1)
+          .maybeSingle()
+      : ({ data: null, error: null } as any);
+
+    if (vendorUserErr) {
+      console.warn(`[${fn}] Failed to resolve vendorUserProfile (ignored)`, { vendorUserErr });
+    }
+
+    const isVendorUserSender = Boolean((vendorUserProfile as any)?.user_id);
+
     // Journey routing:
     // 1) instance.default_journey_id (if set)
     // 2) first enabled tenant_journey
     // 3) fallback to sales_order
+    // PLUS:
+    // - If sender is a vendor user => force sales_order (if available)
+    // - If sender is NOT a vendor user AND current journey is sales_order => prefer first CRM journey
     let journey: JourneyInfo | null = null;
+
+    // Load enabled journeys for tenant once (we'll reuse later).
+    const { data: enabledTjRows, error: enabledTjErr } = await supabase
+      .from("tenant_journeys")
+      .select("journey_id, journeys(id,key,name,is_crm,default_state_machine_json)")
+      .eq("tenant_id", instance.tenant_id)
+      .eq("enabled", true)
+      .order("created_at", { ascending: true })
+      .limit(200);
+    if (enabledTjErr) console.error(`[${fn}] Failed to load tenant_journeys for routing`, { enabledTjErr });
+
+    const enabledJourneys: JourneyInfo[] = (enabledTjRows ?? [])
+      .map((r: any) => r.journeys)
+      .filter((j: any) => Boolean(j?.id));
+
+    const firstEnabledJourney = enabledJourneys[0] ?? null;
+    const firstCrmJourney = enabledJourneys.find((j) => Boolean(j?.is_crm)) ?? null;
+
+    // Load sales_order journey once (used as fallback and for vendor-user routing).
+    const { data: salesOrderJourney, error: soErr } = await supabase
+      .from("journeys")
+      .select("id,key,name,is_crm,default_state_machine_json")
+      .eq("key", "sales_order")
+      .maybeSingle();
+    if (soErr) console.error(`[${fn}] Failed to load journey sales_order`, { soErr });
 
     if (instance.default_journey_id) {
       // Note: algumas instalações não têm deleted_at em journeys. Evite filtrar por deleted_at aqui.
@@ -1393,27 +1445,21 @@ serve(async (req) => {
       }
     }
 
-    if (!journey) {
-      const { data: tj, error: tjErr } = await supabase
-        .from("tenant_journeys")
-        .select("journey_id, journeys(id,key,name,is_crm,default_state_machine_json)")
-        .eq("tenant_id", instance.tenant_id)
-        .eq("enabled", true)
-        .order("created_at", { ascending: true })
-        .limit(1)
-        .maybeSingle();
-      if (tjErr) console.error(`[${fn}] Failed to load tenant_journeys for routing`, { tjErr });
-      if (tj?.journeys?.id) journey = tj.journeys as any;
+    if (!journey && firstEnabledJourney?.id) {
+      journey = firstEnabledJourney;
     }
 
-    if (!journey) {
-      const { data: j, error: jErr } = await supabase
-        .from("journeys")
-        .select("id,key,name,is_crm,default_state_machine_json")
-        .eq("key", "sales_order")
-        .maybeSingle();
-      if (jErr) console.error(`[${fn}] Failed to load fallback journey sales_order`, { jErr });
-      if (j?.id) journey = j as any;
+    if (!journey && (salesOrderJourney as any)?.id) {
+      journey = salesOrderJourney as any;
+    }
+
+    // Conditional reroute (same instance, different flows)
+    if ((salesOrderJourney as any)?.id) {
+      if (isVendorUserSender) {
+        journey = salesOrderJourney as any;
+      } else if (journey?.key === "sales_order" && firstCrmJourney?.id) {
+        journey = firstCrmJourney;
+      }
     }
 
     if (!journey) {
@@ -1430,6 +1476,7 @@ serve(async (req) => {
       journey_key: journey.key,
       wa_type: normalized.type,
       from: inboundFromPhone,
+      is_vendor_user_sender: isVendorUserSender,
     });
 
     // Read tenant+jornada config_json (panel-configurable)
@@ -1457,7 +1504,9 @@ serve(async (req) => {
 
     // Conversations: by default we DO NOT assume the sender is a "vendor".
     // This should be configured in the panel per-journey/instance.
-    const defaultSenderIsVendor = false;
+    // For sales_order: enforce vendor-user sender.
+    const isSalesOrderJourney = journey.key === "sales_order";
+    const defaultSenderIsVendor = isSalesOrderJourney ? true : false;
 
     // Vendor rules (raw config)
     const cfgAutoCreateVendorRaw =
@@ -1469,12 +1518,20 @@ serve(async (req) => {
     const cfgSenderIsVendorExplicit = readCfg(cfg, "automation.conversations.sender_is_vendor") as
       | boolean
       | undefined;
-    const cfgSenderIsVendor =
-      cfgSenderIsVendorExplicit ?? (defaultSenderIsVendor || cfgAutoCreateVendorRaw || cfgRequireVendorRaw);
+
+    // sales_order: always treat sender as vendor, but only accept if it's a vendor user.
+    const cfgSenderIsVendor = isSalesOrderJourney
+      ? true
+      : (cfgSenderIsVendorExplicit ?? (defaultSenderIsVendor || cfgAutoCreateVendorRaw || cfgRequireVendorRaw));
 
     // Vendor rules (only applied when sender_is_vendor=true)
-    const cfgAutoCreateVendor = cfgSenderIsVendor ? cfgAutoCreateVendorRaw : false;
-    const cfgRequireVendor = cfgSenderIsVendor ? cfgRequireVendorRaw : false;
+    const cfgAutoCreateVendor = cfgSenderIsVendor
+      ? (isSalesOrderJourney ? true : cfgAutoCreateVendorRaw)
+      : false;
+
+    const cfgRequireVendor = cfgSenderIsVendor
+      ? (isSalesOrderJourney ? true : cfgRequireVendorRaw)
+      : false;
 
     // Contact label:
     // 1) wa_contacts.name (if stored)
@@ -1521,41 +1578,44 @@ serve(async (req) => {
     // Vendor identification (by WhatsApp number) — only when configured.
     let vendorId: string | null = null;
     if (cfgSenderIsVendor && inboundFromPhone) {
-      const { data: vendor } = await supabase
-        .from("vendors")
-        .select("id")
-        .eq("tenant_id", instance.tenant_id)
-        .eq("phone_e164", inboundFromPhone)
-        .maybeSingle();
-      if (vendor?.id) vendorId = vendor.id;
-      if (!vendorId && cfgAutoCreateVendor) {
-        const { data: createdVendor, error: vErr } = await supabase
+      // sales_order: only accept if sender is a vendor *user*.
+      if (isSalesOrderJourney && !isVendorUserSender) {
+        vendorId = null;
+      } else {
+        const { data: vendor } = await supabase
           .from("vendors")
-          .insert({
-            tenant_id: instance.tenant_id,
-            phone_e164: inboundFromPhone,
-            display_name: contactLabel,
-            active: true,
-          })
           .select("id")
-          .single();
-        if (vErr) console.error(`[${fn}] Failed to create vendor`, { vErr });
-        vendorId = createdVendor?.id ?? null;
+          .eq("tenant_id", instance.tenant_id)
+          .eq("phone_e164", inboundFromPhone)
+          .maybeSingle();
+        if (vendor?.id) vendorId = vendor.id;
+
+        if (!vendorId && cfgAutoCreateVendor) {
+          const displayName =
+            String((vendorUserProfile as any)?.display_name ?? (vendorUserProfile as any)?.email ?? "").trim() ||
+            contactLabel;
+
+          // For sales_order we only auto-create vendor when the sender is a vendor user.
+          if (!isSalesOrderJourney || isVendorUserSender) {
+            const { data: createdVendor, error: vErr } = await supabase
+              .from("vendors")
+              .insert({
+                tenant_id: instance.tenant_id,
+                phone_e164: inboundFromPhone,
+                display_name: displayName,
+                active: true,
+              })
+              .select("id")
+              .single();
+            if (vErr) console.error(`[${fn}] Failed to create vendor`, { vErr });
+            vendorId = createdVendor?.id ?? null;
+          }
+        }
       }
     }
 
     // Carrega jornadas CRM habilitadas (para linkar/puxar conversa pro CRM)
-    const { data: crmTj, error: crmTjErr } = await supabase
-      .from("tenant_journeys")
-      .select("journey_id, journeys(id,key,is_crm,default_state_machine_json)")
-      .eq("tenant_id", instance.tenant_id)
-      .eq("enabled", true)
-      .limit(200);
-    if (crmTjErr) console.error(`[${fn}] Failed to load crm journeys`, { crmTjErr });
-
-    const crmJourneys: JourneyInfo[] = (crmTj ?? [])
-      .map((r: any) => r.journeys)
-      .filter((j: any) => Boolean(j?.id) && Boolean(j?.is_crm));
+    const crmJourneys: JourneyInfo[] = enabledJourneys.filter((j) => Boolean(j?.is_crm));
 
     const crmJourneyIds = crmJourneys.map((j) => j.id);
     const defaultCrmJourney = crmJourneys[0] ?? null;
@@ -1874,8 +1934,10 @@ serve(async (req) => {
         return { caseId: null as any, created: false as const, skippedReason: "missing_from_phone" };
       }
 
-      // Ao criar case novo, se existir CRM padrão habilitado, cria já nele.
-      const targetJourney = defaultCrmJourney ?? journey!;
+      // Ao criar case novo:
+      // - Se for customer->company (sender_is_vendor=false) e existir CRM padrão habilitado, cria no CRM.
+      // - Se for vendor->company (sender_is_vendor=true), mantém a jornada roteada (ex: sales_order).
+      const targetJourney = !cfgSenderIsVendor && defaultCrmJourney ? defaultCrmJourney : journey!;
 
       const initialHint =
         mode === "image" ? cfgInitialStateOnImage : mode === "location" ? cfgInitialStateOnLocation : cfgInitialStateOnText;

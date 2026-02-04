@@ -12,7 +12,7 @@ type CaseItemRow = {
   id: string;
   case_id: string;
   line_no: number;
-  color: string | null;
+  code: string | null;
   description: string | null;
   qty: number | null;
   price: number | null;
@@ -23,7 +23,7 @@ type CaseItemRow = {
 type DraftRow = {
   id?: string;
   line_no: number;
-  color: string;
+  code: string;
   description: string;
   qty: string;
   price: string;
@@ -63,7 +63,7 @@ export function SalesOrderItemsEditorCard(props: { caseId: string; className?: s
     queryFn: async () => {
       const { data, error } = await supabase
         .from("case_items")
-        .select("id,case_id,line_no,color,description,qty,price,total,updated_at")
+        .select("id,case_id,line_no,code,description,qty,price,total,updated_at")
         .eq("case_id", caseId)
         .order("line_no", { ascending: true })
         .limit(200);
@@ -76,7 +76,7 @@ export function SalesOrderItemsEditorCard(props: { caseId: string; className?: s
     return (itemsQ.data ?? []).map((r) => ({
       id: r.id,
       line_no: r.line_no,
-      color: r.color ?? "",
+      code: r.code ?? "",
       description: r.description ?? "",
       qty: r.qty == null ? "" : String(r.qty).replace(/\./g, ","),
       price: r.price == null ? "" : String(r.price).replace(/\./g, ","),
@@ -94,25 +94,20 @@ export function SalesOrderItemsEditorCard(props: { caseId: string; className?: s
     return max + 1;
   }, [draft]);
 
-  const rowsWithParsed = useMemo(() => {
-    return draft.map((r) => {
+  const grandTotal = useMemo(() => {
+    return draft.reduce((acc, r) => {
       const qty = parsePtBrNumber(r.qty) ?? 0;
       const price = parsePtBrNumber(r.price) ?? 0;
-      const total = computeRowTotal(qty, price);
-      return { r, qty, price, total };
-    });
+      return acc + computeRowTotal(qty, price);
+    }, 0);
   }, [draft]);
-
-  const grandTotal = useMemo(() => {
-    return rowsWithParsed.reduce((acc, x) => acc + (Number(x.total) || 0), 0);
-  }, [rowsWithParsed]);
 
   const addRow = () => {
     setDraft((prev) => [
       ...prev,
       {
         line_no: nextLineNo,
-        color: "",
+        code: "",
         description: "",
         qty: "1",
         price: "",
@@ -140,7 +135,6 @@ export function SalesOrderItemsEditorCard(props: { caseId: string; className?: s
     if (!caseId) return;
     if (saving) return;
 
-    // Basic validation: each row should have at least a description.
     for (const r of draft) {
       if (!r.description.trim()) {
         showError(`Preencha a Descrição do item #${r.line_no}.`);
@@ -168,7 +162,7 @@ export function SalesOrderItemsEditorCard(props: { caseId: string; className?: s
         const payload = {
           case_id: caseId,
           line_no: r.line_no,
-          color: r.color.trim() || null,
+          code: r.code.trim() || null,
           description: r.description.trim() || null,
           qty,
           price,
@@ -202,7 +196,7 @@ export function SalesOrderItemsEditorCard(props: { caseId: string; className?: s
             <ReceiptText className="h-4 w-4 text-slate-500" /> Itens do pedido
           </div>
           <div className="mt-1 text-xs text-slate-600">
-            Edite a tabela do pedido (Cor, Descrição, Quantidade e Valor Unitário). O total é calculado automaticamente.
+            Edite a tabela do pedido (ID, Descrição, Quantidade e Valor Unitário). O total é calculado automaticamente.
           </div>
         </div>
         <div className="shrink-0 text-right">
@@ -220,7 +214,7 @@ export function SalesOrderItemsEditorCard(props: { caseId: string; className?: s
       <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200">
         {/* Header (desktop) */}
         <div className="hidden grid-cols-12 gap-2 bg-slate-50 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-600 sm:grid">
-          <div className="col-span-2">Cor</div>
+          <div className="col-span-2">ID</div>
           <div className="col-span-5">Descrição</div>
           <div className="col-span-2 text-right">Quant</div>
           <div className="col-span-2 text-right">Valor Unit.</div>
@@ -239,16 +233,16 @@ export function SalesOrderItemsEditorCard(props: { caseId: string; className?: s
                 <div className="grid gap-3 sm:hidden">
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <Label className="text-[11px] text-slate-600">Cor</Label>
+                      <Label className="text-[11px] text-slate-600">ID</Label>
                       <Input
-                        value={row.color}
+                        value={row.code}
                         onChange={(e) =>
                           setDraft((prev) =>
-                            prev.map((x) => (x.line_no === row.line_no ? { ...x, color: e.target.value } : x))
+                            prev.map((x) => (x.line_no === row.line_no ? { ...x, code: e.target.value } : x))
                           )
                         }
                         className="mt-1 h-10 rounded-2xl"
-                        placeholder="Ex: Azul"
+                        placeholder="Ex: 12345"
                       />
                     </div>
                     <div>
@@ -323,14 +317,14 @@ export function SalesOrderItemsEditorCard(props: { caseId: string; className?: s
                 <div className="hidden grid-cols-12 items-start gap-2 sm:grid">
                   <div className="col-span-2">
                     <Input
-                      value={row.color}
+                      value={row.code}
                       onChange={(e) =>
                         setDraft((prev) =>
-                          prev.map((x) => (x.line_no === row.line_no ? { ...x, color: e.target.value } : x))
+                          prev.map((x) => (x.line_no === row.line_no ? { ...x, code: e.target.value } : x))
                         )
                       }
                       className="h-10 rounded-2xl"
-                      placeholder="Azul"
+                      placeholder="12345"
                     />
                   </div>
                   <div className="col-span-5">
@@ -406,12 +400,7 @@ export function SalesOrderItemsEditorCard(props: { caseId: string; className?: s
       </div>
 
       <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <Button
-          type="button"
-          variant="secondary"
-          className="h-11 rounded-2xl"
-          onClick={addRow}
-        >
+        <Button type="button" variant="secondary" className="h-11 rounded-2xl" onClick={addRow}>
           <Plus className="mr-2 h-4 w-4" /> Adicionar item
         </Button>
 

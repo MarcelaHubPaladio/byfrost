@@ -790,7 +790,7 @@ serve(async (req) => {
         .insert({
           tenant_id: tenantId,
           journey_id: journeyId,
-          case_type: "order",
+          case_type: "sales_order",
           status: "open",
           state: "awaiting_ocr",
           created_by_channel: "api",

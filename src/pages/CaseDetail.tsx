@@ -398,14 +398,16 @@ export default function CaseDetail() {
               .maybeSingle()
           : null;
 
-        const { data: inst } = (instAssigned && (instAssigned as any).data) ? (instAssigned as any) : await supabase
-          .from("wa_instances")
-          .select("id, phone_number")
-          .eq("tenant_id", activeTenantId)
-          .eq("status", "active")
-          .order("created_at", { ascending: true })
-          .limit(1)
-          .maybeSingle();
+        const { data: inst } = (instAssigned && (instAssigned as any).data)
+          ? (instAssigned as any)
+          : await supabase
+              .from("wa_instances")
+              .select("id, phone_number")
+              .eq("tenant_id", activeTenantId)
+              .eq("status", "active")
+              .order("created_at", { ascending: true })
+              .limit(1)
+              .maybeSingle();
 
         if (!inst?.id) throw new Error("Nenhuma instância WhatsApp ativa configurada.");
 
@@ -447,8 +449,7 @@ export default function CaseDetail() {
           event_type: "customer_message_prepared",
           actor_type: "admin",
           actor_id: user?.id ?? null,
-          message:
-            "Mensagem ao cliente preparada/enfileirada (governança: aprovado por humano).",
+          message: "Mensagem ao cliente preparada/enfileirada (governança: aprovado por humano).",
           meta_json: { to },
           occurred_at: new Date().toISOString(),
         });
@@ -486,7 +487,11 @@ export default function CaseDetail() {
               <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-600">
                 <div className="flex items-center gap-2 rounded-full border border-slate-200 bg-white/70 px-2 py-1 shadow-sm">
                   <span className="text-[11px] font-semibold text-slate-700">Estado</span>
-                  <Select value={c?.state ?? ""} onValueChange={updateState} disabled={!c || updatingState}>
+                  <Select
+                    value={c?.state ?? ""}
+                    onValueChange={updateState}
+                    disabled={!c || updatingState}
+                  >
                     <SelectTrigger className="h-7 w-[180px] rounded-full border-slate-200 bg-white px-3 text-xs">
                       <SelectValue placeholder="Selecionar…" />
                     </SelectTrigger>
@@ -517,7 +522,11 @@ export default function CaseDetail() {
                   <div className="text-[11px] text-slate-500">fora de fluxo</div>
                 </div>
                 <div className="flex items-center gap-3">
-                  <Switch checked={chatOnly} onCheckedChange={updateChatOnly} disabled={updatingChatOnly || !c} />
+                  <Switch
+                    checked={chatOnly}
+                    onCheckedChange={updateChatOnly}
+                    disabled={updatingChatOnly || !c}
+                  />
                   {chatOnly ? (
                     <Button
                       type="button"
@@ -575,7 +584,11 @@ export default function CaseDetail() {
                 onClick={approveAndPrepare}
                 disabled={sending || !c || chatOnly}
                 className="h-11 rounded-2xl bg-[hsl(var(--byfrost-accent))] px-5 text-white shadow-sm hover:bg-[hsl(var(--byfrost-accent)/0.92)]"
-                title={chatOnly ? "Este case está como chat; ações de fluxo ficam desabilitadas." : undefined}
+                title={
+                  chatOnly
+                    ? "Este case está como chat; ações de fluxo ficam desabilitadas."
+                    : undefined
+                }
               >
                 {sending ? "Processando…" : "Aprovar e preparar mensagem"}
                 <Send className="ml-2 h-4 w-4" />
@@ -591,11 +604,16 @@ export default function CaseDetail() {
           <div className="mt-5 grid gap-4 lg:grid-cols-[0.95fr_1.05fr]">
             {/* Left */}
             <div className="space-y-4">
-              {/* Dados do cliente (editável) */}
-              {id ? <CaseCustomerDataEditorCard caseId={id} fields={fieldsQ.data as any} /> : null}
-
-              {/* Itens (sales_order) */}
-              {id && isSalesOrder ? <SalesOrderItemsEditorCard caseId={id} /> : null}
+              {/* Editáveis: apenas sales_order */}
+              {id && isSalesOrder ? (
+                <>
+                  <CaseCustomerDataEditorCard
+                    caseId={id}
+                    fields={fieldsQ.data as any}
+                  />
+                  <SalesOrderItemsEditorCard caseId={id} />
+                </>
+              ) : null}
 
               {/* Pendências */}
               <div className="rounded-[22px] border border-slate-200 bg-white p-4">
@@ -707,7 +725,8 @@ export default function CaseDetail() {
                             {f.key}
                           </div>
                           <div className="truncate text-sm font-medium text-slate-900">
-                            {f.value_text ?? (f.value_json ? JSON.stringify(f.value_json) : "—")}
+                            {f.value_text ??
+                              (f.value_json ? JSON.stringify(f.value_json) : "—")}
                           </div>
                           <div className="mt-0.5 text-[11px] text-slate-500">fonte: {f.source}</div>
                         </div>
@@ -715,7 +734,8 @@ export default function CaseDetail() {
                       </div>
                     ))}
 
-                  {(fieldsQ.data ?? []).filter((f: any) => f.key !== "ocr_text").length === 0 && (
+                  {(fieldsQ.data ?? []).filter((f: any) => f.key !== "ocr_text")
+                    .length === 0 && (
                     <div className="rounded-2xl border border-dashed border-slate-200 bg-white/60 p-4 text-xs text-slate-500">
                       Ainda não há campos extraídos. Rode o processor (jobs) ou use o simulador.
                     </div>

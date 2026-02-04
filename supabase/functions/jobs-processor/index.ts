@@ -25,7 +25,7 @@ function preprocessOcrTextSalesOrder(rawText: string) {
     .map((l) => l.replace(/\s+/g, " ").trim())
     .filter(Boolean);
 
-  // Heurística: em muitos pedidos (ex: Agroforte), o cabeçalho contém telefone/endereço da empresa,
+  // Heurística: em muitos pedidos (Agroforte), o cabeçalho contém telefone/endereço da empresa,
   // o que atrapalha a extração de telefone do cliente. Cortamos o texto até o início do formulário.
   const startIdx = lines.findIndex((l) =>
     /^\s*(local|nome|e-?mail|endere[cç]o|endere[cç]o\.|cidade|cep|estado|uf)\b/i.test(l)
@@ -41,7 +41,29 @@ function preprocessOcrTextSalesOrder(rawText: string) {
     );
   });
 
-  return filtered.join("\n").trim();
+  // Ignora o bloco "Condições Complementares" (ruído) mas preserva a área de assinatura/cliente.
+  const out: string[] = [];
+  let skippingConditions = false;
+
+  for (const l of filtered) {
+    if (!skippingConditions && /^condi[cç][õo]es\s+complementares\s*:?/i.test(l)) {
+      skippingConditions = true;
+      continue;
+    }
+
+    if (skippingConditions) {
+      // quando chega na área de assinatura/cliente, voltamos a incluir
+      if (/(\bdeclaro\b|\bdeclara\b|\bcliente\b\s*:|\bassinatura\b)/i.test(l)) {
+        skippingConditions = false;
+        out.push(l);
+      }
+      continue;
+    }
+
+    out.push(l);
+  }
+
+  return out.join("\n").trim();
 }
 
 function normalizeOcrTextForExtraction(rawText: string) {

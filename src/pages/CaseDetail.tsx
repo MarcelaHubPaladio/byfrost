@@ -33,6 +33,7 @@ import { CaseTechnicalReportDialog } from "@/components/case/CaseTechnicalReport
 import { CaseCustomerDataEditorCard } from "@/components/case/CaseCustomerDataEditorCard";
 import { SalesOrderItemsEditorCard } from "@/components/case/SalesOrderItemsEditorCard";
 import { SalesOrderReviewDialog } from "@/components/case/SalesOrderReviewDialog";
+import { SalesOrderAddAttachmentExtractDialog } from "@/components/case/SalesOrderAddAttachmentExtractDialog";
 import {
   ArrowLeft,
   CheckCircle2,
@@ -687,7 +688,12 @@ export default function CaseDetail() {
                   <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
                     <ImageIcon className="h-4 w-4 text-slate-500" /> Anexos
                   </div>
-                  <div className="text-xs text-slate-500">{attachmentsQ.data?.length ?? 0}</div>
+                  <div className="flex items-center gap-2">
+                    {activeTenantId && id && isSalesOrder ? (
+                      <SalesOrderAddAttachmentExtractDialog tenantId={activeTenantId} caseId={id} />
+                    ) : null}
+                    <div className="text-xs text-slate-500">{attachmentsQ.data?.length ?? 0}</div>
+                  </div>
                 </div>
 
                 <div className="mt-3 grid gap-3 sm:grid-cols-2">

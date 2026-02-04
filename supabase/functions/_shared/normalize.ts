@@ -19,8 +19,12 @@ export function normalizePhoneE164Like(input: string | null | undefined) {
     digits = digits.slice(1);
   }
 
-  // Best-effort: if already includes country (55), keep it; otherwise assume BR.
-  if (digits.startsWith("55")) return `+${digits}`;
+  // If it includes country code (55), ensure it's a plausible BR phone length.
+  if (digits.startsWith("55")) {
+    // 55 + 10 (landline) = 12, 55 + 11 (mobile) = 13
+    if (digits.length !== 12 && digits.length !== 13) return null;
+    return `+${digits}`;
+  }
 
   // If it's not a plausible BR local phone length, treat as unknown (avoid +55 + random long ids).
   if (digits.length !== 10 && digits.length !== 11) return null;

@@ -812,8 +812,12 @@ serve(async (req) => {
     // For call events, treat the peer (caller/callee) as the effective sender for matching/case linking.
     const inboundFromPhone =
       normalized.meta.isCallEvent && callCounterpartPhone ? callCounterpartPhone : normalized.from;
+
+    // If provider doesn't send an explicit "to", assume the connected instance phone for inbound.
     const inboundToPhone =
-      normalized.meta.isCallEvent && inboundFromPhone && instancePhoneNorm ? instancePhoneNorm : normalized.to;
+      normalized.meta.isCallEvent && inboundFromPhone && instancePhoneNorm
+        ? instancePhoneNorm
+        : (normalized.to ?? instancePhoneNorm);
 
     if (!inboundFromPhone) {
       console.warn(`[${fn}] inbound_missing_from_phone`, {

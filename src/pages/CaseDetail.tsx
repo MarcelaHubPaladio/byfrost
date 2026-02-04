@@ -754,7 +754,12 @@ export default function CaseDetail() {
 
                 <div className="mt-3 space-y-2">
                   {(fieldsQ.data ?? [])
-                    .filter((f: any) => f.key !== "ocr_text")
+                    .filter((f: any) => {
+                      if (f.key === "ocr_text") return false;
+                      const vt = typeof f.value_text === "string" ? f.value_text.trim() : "";
+                      const hasJson = f.value_json !== null && f.value_json !== undefined;
+                      return Boolean(vt) || hasJson;
+                    })
                     .sort((a: any, b: any) => a.key.localeCompare(b.key))
                     .map((f: any) => (
                       <div
@@ -775,8 +780,13 @@ export default function CaseDetail() {
                       </div>
                     ))}
 
-                  {(fieldsQ.data ?? []).filter((f: any) => f.key !== "ocr_text")
-                    .length === 0 && (
+                  {(fieldsQ.data ?? [])
+                    .filter((f: any) => {
+                      if (f.key === "ocr_text") return false;
+                      const vt = typeof f.value_text === "string" ? f.value_text.trim() : "";
+                      const hasJson = f.value_json !== null && f.value_json !== undefined;
+                      return Boolean(vt) || hasJson;
+                    }).length === 0 && (
                     <div className="rounded-2xl border border-dashed border-slate-200 bg-white/60 p-4 text-xs text-slate-500">
                       Ainda não há campos extraídos. Rode o processor (jobs) ou use o simulador.
                     </div>

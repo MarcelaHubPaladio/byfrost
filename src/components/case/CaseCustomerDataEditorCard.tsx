@@ -22,6 +22,14 @@ function getField(fields: FieldRow[] | undefined, key: string) {
   return row?.value_text ?? "";
 }
 
+function getFieldAny(fields: FieldRow[] | undefined, keys: string[]) {
+  for (const k of keys) {
+    const v = getField(fields, k);
+    if (v && v.trim()) return v;
+  }
+  return "";
+}
+
 function cleanOrNull(s: string) {
   const v = (s ?? "").trim();
   return v ? v : null;
@@ -52,17 +60,22 @@ export function CaseCustomerDataEditorCard(props: {
       state: getField(fields, "state"),
       uf: getField(fields, "uf"),
 
-      // Financeiro
-      payment_conditions: getField(fields, "payment_conditions"),
-      payment_value_1: getField(fields, "payment_value_1"),
-      payment_value_2: getField(fields, "payment_value_2"),
-      deal_signal_date_text: getField(fields, "deal_signal_date_text"),
-      financial_origin: getField(fields, "financial_origin"),
-      financial_local: getField(fields, "financial_local"),
-      due_date_text: getField(fields, "due_date_text"),
-      proposal_valid_until_text: getField(fields, "proposal_valid_until_text"),
-      expected_delivery_date_text: getField(fields, "expected_delivery_date_text"),
-      notes: getField(fields, "notes"),
+      // Financeiro (nomes alinhados com a extração)
+      payment_terms: getFieldAny(fields, ["payment_terms", "payment_conditions"]),
+      payment_signal_value_raw: getFieldAny(fields, ["payment_signal_value_raw", "payment_value_1"]),
+      payment_signal_date_text: getFieldAny(fields, ["payment_signal_date_text", "deal_signal_date_text"]),
+      payment_origin: getFieldAny(fields, ["payment_origin", "financial_origin"]),
+      payment_local: getFieldAny(fields, ["payment_local", "financial_local"]),
+      payment_due_date_text: getFieldAny(fields, ["payment_due_date_text", "due_date_text"]),
+      proposal_validity_date_text: getFieldAny(fields, [
+        "proposal_validity_date_text",
+        "proposal_valid_until_text",
+      ]),
+      delivery_forecast_text: getFieldAny(fields, [
+        "delivery_forecast_text",
+        "expected_delivery_date_text",
+      ]),
+      obs: getFieldAny(fields, ["obs", "notes"]),
     }),
     [fields]
   );
@@ -102,16 +115,30 @@ export function CaseCustomerDataEditorCard(props: {
         { key: "uf", value_text: cleanOrNull(draft.uf) },
 
         // Financeiro
-        { key: "payment_conditions", value_text: cleanOrNull(draft.payment_conditions) },
-        { key: "payment_value_1", value_text: cleanOrNull(draft.payment_value_1) },
-        { key: "payment_value_2", value_text: cleanOrNull(draft.payment_value_2) },
-        { key: "deal_signal_date_text", value_text: cleanOrNull(draft.deal_signal_date_text) },
-        { key: "financial_origin", value_text: cleanOrNull(draft.financial_origin) },
-        { key: "financial_local", value_text: cleanOrNull(draft.financial_local) },
-        { key: "due_date_text", value_text: cleanOrNull(draft.due_date_text) },
-        { key: "proposal_valid_until_text", value_text: cleanOrNull(draft.proposal_valid_until_text) },
-        { key: "expected_delivery_date_text", value_text: cleanOrNull(draft.expected_delivery_date_text) },
-        { key: "notes", value_text: cleanOrNull(draft.notes) },
+        { key: "payment_terms", value_text: cleanOrNull(draft.payment_terms) },
+        {
+          key: "payment_signal_value_raw",
+          value_text: cleanOrNull(draft.payment_signal_value_raw),
+        },
+        {
+          key: "payment_signal_date_text",
+          value_text: cleanOrNull(draft.payment_signal_date_text),
+        },
+        { key: "payment_origin", value_text: cleanOrNull(draft.payment_origin) },
+        { key: "payment_local", value_text: cleanOrNull(draft.payment_local) },
+        {
+          key: "payment_due_date_text",
+          value_text: cleanOrNull(draft.payment_due_date_text),
+        },
+        {
+          key: "proposal_validity_date_text",
+          value_text: cleanOrNull(draft.proposal_validity_date_text),
+        },
+        {
+          key: "delivery_forecast_text",
+          value_text: cleanOrNull(draft.delivery_forecast_text),
+        },
+        { key: "obs", value_text: cleanOrNull(draft.obs) },
       ]
         .map((r) => ({
           case_id: caseId,
@@ -141,9 +168,19 @@ export function CaseCustomerDataEditorCard(props: {
         "state",
         "uf",
         // financeiro
+        "payment_terms",
+        "payment_signal_value_raw",
+        "payment_signal_date_text",
+        "payment_origin",
+        "payment_local",
+        "payment_due_date_text",
+        "proposal_validity_date_text",
+        "delivery_forecast_text",
+        "obs",
+
+        // legacy (para não deixar valores antigos divergirem)
         "payment_conditions",
         "payment_value_1",
-        "payment_value_2",
         "deal_signal_date_text",
         "financial_origin",
         "financial_local",
@@ -340,55 +377,34 @@ export function CaseCustomerDataEditorCard(props: {
           <Banknote className="h-4 w-4 text-slate-500" /> Financeiro
         </div>
         <div className="text-xs text-slate-600">
-          Preencha manualmente quando a extração não conseguir ler as condições de pagamento.
+          Agora estes campos puxam diretamente do que a extração grava (ex: <span className="font-mono">payment_terms</span>).
         </div>
 
         <div>
           <Label className="text-xs">Condições de pagamento</Label>
           <Input
-            value={draft.payment_conditions}
-            onChange={(e) => setDraft((p) => ({ ...p, payment_conditions: e.target.value }))}
+            value={draft.payment_terms}
+            onChange={(e) => setDraft((p) => ({ ...p, payment_terms: e.target.value }))}
             className="mt-1 h-10 rounded-2xl"
-            placeholder="Ex: À vista / 30 dias / 2x..."
+            placeholder="Ex: Promomp / À vista / 30 dias / 2x..."
           />
         </div>
 
         <div className="grid gap-3 sm:grid-cols-2">
           <div>
-            <Label className="text-xs">Valor (R$) 1</Label>
+            <Label className="text-xs">Valor do sinal (R$)</Label>
             <Input
-              value={draft.payment_value_1}
-              onChange={(e) => setDraft((p) => ({ ...p, payment_value_1: e.target.value }))}
+              value={draft.payment_signal_value_raw}
+              onChange={(e) => setDraft((p) => ({ ...p, payment_signal_value_raw: e.target.value }))}
               className="mt-1 h-10 rounded-2xl"
-              placeholder="0,00"
+              placeholder="R$ 0,00"
             />
           </div>
-          <div>
-            <Label className="text-xs">Valor (R$) 2</Label>
-            <Input
-              value={draft.payment_value_2}
-              onChange={(e) => setDraft((p) => ({ ...p, payment_value_2: e.target.value }))}
-              className="mt-1 h-10 rounded-2xl"
-              placeholder="0,00"
-            />
-          </div>
-        </div>
-
-        <div className="grid gap-3 sm:grid-cols-2">
           <div>
             <Label className="text-xs">Sinal de negócio em</Label>
             <Input
-              value={draft.deal_signal_date_text}
-              onChange={(e) => setDraft((p) => ({ ...p, deal_signal_date_text: e.target.value }))}
-              className="mt-1 h-10 rounded-2xl"
-              placeholder="dd/mm/aaaa"
-            />
-          </div>
-          <div>
-            <Label className="text-xs">Com vencimento em</Label>
-            <Input
-              value={draft.due_date_text}
-              onChange={(e) => setDraft((p) => ({ ...p, due_date_text: e.target.value }))}
+              value={draft.payment_signal_date_text}
+              onChange={(e) => setDraft((p) => ({ ...p, payment_signal_date_text: e.target.value }))}
               className="mt-1 h-10 rounded-2xl"
               placeholder="dd/mm/aaaa"
             />
@@ -399,17 +415,17 @@ export function CaseCustomerDataEditorCard(props: {
           <div>
             <Label className="text-xs">Origem financeira</Label>
             <Input
-              value={draft.financial_origin}
-              onChange={(e) => setDraft((p) => ({ ...p, financial_origin: e.target.value }))}
+              value={draft.payment_origin}
+              onChange={(e) => setDraft((p) => ({ ...p, payment_origin: e.target.value }))}
               className="mt-1 h-10 rounded-2xl"
-              placeholder="Ex: cooperativa / banco / próprio"
+              placeholder="Ex: banco / próprio / cooperativa"
             />
           </div>
           <div>
             <Label className="text-xs">Local (financeiro)</Label>
             <Input
-              value={draft.financial_local}
-              onChange={(e) => setDraft((p) => ({ ...p, financial_local: e.target.value }))}
+              value={draft.payment_local}
+              onChange={(e) => setDraft((p) => ({ ...p, payment_local: e.target.value }))}
               className="mt-1 h-10 rounded-2xl"
               placeholder="Cidade/loja"
             />
@@ -418,19 +434,19 @@ export function CaseCustomerDataEditorCard(props: {
 
         <div className="grid gap-3 sm:grid-cols-2">
           <div>
-            <Label className="text-xs">Validade da proposta</Label>
+            <Label className="text-xs">Com vencimento em</Label>
             <Input
-              value={draft.proposal_valid_until_text}
-              onChange={(e) => setDraft((p) => ({ ...p, proposal_valid_until_text: e.target.value }))}
+              value={draft.payment_due_date_text}
+              onChange={(e) => setDraft((p) => ({ ...p, payment_due_date_text: e.target.value }))}
               className="mt-1 h-10 rounded-2xl"
               placeholder="dd/mm/aaaa"
             />
           </div>
           <div>
-            <Label className="text-xs">Data prevista para entrega</Label>
+            <Label className="text-xs">Validade da proposta</Label>
             <Input
-              value={draft.expected_delivery_date_text}
-              onChange={(e) => setDraft((p) => ({ ...p, expected_delivery_date_text: e.target.value }))}
+              value={draft.proposal_validity_date_text}
+              onChange={(e) => setDraft((p) => ({ ...p, proposal_validity_date_text: e.target.value }))}
               className="mt-1 h-10 rounded-2xl"
               placeholder="dd/mm/aaaa"
             />
@@ -438,10 +454,20 @@ export function CaseCustomerDataEditorCard(props: {
         </div>
 
         <div>
+          <Label className="text-xs">Data prevista para entrega</Label>
+          <Input
+            value={draft.delivery_forecast_text}
+            onChange={(e) => setDraft((p) => ({ ...p, delivery_forecast_text: e.target.value }))}
+            className="mt-1 h-10 rounded-2xl"
+            placeholder="dd/mm/aaaa"
+          />
+        </div>
+
+        <div>
           <Label className="text-xs">Obs.</Label>
           <Textarea
-            value={draft.notes}
-            onChange={(e) => setDraft((p) => ({ ...p, notes: e.target.value }))}
+            value={draft.obs}
+            onChange={(e) => setDraft((p) => ({ ...p, obs: e.target.value }))}
             className="mt-1 min-h-[92px] rounded-2xl"
             placeholder="Observações do pedido"
           />

@@ -32,6 +32,7 @@ import { CaseTimeline, type CaseTimelineEvent } from "@/components/case/CaseTime
 import { CaseTechnicalReportDialog } from "@/components/case/CaseTechnicalReportDialog";
 import { CaseCustomerDataEditorCard } from "@/components/case/CaseCustomerDataEditorCard";
 import { SalesOrderItemsEditorCard } from "@/components/case/SalesOrderItemsEditorCard";
+import { SalesOrderReviewDialog } from "@/components/case/SalesOrderReviewDialog";
 import {
   ArrowLeft,
   CheckCircle2,
@@ -41,6 +42,7 @@ import {
   Send,
   MessagesSquare,
   Trash2,
+  ExternalLink,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { showError, showSuccess } from "@/utils/toast";
@@ -90,6 +92,9 @@ export default function CaseDetail() {
   const [updatingChatOnly, setUpdatingChatOnly] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [updatingState, setUpdatingState] = useState(false);
+
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [reviewImageUrl, setReviewImageUrl] = useState<string | null>(null);
 
   const caseQ = useQuery({
     queryKey: ["case", activeTenantId, id],
@@ -467,6 +472,11 @@ export default function CaseDetail() {
   const c = caseQ.data;
   const isSalesOrder = c?.journeys?.key === "sales_order" || c?.case_type === "sales_order";
 
+  const openReview = (url: string | null) => {
+    setReviewImageUrl(url);
+    setReviewOpen(true);
+  };
+
   return (
     <RequireAuth>
       <AppShell>
@@ -600,6 +610,16 @@ export default function CaseDetail() {
             </div>
           </div>
 
+          {id ? (
+            <SalesOrderReviewDialog
+              open={reviewOpen}
+              onOpenChange={setReviewOpen}
+              caseId={id}
+              imageUrl={reviewImageUrl}
+              fields={fieldsQ.data as any}
+            />
+          ) : null}
+
           {/* Layout: esquerda (conteúdo) + direita (chat fixo) */}
           <div className="mt-5 grid gap-4 lg:grid-cols-[0.95fr_1.05fr]">
             {/* Left */}
@@ -607,10 +627,7 @@ export default function CaseDetail() {
               {/* Editáveis: apenas sales_order */}
               {id && isSalesOrder ? (
                 <>
-                  <CaseCustomerDataEditorCard
-                    caseId={id}
-                    fields={fieldsQ.data as any}
-                  />
+                  <CaseCustomerDataEditorCard caseId={id} fields={fieldsQ.data as any} />
                   <SalesOrderItemsEditorCard caseId={id} />
                 </>
               ) : null}
@@ -677,22 +694,46 @@ export default function CaseDetail() {
                   {(attachmentsQ.data ?? [])
                     .filter((a: any) => a.kind === "image")
                     .slice(0, 4)
-                    .map((a: any) => (
-                      <a
-                        key={a.id}
-                        href={a.storage_path}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="group relative overflow-hidden rounded-2xl border border-slate-200 bg-slate-50"
-                        title="Abrir imagem"
-                      >
-                        <img
-                          src={a.storage_path}
-                          alt="Pedido"
-                          className="h-44 w-full object-cover transition group-hover:scale-[1.02]"
-                        />
-                      </a>
-                    ))}
+                    .map((a: any) => {
+                      const url = (a.storage_path ?? "").trim();
+                      return (
+                        <div
+                          key={a.id}
+                          className="group relative overflow-hidden rounded-2xl border border-slate-200 bg-slate-50"
+                        >
+                          <button
+                            type="button"
+                            onClick={() => (isSalesOrder ? openReview(url) : window.open(url, "_blank"))}
+                            className="block w-full"
+                            title={isSalesOrder ? "Revisar pedido" : "Abrir imagem"}
+                          >
+                            <img
+                              src={url}
+                              alt="Pedido"
+                              className="h-44 w-full object-cover transition group-hover:scale-[1.02]"
+                            />
+                          </button>
+
+                          <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between gap-2 bg-gradient-to-t from-slate-900/50 to-transparent p-3">
+                            <div className="pointer-events-none text-xs font-semibold text-white/95">
+                              {isSalesOrder ? "Revisar" : "Abrir"}
+                            </div>
+
+                            <a
+                              href={url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="pointer-events-auto inline-flex items-center gap-1 rounded-full bg-white/90 px-2 py-1 text-[11px] font-semibold text-slate-900 shadow-sm hover:bg-white"
+                              title="Abrir em nova aba"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <ExternalLink className="h-3.5 w-3.5" />
+                              Nova aba
+                            </a>
+                          </div>
+                        </div>
+                      );
+                    })}
 
                   {(!attachmentsQ.data || attachmentsQ.data.length === 0) && (
                     <div className="rounded-2xl border border-dashed border-slate-200 bg-white/60 p-4 text-xs text-slate-500">

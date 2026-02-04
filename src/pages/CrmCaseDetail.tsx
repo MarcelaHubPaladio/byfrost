@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { WhatsAppConversation } from "@/components/case/WhatsAppConversation";
 import { CaseTimeline, type CaseTimelineEvent } from "@/components/case/CaseTimeline";
+import { CaseOwnerCard } from "@/components/crm/CaseOwnerCard";
 import { CaseCustomerCard } from "@/components/crm/CaseCustomerCard";
 import { CaseTagsCard } from "@/components/crm/CaseTagsCard";
 import { CaseProductsCard } from "@/components/crm/CaseProductsCard";
@@ -468,6 +469,12 @@ export default function CrmCaseDetail() {
             <div className="space-y-4">
               {activeTenantId && id && (
                 <div className="space-y-4">
+                  <CaseOwnerCard
+                    tenantId={activeTenantId}
+                    caseId={id}
+                    assignedVendorId={c?.assigned_vendor_id ?? null}
+                  />
+
                   <CaseCustomerCard
                     tenantId={activeTenantId}
                     caseId={id}

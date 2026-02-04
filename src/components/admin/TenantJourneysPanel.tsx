@@ -235,6 +235,7 @@ export function TenantJourneysPanel() {
   };
 
   const ocrEnabled = Boolean((configObj as any)?.automation?.ocr?.enabled);
+  const ocrProvider = String((configObj as any)?.automation?.ocr?.provider ?? "google_vision");
   const createDefaultPendencies = Boolean(
     (configObj as any)?.automation?.on_image?.create_default_pendencies
   );
@@ -1147,17 +1148,35 @@ export function TenantJourneysPanel() {
               <div className="rounded-2xl border border-slate-200 bg-white p-3">
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <div className="text-xs font-semibold text-slate-900">OCR (Google Vision)</div>
+                    <div className="text-xs font-semibold text-slate-900">OCR</div>
                     <div className="mt-0.5 text-[11px] text-slate-500">
-                      Quando ligado, uma imagem inbound pode enfileirar OCR e preencher campos (dependendo do fluxo).
+                      Quando ligado, uma imagem inbound pode preencher campos e itens automaticamente.
                     </div>
                   </div>
                   <Switch
                     checked={ocrEnabled}
                     onCheckedChange={(v) =>
-                      updateConfig({ automation: { ocr: { enabled: v, provider: "google_vision" } } })
+                      updateConfig({ automation: { ocr: { enabled: v, provider: ocrProvider || "google_vision" } } })
                     }
                   />
+                </div>
+
+                <div className="mt-3">
+                  <Label className="text-xs">Provedor</Label>
+                  <select
+                    value={ocrProvider}
+                    onChange={(e) =>
+                      updateConfig({ automation: { ocr: { enabled: ocrEnabled, provider: e.target.value } } })
+                    }
+                    className="mt-1 h-10 w-full rounded-2xl border border-slate-200 bg-white px-3 text-sm text-slate-700 shadow-sm outline-none focus:border-[hsl(var(--byfrost-accent)/0.45)]"
+                  >
+                    <option value="google_vision">Google Vision (rápido / simples)</option>
+                    <option value="google_document_ai">Google Document AI (melhor para tabelas)</option>
+                  </select>
+                  <div className="mt-1 text-[11px] text-slate-600">
+                    Dica: para usar Document AI, configure as secrets <span className="font-mono">GOOGLE_DOCUMENT_AI_PROCESSOR_NAME</span> e
+                    <span className="font-mono"> GOOGLE_DOCUMENT_AI_SERVICE_ACCOUNT_JSON</span>. Se falhar, o sistema pode fazer fallback para Vision.
+                  </div>
                 </div>
 
                 <div className="mt-3 flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">

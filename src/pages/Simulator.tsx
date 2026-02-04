@@ -21,6 +21,8 @@ async function fileToBase64(file: File) {
   return btoa(binary);
 }
 
+type OcrProvider = "" | "google_vision" | "google_document_ai";
+
 export default function Simulator() {
   const { activeTenantId } = useTenant();
   const [type, setType] = useState<"image" | "text" | "location">("image");
@@ -39,6 +41,9 @@ export default function Simulator() {
   // Optional: test with a different journey
   const [journeyKey, setJourneyKey] = useState<string>("sales_order");
 
+  // OCR provider override (optional)
+  const [ocrProvider, setOcrProvider] = useState<OcrProvider>("");
+
   const [result, setResult] = useState<any>(null);
   const [loading, setLoading] = useState(false);
 
@@ -53,14 +58,12 @@ export default function Simulator() {
 
     setReadingImage(true);
     try {
-      // preview
       const url = URL.createObjectURL(file);
       setMediaPreviewUrl((prev) => {
         if (prev) URL.revokeObjectURL(prev);
         return url;
       });
 
-      // base64 (SEM data: prefix)
       const b64 = await fileToBase64(file);
       setMediaBase64(b64);
     } finally {
@@ -72,8 +75,6 @@ export default function Simulator() {
     if (!activeTenantId) return;
     setLoading(true);
     try {
-      // instanceId é opcional: o simulador pode rodar sem wa_instance.
-      // Se existir instância e você quiser vincular a ela, preencha o UUID.
       let instId = instanceId.trim();
       if (!instId) {
         const { data: inst } = await supabase
@@ -94,10 +95,9 @@ export default function Simulator() {
         type,
         from,
         to,
-        // Envia instanceId somente se existir (senão fica null no backend).
         ...(instId ? { instanceId: instId } : {}),
-        // Envia a journeyKey somente se preenchida (senão cai no default do backend)
         ...(journeyKey.trim() ? { journeyKey: journeyKey.trim() } : {}),
+        ...(ocrProvider ? { ocrProvider } : {}),
       };
       if (type === "image") payload.mediaBase64 = mediaBase64;
       if (type === "text") payload.text = text;
@@ -183,6 +183,22 @@ export default function Simulator() {
               </div>
 
               <div>
+                <Label className="text-xs">Motor de OCR (opcional)</Label>
+                <select
+                  value={ocrProvider}
+                  onChange={(e) => setOcrProvider(e.target.value as OcrProvider)}
+                  className="mt-1 h-10 w-full rounded-2xl border border-slate-200 bg-white px-3 text-sm text-slate-700 shadow-sm focus:border-[hsl(var(--byfrost-accent)/0.45)] outline-none"
+                >
+                  <option value="">(usar config da jornada)</option>
+                  <option value="google_vision">Google Vision</option>
+                  <option value="google_document_ai">Google Document AI</option>
+                </select>
+                <div className="mt-1 text-[11px] text-slate-500">
+                  Dica: Document AI costuma performar melhor em tabelas (itens). Se falhar, o backend faz fallback automático para Vision.
+                </div>
+              </div>
+
+              <div>
                 <Label className="text-xs">wa_instance.id (opcional)</Label>
                 <Input
                   value={instanceId}
@@ -207,7 +223,7 @@ export default function Simulator() {
                   />
 
                   <div className="mt-1 text-xs text-slate-500">
-                    O simulador envia a imagem em Base64 para a Edge Function e tenta OCR (Google Vision).
+                    O simulador envia a imagem em Base64 para a Edge Function e tenta OCR.
                   </div>
 
                   <div className="mt-3 grid gap-3 sm:grid-cols-[120px_1fr]">

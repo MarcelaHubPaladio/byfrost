@@ -3,6 +3,12 @@ import { corsHeaders } from "../_shared/cors.ts";
 import { createSupabaseAdmin } from "../_shared/supabaseAdmin.ts";
 import { normalizePhoneE164Like } from "../_shared/normalize.ts";
 import { fetchAsBase64 } from "../_shared/crypto.ts";
+import {
+  docAiExtractFormFields,
+  docAiExtractTables,
+  docAiTextFromAnchor,
+  processWithGoogleDocumentAI,
+} from "../_shared/googleDocumentAI.ts";
 
 function toDigits(s: string) {
   return (s ?? "").replace(/\D/g, "");
@@ -208,7 +214,7 @@ function extractFieldsFromText(text: string) {
   extracted.rg = rgRaw ? toDigits(rgRaw) : null;
 
   // ----------------------
-  // Items table
+  // Items table (text fallback)
   // ----------------------
   const headerIdx = lines.findIndex((l) => /\bC[oó]d\.?\b/i.test(l) && /\bDescri[cç][aã]o\b/i.test(l));
   const paymentIdx = lines.findIndex((l) => /\bCondi[cç][oõ]es\s+de\s+Pagamento\b/i.test(l));
@@ -234,8 +240,6 @@ function extractFieldsFromText(text: string) {
       const line = normalizeLine(raw);
       if (!line) continue;
 
-      // Try parse: CODE ... QTY ... VALUE
-      // Example: "CS3B PENEIRA ... 01 16.027,00"
       const moneyAll = Array.from(line.matchAll(moneyRe)).map((m) => m[1]);
       const lastMoney = moneyAll.length ? moneyAll[moneyAll.length - 1] : null;
       const valueNum = lastMoney ? parsePtBrMoneyToNumber(lastMoney) : null;
@@ -246,11 +250,9 @@ function extractFieldsFromText(text: string) {
       const codeMatch = line.match(/^([A-Z0-9]{2,12})\b\s*(.*)$/i);
       const code = codeMatch ? normalizeLine(codeMatch[1]) : null;
 
-      // New row when it has a code and either a qty or a value
       if (code && (qty !== null || valueNum !== null)) {
         flush();
         const rest = normalizeLine(codeMatch?.[2] ?? "");
-        // remove trailing qty + value
         let desc = rest;
         if (lastMoney) desc = desc.replace(lastMoney ?? "", "").trim();
         if (qty !== null) desc = desc.replace(new RegExp(`\\b${qty}\\b\\s*$`), "").trim();
@@ -265,13 +267,11 @@ function extractFieldsFromText(text: string) {
         continue;
       }
 
-      // Continuation line (handwritten description often spans multiple lines)
       if (current) {
         current.description = `${current.description}\n${line}`;
         continue;
       }
 
-      // If no current item yet, but line looks like a description start (no header), start one.
       if (!/\bQuant\.?\b/i.test(line) && !/\bValor\b/i.test(line)) {
         current = {
           line_no: items.length + 1,
@@ -290,17 +290,14 @@ function extractFieldsFromText(text: string) {
   extracted.items = items;
 
   const itemsSum = items.reduce((acc, it) => acc + (it.value_num ?? 0), 0);
-  if (itemsSum > 0) {
-    const raw = itemsSum.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    extracted.items_sum_total_raw = `R$ ${raw}`;
-  } else {
-    extracted.items_sum_total_raw = null;
-  }
+  extracted.items_sum_total_raw =
+    itemsSum > 0
+      ? `R$ ${itemsSum.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+      : null;
 
   // ----------------------
   // Payment section
   // ----------------------
-  // Common: "Condições de Pagamento A VISTA"
   const payTermsLine = lines.find((l) => /\bCondi[cç][oõ]es\s+de\s+Pagamento\b/i.test(l));
   if (payTermsLine) {
     const t = payTermsLine.replace(/.*Condi[cç][oõ]es\s+de\s+Pagamento\b\s*/i, "").trim();
@@ -309,7 +306,6 @@ function extractFieldsFromText(text: string) {
 
   extracted.payment_origin = pickLabelFromLine(/\bOrigem\s+Financeira\b/i);
 
-  // A second "Local:" exists in payment area; take the one after payment section if possible
   if (paymentIdx >= 0) {
     for (let i = paymentIdx; i < Math.min(lines.length, paymentIdx + 30); i++) {
       const l = lines[i];
@@ -328,7 +324,6 @@ function extractFieldsFromText(text: string) {
   extracted.delivery_forecast_text = pickLabelFromLine(/\bData\s+prevista\s+para\s+entrega\b/i);
   extracted.obs = pickLabelFromLine(/\bObs\.?\b/i);
 
-  // Payment signal value: look for R$ in payment block
   if (paymentIdx >= 0) {
     const block = lines.slice(paymentIdx, Math.min(lines.length, paymentIdx + 40)).join("\n");
     const m = block.match(/\bR\$\s*(\d{1,3}(?:\.\d{3})*,\d{2})/);
@@ -336,13 +331,10 @@ function extractFieldsFromText(text: string) {
   }
 
   // ----------------------
-  // Representative + client signature
+  // Representative + customer signature (best-effort)
   // ----------------------
-  // Representative code: label exists on the form
   extracted.representative_code = pickLabelFromLine(/\bC[oó]digo\s+do\s+Representante\b/i);
 
-  // Representative name is usually handwritten near the representative signature box;
-  // heuristic: look for a line right before "Código do Representante"
   const repCodeIdx = lines.findIndex((l) => /\bC[oó]digo\s+do\s+Representante\b/i.test(l));
   if (repCodeIdx > 0) {
     for (let i = repCodeIdx - 1; i >= Math.max(0, repCodeIdx - 4); i--) {
@@ -351,7 +343,6 @@ function extractFieldsFromText(text: string) {
       if (/agroforte/i.test(cand)) continue;
       if (/condi[cç][oõ]es/i.test(cand)) continue;
       if (/cliente\s*:/i.test(cand)) continue;
-      // prefer "word-like" lines
       if (cand.length >= 3 && cand.length <= 40) {
         extracted.representative_name = cand;
         break;
@@ -359,7 +350,6 @@ function extractFieldsFromText(text: string) {
     }
   }
 
-  // Customer signature presence: OCR may not read scribble; best-effort heuristic.
   // If OCR captures any content after "CLIENTE:", treat as signed.
   let customerSig = false;
   for (const line of lines) {
@@ -371,13 +361,128 @@ function extractFieldsFromText(text: string) {
   }
   extracted.customer_signature_present = customerSig;
 
-  // ----------------------
-  // Total
-  // ----------------------
-  // Prefer sum(items) since you confirmed Valor = total per item.
+  // Total = sum(items) (Valor = total per item)
   extracted.total_raw = extracted.items_sum_total_raw;
 
   return extracted;
+}
+
+function mapDocAiLabel(label: string) {
+  const l = normalizeLine(label).toLowerCase();
+  if (l.startsWith("local")) return "local";
+  if (l === "data" || l.startsWith("data:")) return "order_date_text";
+  if (l.startsWith("nome")) return "customer_name";
+  if (l.includes("código do cliente")) return "customer_code";
+  if (l.startsWith("e-mail") || l.startsWith("email")) return "email";
+  if (l.includes("data de nascimento")) return "birth_date_text";
+  if (l.startsWith("endereço") || l.startsWith("endereco")) return "address";
+  if (l.startsWith("telefone")) return "phone_raw";
+  if (l.startsWith("cidade")) return "city";
+  if (l.startsWith("cep")) return "cep";
+  if (l.startsWith("estado")) return "state";
+  if (l === "uf" || l.startsWith("uf")) return "uf";
+  if (l.includes("cpf/cnpj") || l.includes("cnpj/cpf") || l === "cpf" || l === "cnpj") return "cpf_cnpj";
+  if (l.includes("inscr") && l.includes("est")) return "ie";
+  if (l === "rg") return "rg";
+  if (l.includes("condições de pagamento")) return "payment_terms";
+  if (l.includes("origem financeira")) return "payment_origin";
+  if (l.includes("sinal") && l.includes("negócio")) return "payment_signal_date_text";
+  if (l.includes("com vencimento")) return "payment_due_date_text";
+  if (l.includes("validade da proposta")) return "proposal_validity_date_text";
+  if (l.includes("data prevista") && l.includes("entrega")) return "delivery_forecast_text";
+  if (l.startsWith("obs")) return "obs";
+  if (l.includes("código do representante")) return "representative_code";
+  return null;
+}
+
+function extractFromDocAi(doc: any): Partial<ExtractedFields> {
+  const out: Partial<ExtractedFields> = {};
+
+  const formFields = docAiExtractFormFields(doc);
+  for (const kv of formFields) {
+    const key = mapDocAiLabel(kv.label);
+    if (!key) continue;
+
+    const val = normalizeLine(kv.value);
+    if (!val) continue;
+
+    if (key === "cpf_cnpj") {
+      const digits = toDigits(val);
+      if (digits.length === 11) out.cpf = digits;
+      if (digits.length === 14) out.cnpj = digits;
+      continue;
+    }
+
+    if (key.endsWith("_date_text") || key === "order_date_text") {
+      const d = parsePtBrDateFromText(val);
+      if (d) (out as any)[key] = d;
+      continue;
+    }
+
+    (out as any)[key] = val;
+  }
+
+  // Tables -> items
+  const tables = docAiExtractTables(doc);
+  const items: ExtractedItem[] = [];
+
+  const readCell = (cell: any) => {
+    const s = docAiTextFromAnchor(doc, cell?.layout?.textAnchor);
+    return normalizeLine(s);
+  };
+
+  for (const t of tables) {
+    const headerRow = t?.headerRows?.[0];
+    const headerCells = headerRow?.cells ?? [];
+    const headers = headerCells.map(readCell).map((h: string) => h.toLowerCase());
+
+    const col = {
+      code: headers.findIndex((h: string) => /c[oó]d/.test(h)),
+      description: headers.findIndex((h: string) => /descri/.test(h)),
+      qty: headers.findIndex((h: string) => /quant/.test(h)),
+      value: headers.findIndex((h: string) => /valor/.test(h)),
+    };
+
+    // Consider it the items table only if at least description + value are present
+    if (col.description < 0 || col.value < 0) continue;
+
+    const bodyRows = t?.bodyRows ?? [];
+    for (const r of bodyRows) {
+      const cells = r?.cells ?? [];
+      const code = col.code >= 0 ? readCell(cells[col.code]) : "";
+      const desc = col.description >= 0 ? readCell(cells[col.description]) : "";
+      const qtyRaw = col.qty >= 0 ? readCell(cells[col.qty]) : "";
+      const valueRaw = col.value >= 0 ? readCell(cells[col.value]) : "";
+
+      const description = desc;
+      if (!description) continue;
+
+      const qty = qtyRaw ? Number(toDigits(qtyRaw)) : null;
+      const moneyMatch = valueRaw.match(/(\d{1,3}(?:\.\d{3})*,\d{2})/);
+      const money = moneyMatch?.[1] ?? null;
+      const valueNum = money ? parsePtBrMoneyToNumber(money) : null;
+
+      items.push({
+        line_no: items.length + 1,
+        code: code || null,
+        description,
+        qty: Number.isFinite(qty as any) ? qty : null,
+        value_raw: money,
+        value_num: valueNum,
+      });
+    }
+  }
+
+  if (items.length) out.items = items;
+
+  // Total = sum(items)
+  const itemsSum = (out.items ?? []).reduce((acc, it) => acc + (it.value_num ?? 0), 0);
+  if (itemsSum > 0) {
+    out.items_sum_total_raw = `R$ ${itemsSum.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    out.total_raw = out.items_sum_total_raw;
+  }
+
+  return out;
 }
 
 async function runOcrGoogleVision(input: { imageUrl?: string | null; imageBase64?: string | null }) {
@@ -399,7 +504,6 @@ async function runOcrGoogleVision(input: { imageUrl?: string | null; imageBase64
       {
         image: { content },
         imageContext: {
-          // Helps with PT-BR forms (labels like "Telefone", "Data", "Código do Cliente")
           languageHints: ["pt"],
         },
         features: [{ type: "DOCUMENT_TEXT_DETECTION" }],
@@ -418,10 +522,28 @@ async function runOcrGoogleVision(input: { imageUrl?: string | null; imageBase64
   return { ok: true as const, text: annotation?.text ?? "", raw: json?.responses?.[0] ?? json };
 }
 
+async function runOcrGoogleDocumentAI(input: { contentBase64: string; mimeType: string }) {
+  const processorName = Deno.env.get("GOOGLE_DOCUMENT_AI_PROCESSOR_NAME") ?? "";
+  const saJson = Deno.env.get("GOOGLE_DOCUMENT_AI_SERVICE_ACCOUNT_JSON") ?? "";
+  if (!processorName || !saJson) {
+    return { ok: false as const, error: "Missing GOOGLE_DOCUMENT_AI_PROCESSOR_NAME/GOOGLE_DOCUMENT_AI_SERVICE_ACCOUNT_JSON" };
+  }
+
+  const json = await processWithGoogleDocumentAI({
+    processorName,
+    serviceAccountJson: saJson,
+    contentBase64: input.contentBase64,
+    mimeType: input.mimeType,
+  });
+
+  const doc = json?.document;
+  const text = String(doc?.text ?? "");
+  return { ok: true as const, text, document: doc, raw: json };
+}
+
 async function ensureSalesOrderJourney(supabase: ReturnType<typeof createSupabaseAdmin>) {
   const fn = "simulator-whatsapp";
 
-  // 1) Try to find the expected seeded journey
   const { data: journeyExisting, error: jErr } = await supabase
     .from("journeys")
     .select("id")
@@ -434,7 +556,6 @@ async function ensureSalesOrderJourney(supabase: ReturnType<typeof createSupabas
 
   if (journeyExisting?.id) return journeyExisting.id as string;
 
-  // 2) If missing (db without seeds), recreate minimal catalog rows so simulator can run.
   console.warn(`[${fn}] Journey sales_order missing; attempting to (re)seed minimal catalog rows`);
 
   let sectorId: string | null = null;
@@ -506,10 +627,9 @@ serve(async (req) => {
     if (!body) return new Response("Invalid JSON", { status: 400, headers: corsHeaders });
 
     const tenantId = body.tenantId as string | undefined;
-    const instanceIdRaw = body.instanceId as string | undefined; // wa_instances.id (opcional)
+    const instanceIdRaw = body.instanceId as string | undefined;
     const instanceId = instanceIdRaw ? String(instanceIdRaw).trim() : null;
 
-    // Optional: allow testing with a different journey
     const journeyKeyRaw = body.journeyKey as string | undefined;
     const journeyIdRaw = body.journeyId as string | undefined;
     const journeyKey = journeyKeyRaw ? String(journeyKeyRaw).trim() : "";
@@ -521,6 +641,7 @@ serve(async (req) => {
     const text = (body.text as string | undefined) ?? null;
     const mediaUrl = (body.mediaUrl as string | undefined) ?? null;
     const mediaBase64 = (body.mediaBase64 as string | undefined) ?? null;
+    const mimeType = (body.mimeType as string | undefined) ?? "image/jpeg";
     const location = body.location as { lat: number; lng: number } | undefined;
 
     if (!tenantId || !from) {
@@ -531,7 +652,6 @@ serve(async (req) => {
     }
 
     const correlationId = `sim:${crypto.randomUUID()}`;
-
     const supabase = createSupabaseAdmin();
 
     // Ensure vendor
@@ -574,37 +694,58 @@ serve(async (req) => {
       );
     }
 
+    // Determine OCR provider (tenant config) + allow request override
+    let ocrProvider = (body.ocrProvider as string | undefined) ?? "";
+    if (!ocrProvider) {
+      const { data: tj } = await supabase
+        .from("tenant_journeys")
+        .select("config_json")
+        .eq("tenant_id", tenantId)
+        .eq("journey_id", journeyId)
+        .maybeSingle();
+      ocrProvider = (tj?.config_json?.automation?.ocr?.provider as string | undefined) ?? "google_vision";
+    }
+
     // Case creation flow (MVP)
     let caseId: string | null = null;
 
-    // Debug payload to help you validate what happened
     const debug: any = {
       journey: { journeyId, journeyKey: journeyKey || "(default: sales_order)" },
-      ocr: { attempted: false, ok: false, error: null as string | null, textPreview: null as string | null },
+      ocr: {
+        provider: ocrProvider,
+        attempted: false,
+        ok: false,
+        error: null as string | null,
+        textPreview: null as string | null,
+        fallbackProvider: null as string | null,
+      },
       extracted: null as any,
       created: { pendencies: 0, case_fields: 0, case_items: 0, attachments: 0, timeline: 0, wa_messages: 0 },
       notes: [] as string[],
     };
 
     const upsertCaseField = async (case_id: string, key: string, value: any, confidence: number, source: string, last_updated_by: string) => {
-      if (value === null || value === undefined) return { ok: true as const, skipped: true as const };
-      const row: any = {
-        case_id,
-        key,
-        confidence,
-        source,
-        last_updated_by,
-      };
+      if (value === null || value === undefined) return;
+      const row: any = { case_id, key, confidence, source, last_updated_by };
       if (typeof value === "string") row.value_text = value;
       else row.value_json = value;
-
       const { error } = await supabase.from("case_fields").upsert(row);
       if (error) {
         console.error(`[${fn}] Failed to upsert case_field ${key}`, { error });
-        return { ok: false as const, error };
+        debug.notes.push(`Failed to upsert case_field ${key}`);
+        return;
       }
       debug.created.case_fields += 1;
-      return { ok: true as const, skipped: false as const };
+    };
+
+    const mergePreferDocAi = (base: ExtractedFields, patch: Partial<ExtractedFields>) => {
+      const out: any = { ...base };
+      for (const [k, v] of Object.entries(patch)) {
+        if (v === null || v === undefined) continue;
+        if (k === "items" && Array.isArray(v) && v.length) out.items = v;
+        else out[k] = v;
+      }
+      return out as ExtractedFields;
     };
 
     if (type === "image") {
@@ -614,14 +755,13 @@ serve(async (req) => {
           tenant_id: tenantId,
           journey_id: journeyId,
           case_type: "order",
-          // NOTE: DB enforces cases_status_check; use the canonical status.
           status: "open",
           state: "awaiting_ocr",
           created_by_channel: "api",
           created_by_vendor_id: vendorId,
           assigned_vendor_id: vendorId,
           title: "Pedido (simulador)",
-          meta_json: { correlation_id: correlationId, simulator: true },
+          meta_json: { correlation_id: correlationId, simulator: true, ocr_provider: ocrProvider },
         })
         .select("id")
         .single();
@@ -645,22 +785,17 @@ serve(async (req) => {
           direction: "inbound",
           from_phone: from,
           to_phone: to,
-          type: type === "image" ? "image" : type === "audio" ? "audio" : type === "location" ? "location" : "text",
+          type: "image",
           body_text: text,
           media_url: mediaUrl,
           payload_json: body,
           correlation_id: correlationId,
           occurred_at: new Date().toISOString(),
         });
-        if (wErr) {
-          console.error(`[${fn}] Failed to insert inbound wa_message`, { wErr });
-          debug.notes.push("Failed to insert inbound wa_message");
-        } else {
-          debug.created.wa_messages += 1;
-        }
+        if (!wErr) debug.created.wa_messages += 1;
       }
 
-      // attachment (URL-based) or placeholder (inline base64)
+      // attachment placeholder
       if (mediaUrl) {
         const { error: aErr } = await supabase.from("case_attachments").insert({
           case_id: caseId,
@@ -668,12 +803,7 @@ serve(async (req) => {
           storage_path: mediaUrl,
           meta_json: { source: "simulator" },
         });
-        if (aErr) {
-          console.error(`[${fn}] Failed to insert case_attachment`, { aErr });
-          debug.notes.push("Failed to insert case_attachment (mediaUrl)");
-        } else {
-          debug.created.attachments += 1;
-        }
+        if (!aErr) debug.created.attachments += 1;
       } else if (mediaBase64) {
         const { error: aErr } = await supabase.from("case_attachments").insert({
           case_id: caseId,
@@ -681,15 +811,10 @@ serve(async (req) => {
           storage_path: `inline://simulator/${correlationId}`,
           meta_json: { source: "simulator", inline_base64: true, note: "inline image not stored" },
         });
-        if (aErr) {
-          console.error(`[${fn}] Failed to insert case_attachment`, { aErr });
-          debug.notes.push("Failed to insert case_attachment (mediaBase64)");
-        } else {
-          debug.created.attachments += 1;
-        }
+        if (!aErr) debug.created.attachments += 1;
       }
 
-      // IMPORTANT: pendencies table is keyed by case_id (no tenant_id column)
+      // Default pendencies
       {
         const { error: pErr } = await supabase.from("pendencies").insert([
           {
@@ -711,167 +836,160 @@ serve(async (req) => {
             due_at: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
           },
         ]);
-        if (pErr) {
-          console.error(`[${fn}] Failed to insert pendencies`, { pErr });
-          debug.notes.push("Failed to insert pendencies");
-        } else {
-          debug.created.pendencies += 2;
-        }
+        if (!pErr) debug.created.pendencies += 2;
       }
 
-      {
-        const { error: tErr } = await supabase.from("timeline_events").insert({
-          tenant_id: tenantId,
-          case_id: caseId,
-          event_type: "sim_inbound_image",
-          actor_type: "vendor",
-          actor_id: vendorId,
-          message: "Simulador: foto do pedido recebida.",
-          meta_json: { correlation_id: correlationId },
-          occurred_at: new Date().toISOString(),
-        });
-        if (tErr) {
-          console.error(`[${fn}] Failed to insert timeline event`, { tErr });
-          debug.notes.push("Failed to insert timeline event");
-        } else {
-          debug.created.timeline += 1;
-        }
-      }
-
-      // OCR + extraction + validation (inline)
+      // OCR
       if (mediaUrl || mediaBase64) {
         debug.ocr.attempted = true;
-        const ocr = await runOcrGoogleVision({ imageUrl: mediaUrl, imageBase64: mediaBase64 });
-        if (ocr.ok) {
-          debug.ocr.ok = true;
-          debug.ocr.textPreview = ocr.text ? String(ocr.text).slice(0, 1200) : "";
 
-          // Persist raw OCR text
-          await upsertCaseField(caseId, "ocr_text", ocr.text, 0.85, "ocr", "ocr_agent");
+        const content = mediaBase64 ?? (await fetchAsBase64(mediaUrl!));
 
-          const extracted = extractFieldsFromText(ocr.text);
-          debug.extracted = extracted;
+        let ocrText = "";
+        let docAiDoc: any = null;
 
-          // --- Customer / header ---
-          await upsertCaseField(caseId, "local", extracted.local ?? null, 0.8, "ocr", "extract");
-          await upsertCaseField(caseId, "order_date_text", extracted.order_date_text ?? null, 0.75, "ocr", "extract");
-          await upsertCaseField(caseId, "name", extracted.customer_name ?? null, 0.75, "ocr", "extract");
-          await upsertCaseField(caseId, "customer_code", extracted.customer_code ?? null, 0.65, "ocr", "extract");
-          await upsertCaseField(caseId, "email", extracted.email ?? null, 0.65, "ocr", "extract");
-          await upsertCaseField(caseId, "birth_date_text", extracted.birth_date_text ?? null, 0.7, "ocr", "extract");
-          await upsertCaseField(caseId, "address", extracted.address ?? null, 0.6, "ocr", "extract");
-          await upsertCaseField(caseId, "phone", extracted.phone_raw ?? null, extracted.phone_raw ? 0.8 : 0.0, "ocr", "extract");
-          await upsertCaseField(caseId, "city", extracted.city ?? null, 0.6, "ocr", "extract");
-          await upsertCaseField(caseId, "cep", extracted.cep ?? null, 0.8, "ocr", "extract");
-          await upsertCaseField(caseId, "state", extracted.state ?? null, 0.55, "ocr", "extract");
-          await upsertCaseField(caseId, "uf", extracted.uf ?? null, 0.85, "ocr", "extract");
-          await upsertCaseField(caseId, "cpf", extracted.cpf ?? null, extracted.cpf ? 0.85 : 0.0, "ocr", "extract");
-          await upsertCaseField(caseId, "cnpj", extracted.cnpj ?? null, extracted.cnpj ? 0.85 : 0.0, "ocr", "extract");
-          await upsertCaseField(caseId, "rg", extracted.rg ?? null, extracted.rg ? 0.7 : 0.0, "ocr", "extract");
-          await upsertCaseField(caseId, "ie", extracted.ie ?? null, 0.55, "ocr", "extract");
-
-          // --- Supplier ---
-          await upsertCaseField(caseId, "supplier_name", extracted.supplier_name ?? null, 0.7, "ocr", "extract");
-          await upsertCaseField(caseId, "supplier_cnpj", extracted.supplier_cnpj ?? null, extracted.supplier_cnpj ? 0.9 : 0.0, "ocr", "extract");
-          await upsertCaseField(caseId, "supplier_phone", extracted.supplier_phone ?? null, 0.75, "ocr", "extract");
-          await upsertCaseField(caseId, "supplier_city_uf", extracted.supplier_city_uf ?? null, 0.6, "ocr", "extract");
-
-          // --- Representative / signature ---
-          await upsertCaseField(caseId, "representative_code", extracted.representative_code ?? null, 0.6, "ocr", "extract");
-          await upsertCaseField(caseId, "representative_name", extracted.representative_name ?? null, 0.55, "ocr", "extract");
-          await upsertCaseField(
-            caseId,
-            "customer_signature_present",
-            extracted.customer_signature_present ? "yes" : "no",
-            0.5,
-            "ocr",
-            "extract"
-          );
-
-          // Create a pendency if customer signature is missing/undetected
-          if (!extracted.customer_signature_present) {
-            const { data: sigPend } = await supabase
-              .from("pendencies")
-              .select("id")
-              .eq("case_id", caseId)
-              .eq("type", "need_customer_signature")
-              .maybeSingle();
-
-            if (!sigPend?.id) {
-              const { error: spErr } = await supabase.from("pendencies").insert({
-                case_id: caseId,
-                type: "need_customer_signature",
-                assigned_to_role: "vendor",
-                question_text: "Faltou a assinatura do cliente no pedido. Envie uma foto/close da assinatura (ou reenvie a folha com a assinatura visível).",
-                required: true,
-                status: "open",
-                due_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-              });
-              if (spErr) {
-                console.error(`[${fn}] Failed to insert need_customer_signature pendency`, { spErr });
-                debug.notes.push("Failed to insert need_customer_signature pendency");
-              } else {
-                debug.created.pendencies += 1;
-              }
+        try {
+          if (ocrProvider === "google_document_ai") {
+            const da = await runOcrGoogleDocumentAI({ contentBase64: content, mimeType });
+            if (da.ok) {
+              ocrText = da.text ?? "";
+              docAiDoc = da.document ?? null;
+              debug.ocr.ok = true;
+            } else {
+              debug.ocr.ok = false;
+              debug.ocr.error = da.error;
+            }
+          } else {
+            const v = await runOcrGoogleVision({ imageBase64: content });
+            if (v.ok) {
+              ocrText = v.text ?? "";
+              debug.ocr.ok = true;
+            } else {
+              debug.ocr.ok = false;
+              debug.ocr.error = v.error;
             }
           }
-
-          // --- Payment ---
-          await upsertCaseField(caseId, "payment_terms", extracted.payment_terms ?? null, 0.6, "ocr", "extract");
-          await upsertCaseField(caseId, "payment_signal_date_text", extracted.payment_signal_date_text ?? null, 0.65, "ocr", "extract");
-          await upsertCaseField(caseId, "payment_signal_value_raw", extracted.payment_signal_value_raw ?? null, 0.65, "ocr", "extract");
-          await upsertCaseField(caseId, "payment_origin", extracted.payment_origin ?? null, 0.6, "ocr", "extract");
-          await upsertCaseField(caseId, "payment_local", extracted.payment_local ?? null, 0.6, "ocr", "extract");
-          await upsertCaseField(caseId, "payment_due_date_text", extracted.payment_due_date_text ?? null, 0.65, "ocr", "extract");
-          await upsertCaseField(caseId, "proposal_validity_date_text", extracted.proposal_validity_date_text ?? null, 0.7, "ocr", "extract");
-          await upsertCaseField(caseId, "delivery_forecast_text", extracted.delivery_forecast_text ?? null, 0.6, "ocr", "extract");
-          await upsertCaseField(caseId, "obs", extracted.obs ?? null, 0.55, "ocr", "extract");
-
-          // --- Totals ---
-          await upsertCaseField(caseId, "items_sum_total_raw", extracted.items_sum_total_raw ?? null, 0.75, "ocr", "extract");
-          await upsertCaseField(caseId, "total_raw", extracted.total_raw ?? null, 0.8, "ocr", "extract");
-
-          // --- Items ---
-          if (Array.isArray(extracted.items) && extracted.items.length) {
-            // replace existing
-            await supabase.from("case_items").delete().eq("case_id", caseId);
-
-            const rows = extracted.items
-              .filter((it) => normalizeLine(it.description))
-              .slice(0, 80)
-              .map((it, idx) => ({
-                case_id: caseId,
-                line_no: idx + 1,
-                code: it.code,
-                description: normalizeLine(it.description),
-                qty: it.qty,
-                price: null,
-                // user confirmed: Valor is TOTAL per item
-                total: it.value_num,
-                confidence_json: { source: "ocr", value_raw: it.value_raw },
-              }));
-
-            if (rows.length) {
-              const { error: iErr } = await supabase.from("case_items").insert(rows);
-              if (iErr) {
-                console.error(`[${fn}] Failed to insert case_items`, { iErr });
-                debug.notes.push("Failed to insert case_items");
-              } else {
-                debug.created.case_items += rows.length;
-              }
-            }
-          }
-        } else {
+        } catch (e: any) {
           debug.ocr.ok = false;
-          debug.ocr.error = ocr.error;
-          console.warn(`[${fn}] OCR failed`, { error: ocr.error });
+          debug.ocr.error = e?.message ?? String(e);
+        }
+
+        // Fallback: if DocAI fails, run Vision automatically
+        if (!debug.ocr.ok && ocrProvider === "google_document_ai") {
+          debug.ocr.fallbackProvider = "google_vision";
+          const v = await runOcrGoogleVision({ imageBase64: content });
+          if (v.ok) {
+            ocrText = v.text ?? "";
+            debug.ocr.ok = true;
+            debug.ocr.error = null;
+          }
+        }
+
+        debug.ocr.textPreview = ocrText ? String(ocrText).slice(0, 1200) : "";
+
+        await upsertCaseField(caseId, "ocr_text", ocrText, 0.85, "ocr", "ocr_agent");
+
+        // Base extraction from text
+        let extracted = extractFieldsFromText(ocrText);
+
+        // Prefer DocAI structure when available
+        if (docAiDoc) {
+          const patch = extractFromDocAi(docAiDoc);
+          extracted = mergePreferDocAi(extracted, patch);
+        }
+
+        debug.extracted = extracted;
+
+        // Persist core fields
+        await upsertCaseField(caseId, "local", extracted.local ?? null, 0.8, "ocr", "extract");
+        await upsertCaseField(caseId, "order_date_text", extracted.order_date_text ?? null, 0.75, "ocr", "extract");
+        await upsertCaseField(caseId, "name", extracted.customer_name ?? null, 0.75, "ocr", "extract");
+        await upsertCaseField(caseId, "customer_code", extracted.customer_code ?? null, 0.65, "ocr", "extract");
+        await upsertCaseField(caseId, "email", extracted.email ?? null, 0.65, "ocr", "extract");
+        await upsertCaseField(caseId, "birth_date_text", extracted.birth_date_text ?? null, 0.7, "ocr", "extract");
+        await upsertCaseField(caseId, "address", extracted.address ?? null, 0.6, "ocr", "extract");
+        await upsertCaseField(caseId, "phone", extracted.phone_raw ?? null, extracted.phone_raw ? 0.8 : 0.0, "ocr", "extract");
+        await upsertCaseField(caseId, "city", extracted.city ?? null, 0.6, "ocr", "extract");
+        await upsertCaseField(caseId, "cep", extracted.cep ?? null, 0.8, "ocr", "extract");
+        await upsertCaseField(caseId, "state", extracted.state ?? null, 0.55, "ocr", "extract");
+        await upsertCaseField(caseId, "uf", extracted.uf ?? null, 0.85, "ocr", "extract");
+        await upsertCaseField(caseId, "cpf", extracted.cpf ?? null, extracted.cpf ? 0.85 : 0.0, "ocr", "extract");
+        await upsertCaseField(caseId, "cnpj", extracted.cnpj ?? null, extracted.cnpj ? 0.85 : 0.0, "ocr", "extract");
+        await upsertCaseField(caseId, "rg", extracted.rg ?? null, extracted.rg ? 0.7 : 0.0, "ocr", "extract");
+        await upsertCaseField(caseId, "ie", extracted.ie ?? null, 0.55, "ocr", "extract");
+
+        await upsertCaseField(caseId, "supplier_name", extracted.supplier_name ?? null, 0.7, "ocr", "extract");
+        await upsertCaseField(caseId, "supplier_cnpj", extracted.supplier_cnpj ?? null, extracted.supplier_cnpj ? 0.9 : 0.0, "ocr", "extract");
+        await upsertCaseField(caseId, "supplier_phone", extracted.supplier_phone ?? null, 0.75, "ocr", "extract");
+        await upsertCaseField(caseId, "supplier_city_uf", extracted.supplier_city_uf ?? null, 0.6, "ocr", "extract");
+
+        await upsertCaseField(caseId, "representative_code", extracted.representative_code ?? null, 0.6, "ocr", "extract");
+        await upsertCaseField(caseId, "representative_name", extracted.representative_name ?? null, 0.55, "ocr", "extract");
+        await upsertCaseField(caseId, "customer_signature_present", extracted.customer_signature_present ? "yes" : "no", 0.5, "ocr", "extract");
+
+        if (!extracted.customer_signature_present) {
+          const { data: sigPend } = await supabase
+            .from("pendencies")
+            .select("id")
+            .eq("case_id", caseId)
+            .eq("type", "need_customer_signature")
+            .maybeSingle();
+
+          if (!sigPend?.id) {
+            const { error: spErr } = await supabase.from("pendencies").insert({
+              case_id: caseId,
+              type: "need_customer_signature",
+              assigned_to_role: "vendor",
+              question_text: "Faltou a assinatura do cliente no pedido. Envie uma foto/close da assinatura (ou reenvie a folha com a assinatura visível).",
+              required: true,
+              status: "open",
+              due_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+            });
+            if (!spErr) debug.created.pendencies += 1;
+          }
+        }
+
+        await upsertCaseField(caseId, "payment_terms", extracted.payment_terms ?? null, 0.6, "ocr", "extract");
+        await upsertCaseField(caseId, "payment_signal_date_text", extracted.payment_signal_date_text ?? null, 0.65, "ocr", "extract");
+        await upsertCaseField(caseId, "payment_signal_value_raw", extracted.payment_signal_value_raw ?? null, 0.65, "ocr", "extract");
+        await upsertCaseField(caseId, "payment_origin", extracted.payment_origin ?? null, 0.6, "ocr", "extract");
+        await upsertCaseField(caseId, "payment_local", extracted.payment_local ?? null, 0.6, "ocr", "extract");
+        await upsertCaseField(caseId, "payment_due_date_text", extracted.payment_due_date_text ?? null, 0.65, "ocr", "extract");
+        await upsertCaseField(caseId, "proposal_validity_date_text", extracted.proposal_validity_date_text ?? null, 0.7, "ocr", "extract");
+        await upsertCaseField(caseId, "delivery_forecast_text", extracted.delivery_forecast_text ?? null, 0.6, "ocr", "extract");
+        await upsertCaseField(caseId, "obs", extracted.obs ?? null, 0.55, "ocr", "extract");
+
+        await upsertCaseField(caseId, "items_sum_total_raw", extracted.items_sum_total_raw ?? null, 0.75, "ocr", "extract");
+        await upsertCaseField(caseId, "total_raw", extracted.total_raw ?? null, 0.8, "ocr", "extract");
+
+        // Items -> case_items
+        if (Array.isArray(extracted.items) && extracted.items.length) {
+          await supabase.from("case_items").delete().eq("case_id", caseId);
+
+          const rows = extracted.items
+            .filter((it) => normalizeLine(it.description))
+            .slice(0, 80)
+            .map((it, idx) => ({
+              case_id: caseId,
+              line_no: idx + 1,
+              code: it.code,
+              description: normalizeLine(it.description),
+              qty: it.qty,
+              price: null,
+              total: it.value_num,
+              confidence_json: { source: ocrProvider, value_raw: it.value_raw },
+            }));
+
+          if (rows.length) {
+            const { error: iErr } = await supabase.from("case_items").insert(rows);
+            if (!iErr) debug.created.case_items += rows.length;
+          }
         }
       }
 
       // apply location if provided
       if (location) {
         await upsertCaseField(caseId, "location", location, 1, "vendor", "simulator");
-
         await supabase
           .from("pendencies")
           .update({ status: "answered", answered_text: "Localização enviada", answered_payload_json: location })
@@ -879,80 +997,38 @@ serve(async (req) => {
           .eq("type", "need_location");
       }
 
-      // Outbox preview (pendency list)
-      const { data: pends, error: pendsErr } = await supabase
-        .from("pendencies")
-        .select("question_text, required")
-        .eq("case_id", caseId)
-        .eq("assigned_to_role", "vendor")
-        .eq("status", "open")
-        .order("created_at", { ascending: true });
+      const { data: outbox } = await supabase
+        .from("wa_messages")
+        .select("id, to_phone, type, body_text, media_url, occurred_at")
+        .eq("tenant_id", tenantId)
+        .eq("direction", "outbound")
+        .eq("correlation_id", correlationId)
+        .order("occurred_at", { ascending: true });
 
-      if (pendsErr) {
-        console.error(`[${fn}] Failed to load pendencies for outbox preview`, { pendsErr });
-        debug.notes.push("Failed to load pendencies for outbox preview");
-      }
-
-      if (pends?.length) {
-        const list = pends.map((p, i) => `${i + 1}) ${p.question_text}${p.required ? "" : " (opcional)"}`).join("\n");
-        const msg = `Byfrost.ia — Pendências do pedido:\n\n${list}`;
-        const { error: oErr } = await supabase.from("wa_messages").insert({
-          tenant_id: tenantId,
-          instance_id: instanceId,
-          case_id: caseId,
-          direction: "outbound",
-          from_phone: to,
-          to_phone: from,
-          type: "text",
-          body_text: msg,
-          payload_json: { kind: "outbox_preview", case_id: caseId },
-          correlation_id: correlationId,
-          occurred_at: new Date().toISOString(),
-        });
-        if (oErr) {
-          console.error(`[${fn}] Failed to insert outbound wa_message`, { oErr });
-          debug.notes.push("Failed to insert outbound wa_message");
-        } else {
-          debug.created.wa_messages += 1;
-        }
-      }
-
-      await supabase.rpc("append_audit_ledger", {
-        p_tenant_id: tenantId,
-        p_payload: { kind: "simulator_run", correlation_id: correlationId, case_id: caseId },
-      });
-    } else {
-      // Persist inbound (not linked to case) for non-image simulator payloads
-      await supabase.from("wa_messages").insert({
-        tenant_id: tenantId,
-        instance_id: instanceId,
-        case_id: null,
-        direction: "inbound",
-        from_phone: from,
-        to_phone: to,
-        type: type === "image" ? "image" : type === "audio" ? "audio" : type === "location" ? "location" : "text",
-        body_text: text,
-        media_url: mediaUrl,
-        payload_json: body,
-        correlation_id: correlationId,
-        occurred_at: new Date().toISOString(),
+      return new Response(JSON.stringify({ ok: true, correlationId, caseId, instanceId, journeyId, outbox: outbox ?? [], debug }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    const { data: outbox } = await supabase
-      .from("wa_messages")
-      .select("id, to_phone, type, body_text, media_url, occurred_at")
-      .eq("tenant_id", tenantId)
-      .eq("direction", "outbound")
-      .eq("correlation_id", correlationId)
-      .order("occurred_at", { ascending: true });
+    // Non-image payload fallback
+    await supabase.from("wa_messages").insert({
+      tenant_id: tenantId,
+      instance_id: instanceId,
+      case_id: null,
+      direction: "inbound",
+      from_phone: from,
+      to_phone: to,
+      type: type === "location" ? "location" : "text",
+      body_text: text,
+      media_url: mediaUrl,
+      payload_json: body,
+      correlation_id: correlationId,
+      occurred_at: new Date().toISOString(),
+    });
 
-    return new Response(
-      JSON.stringify({ ok: true, correlationId, caseId, instanceId, journeyId, outbox: outbox ?? [], debug }),
-      {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      }
-    );
+    return new Response(JSON.stringify({ ok: true, correlationId, caseId: null, instanceId, journeyId, outbox: [], debug: { ocr: { provider: ocrProvider } } }), {
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   } catch (e) {
     console.error(`[simulator-whatsapp] Unhandled error`, { e });
     return new Response("Internal error", { status: 500, headers: corsHeaders });

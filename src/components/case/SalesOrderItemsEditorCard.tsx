@@ -57,6 +57,12 @@ export function SalesOrderItemsEditorCard(props: { caseId: string; className?: s
   const qc = useQueryClient();
   const [saving, setSaving] = useState(false);
 
+  // Helps when dev HMR keeps stale react-query error cache from previous schema.
+  useEffect(() => {
+    if (!caseId) return;
+    qc.invalidateQueries({ queryKey: ["case_items", caseId] });
+  }, [caseId, qc]);
+
   const itemsQ = useQuery({
     queryKey: ["case_items", caseId],
     enabled: Boolean(caseId),
@@ -198,6 +204,10 @@ export function SalesOrderItemsEditorCard(props: { caseId: string; className?: s
           <div className="mt-1 text-xs text-slate-600">
             Edite a tabela do pedido (ID, Descrição, Quantidade e Valor Unitário). O total é calculado automaticamente.
           </div>
+          <div className="mt-1 text-[11px] text-slate-500">
+            Carregados: <span className="font-semibold text-slate-700">{itemsQ.data?.length ?? 0}</span>
+            {itemsQ.isFetching ? <span className="ml-2">(atualizando…)</span> : null}
+          </div>
         </div>
         <div className="shrink-0 text-right">
           <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Total</div>
@@ -267,9 +277,7 @@ export function SalesOrderItemsEditorCard(props: { caseId: string; className?: s
                       value={row.description}
                       onChange={(e) =>
                         setDraft((prev) =>
-                          prev.map((x) =>
-                            x.line_no === row.line_no ? { ...x, description: e.target.value } : x
-                          )
+                          prev.map((x) => (x.line_no === row.line_no ? { ...x, description: e.target.value } : x))
                         )
                       }
                       className="mt-1 h-10 rounded-2xl"
@@ -332,9 +340,7 @@ export function SalesOrderItemsEditorCard(props: { caseId: string; className?: s
                       value={row.description}
                       onChange={(e) =>
                         setDraft((prev) =>
-                          prev.map((x) =>
-                            x.line_no === row.line_no ? { ...x, description: e.target.value } : x
-                          )
+                          prev.map((x) => (x.line_no === row.line_no ? { ...x, description: e.target.value } : x))
                         )
                       }
                       className="h-10 rounded-2xl"
@@ -389,10 +395,10 @@ export function SalesOrderItemsEditorCard(props: { caseId: string; className?: s
             );
           })}
 
-          {draft.length === 0 && (
+          {draft.length === 0 && !itemsQ.isError && (
             <div className="p-4 text-sm text-slate-600">
               <div className="rounded-2xl border border-dashed border-slate-200 bg-white/60 p-4">
-                Nenhum item ainda. Clique em <span className="font-semibold">Adicionar item</span>.
+                Nenhum item encontrado nesse pedido.
               </div>
             </div>
           )}

@@ -274,6 +274,20 @@ function extractFieldsFromText(text: string) {
       return s;
     };
 
+    const splitCodeFromDescription = (s: string) => {
+      const v = normalizeLine(s);
+      if (!v) return { code: null as string | null, description: v };
+
+      // Common OCR pattern: "12345 PRODUTO ..." or "AB12C ITEM ..."
+      const m1 = v.match(/^(\d{3,})\s+(.+)$/);
+      if (m1) return { code: m1[1], description: normalizeLine(m1[2]) };
+
+      const m2 = v.match(/^([A-Z0-9]{3,})\s+(.+)$/i);
+      if (m2) return { code: normalizeLine(m2[1]), description: normalizeLine(m2[2]) };
+
+      return { code: null as string | null, description: v };
+    };
+
     for (let i = 0; i < tableLines.length; i++) {
       const line = normalizeLine(tableLines[i]);
       if (!line) continue;
@@ -289,12 +303,14 @@ function extractFieldsFromText(text: string) {
         const qty = Number(qtyM[1]);
         const money = moneyM[1];
         const valueNum = parsePtBrMoneyToNumber(money);
-        const description = flushDesc();
+        const rawDesc = flushDesc();
+
+        const { code, description } = splitCodeFromDescription(rawDesc);
 
         if (isMeaningfulValue(description)) {
           items.push({
             line_no: items.length + 1,
-            code: null,
+            code,
             description,
             qty: Number.isFinite(qty) ? qty : null,
             value_raw: money,
@@ -473,7 +489,7 @@ function extractFromDocAi(doc: any): Partial<ExtractedFields> {
     const headers = headerCells.map(readCell).map((h: string) => h.toLowerCase());
 
     const col = {
-      code: headers.findIndex((h: string) => /c[oó]d/.test(h)),
+      code: headers.findIndex((h: string) => /\bc[oó]d\b|c[oó]digo|\bid\b|\bitem\b/.test(h)),
       description: headers.findIndex((h: string) => /descri/.test(h)),
       qty: headers.findIndex((h: string) => /quant/.test(h)),
       value: headers.findIndex((h: string) => /valor/.test(h)),
@@ -1019,16 +1035,22 @@ serve(async (req) => {
           const rows = extracted.items
             .filter((it) => normalizeLine(it.description))
             .slice(0, 80)
-            .map((it, idx) => ({
-              case_id: caseId,
-              line_no: idx + 1,
-              code: it.code,
-              description: normalizeLine(it.description),
-              qty: it.qty,
-              price: null,
-              total: it.value_num,
-              confidence_json: { source: ocrProvider, value_raw: it.value_raw },
-            }));
+            .map((it, idx) => {
+              const qty = it.qty ?? null;
+              const total = it.value_num ?? null;
+              const unit = qty && total ? Number(total) / Number(qty) : null;
+
+              return {
+                case_id: caseId,
+                line_no: idx + 1,
+                code: it.code,
+                description: normalizeLine(it.description),
+                qty,
+                price: unit,
+                total,
+                confidence_json: { source: ocrProvider, value_raw: it.value_raw },
+              };
+            });
 
           if (rows.length) {
             const { error: iErr } = await supabase.from("case_items").insert(rows);

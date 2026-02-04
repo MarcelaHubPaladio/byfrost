@@ -23,6 +23,72 @@ function parsePtBrMoneyToNumber(value: string) {
   return Number.isFinite(n) ? n : null;
 }
 
+function parsePtBrDateFromText(s: string) {
+  const m = String(s ?? "").match(/(\d{1,2})\s*[\/\-]\s*(\d{1,2})\s*[\/\-]\s*(\d{2,4})/);
+  if (!m) return null;
+  const dd = m[1].padStart(2, "0");
+  const mm = m[2].padStart(2, "0");
+  let yyyy = m[3];
+  if (yyyy.length === 2) yyyy = `20${yyyy}`;
+  return `${dd}/${mm}/${yyyy}`;
+}
+
+type ExtractedItem = {
+  line_no: number;
+  code: string | null;
+  description: string;
+  qty: number | null;
+  value_raw: string | null;
+  value_num: number | null;
+};
+
+type ExtractedFields = {
+  // Supplier
+  supplier_name?: string | null;
+  supplier_cnpj?: string | null;
+  supplier_phone?: string | null;
+  supplier_city_uf?: string | null;
+
+  // Customer / header
+  local?: string | null;
+  order_date_text?: string | null;
+  customer_name?: string | null;
+  customer_code?: string | null;
+  email?: string | null;
+  birth_date_text?: string | null;
+  address?: string | null;
+  phone_raw?: string | null;
+  city?: string | null;
+  cep?: string | null;
+  state?: string | null;
+  uf?: string | null;
+  cpf?: string | null;
+  cnpj?: string | null;
+  ie?: string | null;
+  rg?: string | null;
+
+  // Items
+  items?: ExtractedItem[];
+
+  // Payment
+  payment_terms?: string | null;
+  payment_signal_date_text?: string | null;
+  payment_signal_value_raw?: string | null;
+  payment_origin?: string | null;
+  payment_local?: string | null;
+  payment_due_date_text?: string | null;
+  proposal_validity_date_text?: string | null;
+  delivery_forecast_text?: string | null;
+  obs?: string | null;
+
+  // Totals / signature
+  total_raw?: string | null;
+  signaturePresent?: boolean;
+
+  // Raw helpers
+  ocr_text_preview?: string | null;
+};
+
 function extractFieldsFromText(text: string) {
   // IMPORTANT: OCR text can contain multiple fields on the same line (forms).
   // Prefer "label -> value" parsing line-by-line; avoid generic digit matches (which often capture dates).
@@ -39,52 +105,233 @@ function extractFieldsFromText(text: string) {
     return null;
   };
 
-  // --- Name ---
-  let name = pickByLineRegex(/\bnome\b\s*[:\-]?\s*(.+)/i);
-  if (name) {
-    // remove trailing "Código do Cliente" (often appears on same line)
-    name = name.replace(/\bc[oó]digo\s+do\s+cliente\b.*$/i, "").trim();
-    // If we still have a stray label on the tail, cut at common ones
-    name = name.replace(/\b(e-?mail|end(er|e)en?c?o|telefone|data|cpf|cnpj|rg)\b.*$/i, "").trim();
-    if (name.length > 80) name = name.slice(0, 80).trim();
+  const pickLabelFromLine = (label: RegExp) => {
+    for (const line of lines) {
+      if (!label.test(line)) continue;
+      const idx = line.search(label);
+      const after = normalizeLine(line.slice(idx).replace(label, "").replace(/^\s*[:\-]?\s*/g, ""));
+      if (after) return after;
+    }
+    return null;
+  };
+
+  const pickFromCombinedLine = (re: RegExp) => {
+    for (const line of lines) {
+      const m = line.match(re);
+      if (m) return m;
+    }
+    return null;
+  };
+
+  const extracted: ExtractedFields = {
+    ocr_text_preview: lines.slice(0, 40).join("\n").slice(0, 1200),
+  };
+
+  // ----------------------
+  // Supplier (header)
+  // ----------------------
+  extracted.supplier_name = pickByLineRegex(/\bAGROFORTE\b.*\bLTDA\b\.?/i) ?? "AGROFORTE SOLUÇÕES AGRÍCOLAS LTDA.";
+
+  const supplierCnpj = pickByLineRegex(/\bCNPJ\b\s*[:\-]?\s*([0-9\.\/-]{11,18})/i);
+  extracted.supplier_cnpj = supplierCnpj ? toDigits(supplierCnpj) : null;
+
+  const supplierPhone = pickByLineRegex(/\bFone\b\s*[:\-]?\s*(.+)/i) ?? pickByLineRegex(/\bFone\b\s*\(?\d{2}\)?\s*9?\s*\d{4}[-\s]?\d{4}/i);
+  if (supplierPhone) {
+    const m = supplierPhone.match(/(\(?\d{2}\)?\s*9?\s*\d{4}[-\s]?\d{4})/);
+    extracted.supplier_phone = m?.[1] ? normalizeLine(m[1]) : null;
   }
 
-  // --- Document numbers ---
-  // CPF (11 digits) or CNPJ (14 digits) often appears as "CPF/CNPJ: ..."
+  // e.g. "Prudentópolis / PR"
+  extracted.supplier_city_uf = pickByLineRegex(/\b([A-Za-zÀ-ÿ]+)\s*\/\s*([A-Z]{2})\b/) ?? null;
+
+  // ----------------------
+  // Customer header fields
+  // ----------------------
+  // Local + Data may appear on same line
+  const localData = pickFromCombinedLine(/\bLocal\b\s*:\s*(.*?)\s*(?:\bData\b\s*:\s*(.*))?$/i);
+  if (localData) {
+    extracted.local = normalizeLine(localData[1] ?? "") || null;
+    extracted.order_date_text = parsePtBrDateFromText(localData[2] ?? "") ?? null;
+  } else {
+    extracted.local = pickLabelFromLine(/\bLocal\b/i);
+    extracted.order_date_text = parsePtBrDateFromText(pickLabelFromLine(/\bData\b/i) ?? "") ?? null;
+  }
+
+  // Nome + Código do Cliente may appear together
+  const nomeCod = pickFromCombinedLine(/\bNome\b\s*:\s*(.*?)\s*(?:\bC[oó]digo\s+do\s+Cliente\b\s*:\s*(.*))?$/i);
+  if (nomeCod) {
+    let name = normalizeLine(nomeCod[1] ?? "");
+    name = name.replace(/\bc[oó]digo\s+do\s+cliente\b.*$/i, "").trim();
+    extracted.customer_name = name || null;
+    extracted.customer_code = normalizeLine(nomeCod[2] ?? "") || null;
+  } else {
+    extracted.customer_name = pickLabelFromLine(/\bNome\b/i);
+    extracted.customer_code = pickLabelFromLine(/\bC[oó]digo\s+do\s+Cliente\b/i);
+  }
+
+  extracted.email = pickLabelFromLine(/\bE-?mail\b/i);
+  extracted.birth_date_text =
+    parsePtBrDateFromText(pickLabelFromLine(/\bData\s+de\s+Nascimento\b/i) ?? "") ?? null;
+  extracted.address = pickLabelFromLine(/\bEndere[cç]o\b/i);
+
+  // Phone: only accept if explicitly labeled
+  const phoneLabeled = pickLabelFromLine(/\bTelefone\b/i);
+  if (phoneLabeled) {
+    const m = phoneLabeled.match(/(\(?\d{2}\)?\s*9?\s*\d{4}[-\s]?\d{4})/);
+    extracted.phone_raw = m?.[1] ? normalizeLine(m[1]) : null;
+  }
+
+  // Cidade / CEP / Estado / UF often appear on same line
+  extracted.city = pickLabelFromLine(/\bCidade\b/i);
+  extracted.cep = pickByLineRegex(/\bCEP\b\s*[:\-]?\s*([0-9]{5}-?[0-9]{3})/i);
+  extracted.state = pickLabelFromLine(/\bEstado\b/i);
+  extracted.uf = pickByLineRegex(/\bUF\b\s*[:\-]?\s*([A-Z]{2})\b/);
+
+  // Documents
   const cpfCnpjRaw =
     pickByLineRegex(/\bcpf\s*\/?\s*cnpj\b\s*[:\-]?\s*([0-9\.\/-]{11,18})/i) ??
     pickByLineRegex(/\bcnpj\b\s*[:\-]?\s*([0-9\.\/-]{11,18})/i) ??
     pickByLineRegex(/\bcpf\b\s*[:\-]?\s*([0-9\.\/-]{11,18})/i);
 
   const cpfCnpjDigits = cpfCnpjRaw ? toDigits(cpfCnpjRaw) : null;
-  const cpf = cpfCnpjDigits && cpfCnpjDigits.length === 11 ? cpfCnpjDigits : null;
+  extracted.cpf = cpfCnpjDigits && cpfCnpjDigits.length === 11 ? cpfCnpjDigits : null;
+  extracted.cnpj = cpfCnpjDigits && cpfCnpjDigits.length === 14 ? cpfCnpjDigits : null;
+
+  extracted.ie = pickLabelFromLine(/\bInscr\.?\s*Est\.?\b/i);
 
   // RG: only accept if explicitly labeled as RG (avoid picking dates)
-  const rgRaw = pickByLineRegex(/\brg\b\s*[:\-]?\s*([0-9\.\-]{6,14})/i);
-  const rg = rgRaw ? toDigits(rgRaw) : null;
+  const rgRaw = pickByLineRegex(/\bRG\b\s*[:\-]?\s*([0-9\.\-]{6,14})/i);
+  extracted.rg = rgRaw ? toDigits(rgRaw) : null;
 
-  // --- Dates ---
-  const birth_date_text = pickByLineRegex(
-    /\bdata\s+de\s+nascimento\b\s*[:\-]?\s*(\d{1,2}\s*[\/\-]\s*\d{1,2}\s*[\/\-]\s*\d{2,4})/i
-  );
+  // ----------------------
+  // Items table
+  // ----------------------
+  const headerIdx = lines.findIndex((l) => /\bC[oó]d\.?\b/i.test(l) && /\bDescri[cç][aã]o\b/i.test(l));
+  const paymentIdx = lines.findIndex((l) => /\bCondi[cç][oõ]es\s+de\s+Pagamento\b/i.test(l));
 
-  // Order date (useful later)
-  const order_date_text = pickByLineRegex(
-    /\bdata\b\s*[:\-]?\s*(\d{1,2}\s*[\/\-]\s*\d{1,2}\s*[\/\-]\s*\d{2,4})/i
-  );
+  const items: ExtractedItem[] = [];
+  if (headerIdx >= 0) {
+    const start = headerIdx + 1;
+    const end = paymentIdx > start ? paymentIdx : lines.length;
+    const tableLines = lines.slice(start, end).filter((l) => !/^[-_]+$/.test(l));
 
-  // --- Phone ---
-  // Only accept phone if explicitly labeled to avoid grabbing dates like 28/01/2026
-  const phoneLabeled = pickByLineRegex(/\btelefone\b\s*[:\-]?\s*(.+)/i);
-  let phone_raw: string | null = null;
-  if (phoneLabeled) {
-    // Typical: (42) 9 8871-0710
-    const m = phoneLabeled.match(/(\(?\d{2}\)?\s*9?\s*\d{4}[-\s]?\d{4})/);
-    phone_raw = m?.[1] ? normalizeLine(m[1]) : null;
+    let current: ExtractedItem | null = null;
+
+    const moneyRe = /(\d{1,3}(?:\.\d{3})*,\d{2})/g;
+
+    const flush = () => {
+      if (!current) return;
+      current.description = normalizeLine(current.description);
+      if (current.description) items.push(current);
+      current = null;
+    };
+
+    for (const raw of tableLines) {
+      const line = normalizeLine(raw);
+      if (!line) continue;
+
+      // Skip obvious footer/headers
+      if (/\bCondi[cç][oõ]es\b/i.test(line)) break;
+
+      // Try parse: CODE ... QTY ... VALUE
+      // Example: "CS3B PENEIRA ... 01 16.027,00"
+      const moneyAll = Array.from(line.matchAll(moneyRe)).map((m) => m[1]);
+      const lastMoney = moneyAll.length ? moneyAll[moneyAll.length - 1] : null;
+      const valueNum = lastMoney ? parsePtBrMoneyToNumber(lastMoney) : null;
+
+      const qtyMatch = line.match(/\b(\d{1,3})\b\s*(?:\d{1,3}(?:\.\d{3})*,\d{2})\s*$/);
+      const qty = qtyMatch ? Number(qtyMatch[1]) : null;
+
+      const codeMatch = line.match(/^([A-Z0-9]{2,10})\b\s*(.*)$/i);
+      const code = codeMatch ? normalizeLine(codeMatch[1]) : null;
+
+      // New row when it has a code and either a qty or a value
+      if (code && (qty !== null || valueNum !== null)) {
+        flush();
+        const rest = normalizeLine(codeMatch?.[2] ?? "");
+        // remove trailing qty + value
+        let desc = rest;
+        if (lastMoney) desc = desc.replace(new RegExp(`\\b${qty ?? ""}\\b\\s*${lastMoney.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&")}\\s*$`), "");
+        desc = desc.replace(lastMoney ?? "", "").trim();
+        current = {
+          line_no: items.length + 1,
+          code,
+          description: desc,
+          qty,
+          value_raw: lastMoney,
+          value_num: valueNum,
+        };
+        continue;
+      }
+
+      // Continuation line (handwritten description often spans multiple lines)
+      if (current) {
+        current.description = `${current.description}\n${line}`;
+        continue;
+      }
+
+      // If no current item yet, but line looks like a description start (no header), start one.
+      if (!/\bQuant\.?\b/i.test(line) && !/\bValor\b/i.test(line)) {
+        current = {
+          line_no: items.length + 1,
+          code: code && code.length <= 10 ? code : null,
+          description: line,
+          qty,
+          value_raw: lastMoney,
+          value_num: valueNum,
+        };
+      }
+    }
+
+    flush();
   }
 
-  // --- Total ---
-  // In many forms, there is no "R$" prefix. Pick the largest pt-BR money-like value.
+  extracted.items = items;
+
+  // ----------------------
+  // Payment section
+  // ----------------------
+  // Common: "Condições de Pagamento A VISTA"
+  const payTermsLine = lines.find((l) => /\bCondi[cç][oõ]es\s+de\s+Pagamento\b/i.test(l));
+  if (payTermsLine) {
+    const t = payTermsLine.replace(/.*Condi[cç][oõ]es\s+de\s+Pagamento\b\s*/i, "").trim();
+    extracted.payment_terms = t || null;
+  }
+
+  extracted.payment_origin = pickLabelFromLine(/\bOrigem\s+Financeira\b/i);
+  // A second "Local:" exists in payment area; take the one after payment section if possible
+  if (paymentIdx >= 0) {
+    for (let i = paymentIdx; i < Math.min(lines.length, paymentIdx + 25); i++) {
+      const l = lines[i];
+      const m = l.match(/\bLocal\b\s*:\s*(.+)/i);
+      if (m?.[1]) {
+        extracted.payment_local = normalizeLine(m[1]);
+        break;
+      }
+    }
+  }
+
+  extracted.payment_signal_date_text =
+    parsePtBrDateFromText(pickLabelFromLine(/\bSinal\s+de\s+neg[oó]cio\s+em\b/i) ?? "") ?? null;
+  extracted.payment_due_date_text =
+    parsePtBrDateFromText(pickLabelFromLine(/\bCom\s+vencimento\s+em\b/i) ?? "") ?? null;
+  extracted.proposal_validity_date_text =
+    parsePtBrDateFromText(pickLabelFromLine(/\bValidade\s+da\s+Proposta\b/i) ?? "") ?? null;
+
+  extracted.delivery_forecast_text = pickLabelFromLine(/\bData\s+prevista\s+para\s+entrega\b/i);
+  extracted.obs = pickLabelFromLine(/\bObs\.?\b/i);
+
+  // Payment signal value: look for R$ in payment block
+  if (paymentIdx >= 0) {
+    const block = lines.slice(paymentIdx, Math.min(lines.length, paymentIdx + 30)).join("\n");
+    const m = block.match(/\bR\$\s*(\d{1,3}(?:\.\d{3})*,\d{2})/);
+    extracted.payment_signal_value_raw = m?.[1] ? `R$ ${m[1]}` : null;
+  }
+
+  // ----------------------
+  // Total and signature
+  // ----------------------
+  // Total: pick the largest pt-BR money-like value across the doc (works for forms with totals)
   const moneyMatches = Array.from(String(text ?? "").matchAll(/(?:R\$\s*)?(\d{1,3}(?:\.\d{3})*,\d{2})/g));
   let bestMoney: { raw: string; value: number } | null = null;
   for (const mm of moneyMatches) {
@@ -93,20 +340,21 @@ function extractFieldsFromText(text: string) {
     if (n === null) continue;
     if (!bestMoney || n > bestMoney.value) bestMoney = { raw, value: n };
   }
-  const total_raw = bestMoney ? `R$ ${bestMoney.raw}` : null;
 
-  const signaturePresent = /assinatura/i.test(text);
+  // If table items have values but the document doesn't show explicit total, sum items.
+  const itemsSum = items.reduce((acc, it) => acc + (it.value_num ?? 0), 0);
+  if (bestMoney) {
+    extracted.total_raw = `R$ ${bestMoney.raw}`;
+  } else if (itemsSum > 0) {
+    const raw = itemsSum.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    extracted.total_raw = `R$ ${raw}`;
+  } else {
+    extracted.total_raw = null;
+  }
 
-  return {
-    name,
-    cpf,
-    rg,
-    birth_date_text,
-    order_date_text,
-    phone_raw,
-    total_raw,
-    signaturePresent,
-  };
+  extracted.signaturePresent = /assinatura/i.test(text) || /\bCLIENTE\b\s*:/i.test(text);
+
+  return extracted;
 }
 
 async function runOcrGoogleVision(input: { imageUrl?: string | null; imageBase64?: string | null }) {
@@ -311,8 +559,29 @@ serve(async (req) => {
       journey: { journeyId, journeyKey: journeyKey || "(default: sales_order)" },
       ocr: { attempted: false, ok: false, error: null as string | null, textPreview: null as string | null },
       extracted: null as any,
-      created: { pendencies: 0, case_fields: 0, attachments: 0, timeline: 0, wa_messages: 0 },
+      created: { pendencies: 0, case_fields: 0, case_items: 0, attachments: 0, timeline: 0, wa_messages: 0 },
       notes: [] as string[],
+    };
+
+    const upsertCaseField = async (case_id: string, key: string, value: any, confidence: number, source: string, last_updated_by: string) => {
+      if (value === null || value === undefined) return { ok: true as const, skipped: true as const };
+      const row: any = {
+        case_id,
+        key,
+        confidence,
+        source,
+        last_updated_by,
+      };
+      if (typeof value === "string") row.value_text = value;
+      else row.value_json = value;
+
+      const { error } = await supabase.from("case_fields").upsert(row);
+      if (error) {
+        console.error(`[${fn}] Failed to upsert case_field ${key}`, { error });
+        return { ok: false as const, error };
+      }
+      debug.created.case_fields += 1;
+      return { ok: true as const, skipped: false as const };
     };
 
     if (type === "image") {
@@ -454,54 +723,78 @@ serve(async (req) => {
           debug.ocr.ok = true;
           debug.ocr.textPreview = ocr.text ? String(ocr.text).slice(0, 1200) : "";
 
-          // case_fields table is keyed by case_id (no tenant_id column)
-          {
-            const { error: fErr } = await supabase.from("case_fields").upsert({
-              case_id: caseId,
-              key: "ocr_text",
-              value_text: ocr.text,
-              confidence: 0.85,
-              source: "ocr",
-              last_updated_by: "ocr_agent",
-            });
-            if (fErr) {
-              console.error(`[${fn}] Failed to upsert case_field ocr_text`, { fErr });
-              debug.notes.push("Failed to upsert case_field ocr_text");
-            } else {
-              debug.created.case_fields += 1;
-            }
-          }
+          // Persist raw OCR text
+          await upsertCaseField(caseId, "ocr_text", ocr.text, 0.85, "ocr", "ocr_agent");
 
           const extracted = extractFieldsFromText(ocr.text);
           debug.extracted = extracted;
 
-          const upserts: any[] = [];
-          if (extracted.name)
-            upserts.push({ case_id: caseId, key: "name", value_text: extracted.name, confidence: 0.75, source: "ocr", last_updated_by: "extract" });
-          if (extracted.cpf)
-            upserts.push({ case_id: caseId, key: "cpf", value_text: extracted.cpf, confidence: extracted.cpf.length === 11 ? 0.85 : 0.4, source: "ocr", last_updated_by: "extract" });
-          if (extracted.rg)
-            upserts.push({ case_id: caseId, key: "rg", value_text: extracted.rg, confidence: extracted.rg.length >= 7 ? 0.7 : 0.4, source: "ocr", last_updated_by: "extract" });
-          if (extracted.birth_date_text)
-            upserts.push({ case_id: caseId, key: "birth_date_text", value_text: extracted.birth_date_text, confidence: 0.7, source: "ocr", last_updated_by: "extract" });
-          if (extracted.order_date_text)
-            upserts.push({ case_id: caseId, key: "order_date_text", value_text: extracted.order_date_text, confidence: 0.75, source: "ocr", last_updated_by: "extract" });
-          if (extracted.phone_raw) {
-            const digits = toDigits(extracted.phone_raw);
-            const conf = digits.length >= 10 && digits.length <= 13 ? 0.8 : 0.55;
-            upserts.push({ case_id: caseId, key: "phone", value_text: extracted.phone_raw, confidence: conf, source: "ocr", last_updated_by: "extract" });
-          }
-          if (extracted.total_raw)
-            upserts.push({ case_id: caseId, key: "total_raw", value_text: extracted.total_raw, confidence: 0.7, source: "ocr", last_updated_by: "extract" });
-          upserts.push({ case_id: caseId, key: "signature_present", value_text: extracted.signaturePresent ? "yes" : "no", confidence: 0.5, source: "ocr", last_updated_by: "extract" });
+          // --- Customer / header ---
+          await upsertCaseField(caseId, "local", extracted.local ?? null, 0.8, "ocr", "extract");
+          await upsertCaseField(caseId, "order_date_text", extracted.order_date_text ?? null, 0.75, "ocr", "extract");
+          await upsertCaseField(caseId, "name", extracted.customer_name ?? null, 0.75, "ocr", "extract");
+          await upsertCaseField(caseId, "customer_code", extracted.customer_code ?? null, 0.65, "ocr", "extract");
+          await upsertCaseField(caseId, "email", extracted.email ?? null, 0.65, "ocr", "extract");
+          await upsertCaseField(caseId, "birth_date_text", extracted.birth_date_text ?? null, 0.7, "ocr", "extract");
+          await upsertCaseField(caseId, "address", extracted.address ?? null, 0.6, "ocr", "extract");
+          await upsertCaseField(caseId, "phone", extracted.phone_raw ?? null, extracted.phone_raw ? 0.8 : 0.0, "ocr", "extract");
+          await upsertCaseField(caseId, "city", extracted.city ?? null, 0.6, "ocr", "extract");
+          await upsertCaseField(caseId, "cep", extracted.cep ?? null, 0.8, "ocr", "extract");
+          await upsertCaseField(caseId, "state", extracted.state ?? null, 0.55, "ocr", "extract");
+          await upsertCaseField(caseId, "uf", extracted.uf ?? null, 0.85, "ocr", "extract");
+          await upsertCaseField(caseId, "cpf", extracted.cpf ?? null, extracted.cpf ? 0.85 : 0.0, "ocr", "extract");
+          await upsertCaseField(caseId, "cnpj", extracted.cnpj ?? null, extracted.cnpj ? 0.85 : 0.0, "ocr", "extract");
+          await upsertCaseField(caseId, "rg", extracted.rg ?? null, extracted.rg ? 0.7 : 0.0, "ocr", "extract");
+          await upsertCaseField(caseId, "ie", extracted.ie ?? null, 0.55, "ocr", "extract");
 
-          if (upserts.length) {
-            const { error: fuErr } = await supabase.from("case_fields").upsert(upserts);
-            if (fuErr) {
-              console.error(`[${fn}] Failed to upsert extracted case_fields`, { fuErr });
-              debug.notes.push("Failed to upsert extracted case_fields");
-            } else {
-              debug.created.case_fields += upserts.length;
+          // --- Supplier ---
+          await upsertCaseField(caseId, "supplier_name", extracted.supplier_name ?? null, 0.7, "ocr", "extract");
+          await upsertCaseField(caseId, "supplier_cnpj", extracted.supplier_cnpj ?? null, extracted.supplier_cnpj ? 0.9 : 0.0, "ocr", "extract");
+          await upsertCaseField(caseId, "supplier_phone", extracted.supplier_phone ?? null, 0.75, "ocr", "extract");
+          await upsertCaseField(caseId, "supplier_city_uf", extracted.supplier_city_uf ?? null, 0.6, "ocr", "extract");
+
+          // --- Payment ---
+          await upsertCaseField(caseId, "payment_terms", extracted.payment_terms ?? null, 0.6, "ocr", "extract");
+          await upsertCaseField(caseId, "payment_signal_date_text", extracted.payment_signal_date_text ?? null, 0.65, "ocr", "extract");
+          await upsertCaseField(caseId, "payment_signal_value_raw", extracted.payment_signal_value_raw ?? null, 0.65, "ocr", "extract");
+          await upsertCaseField(caseId, "payment_origin", extracted.payment_origin ?? null, 0.6, "ocr", "extract");
+          await upsertCaseField(caseId, "payment_local", extracted.payment_local ?? null, 0.6, "ocr", "extract");
+          await upsertCaseField(caseId, "payment_due_date_text", extracted.payment_due_date_text ?? null, 0.65, "ocr", "extract");
+          await upsertCaseField(caseId, "proposal_validity_date_text", extracted.proposal_validity_date_text ?? null, 0.7, "ocr", "extract");
+          await upsertCaseField(caseId, "delivery_forecast_text", extracted.delivery_forecast_text ?? null, 0.6, "ocr", "extract");
+          await upsertCaseField(caseId, "obs", extracted.obs ?? null, 0.55, "ocr", "extract");
+
+          // --- Totals / signature ---
+          await upsertCaseField(caseId, "total_raw", extracted.total_raw ?? null, extracted.total_raw ? 0.75 : 0.0, "ocr", "extract");
+          await upsertCaseField(caseId, "signature_present", extracted.signaturePresent ? "yes" : "no", 0.5, "ocr", "extract");
+
+          // --- Items ---
+          if (Array.isArray(extracted.items) && extracted.items.length) {
+            // replace existing
+            await supabase.from("case_items").delete().eq("case_id", caseId);
+
+            const rows = extracted.items
+              .filter((it) => normalizeLine(it.description))
+              .slice(0, 50)
+              .map((it, idx) => ({
+                case_id: caseId,
+                line_no: idx + 1,
+                code: it.code,
+                description: normalizeLine(it.description),
+                qty: it.qty,
+                price: null,
+                total: it.value_num,
+                confidence_json: { source: "ocr", value_raw: it.value_raw },
+              }));
+
+            if (rows.length) {
+              const { error: iErr } = await supabase.from("case_items").insert(rows);
+              if (iErr) {
+                console.error(`[${fn}] Failed to insert case_items`, { iErr });
+                debug.notes.push("Failed to insert case_items");
+              } else {
+                debug.created.case_items += rows.length;
+              }
             }
           }
         } else {
@@ -513,23 +806,7 @@ serve(async (req) => {
 
       // apply location if provided
       if (location) {
-        {
-          const { error: lErr } = await supabase.from("case_fields").upsert({
-            case_id: caseId,
-            key: "location",
-            value_json: location,
-            value_text: `${location.lat},${location.lng}`,
-            confidence: 1,
-            source: "vendor",
-            last_updated_by: "simulator",
-          });
-          if (lErr) {
-            console.error(`[${fn}] Failed to upsert case_field location`, { lErr });
-            debug.notes.push("Failed to upsert case_field location");
-          } else {
-            debug.created.case_fields += 1;
-          }
-        }
+        await upsertCaseField(caseId, "location", location, 1, "vendor", "simulator");
 
         await supabase
           .from("pendencies")
@@ -537,28 +814,6 @@ serve(async (req) => {
           .eq("case_id", caseId)
           .eq("type", "need_location");
       }
-
-      // Validate
-      const { data: fields, error: fieldsErr } = await supabase
-        .from("case_fields")
-        .select("key, value_text, value_json")
-        .eq("case_id", caseId);
-
-      if (fieldsErr) {
-        console.error(`[${fn}] Failed to read case_fields for validation`, { fieldsErr });
-        debug.notes.push("Failed to read case_fields for validation");
-      }
-
-      const fm = new Map<string, any>();
-      for (const f of fields ?? []) fm.set(f.key, f.value_text ?? f.value_json);
-
-      const missing: string[] = [];
-      if (!fm.get("name")) missing.push("nome");
-      if (!fm.get("cpf") || String(fm.get("cpf")).length < 11) missing.push("cpf");
-      if (!fm.get("rg") || String(fm.get("rg")).length < 7) missing.push("rg");
-      if (!fm.get("birth_date_text")) missing.push("data_nascimento");
-      if (!fm.get("phone")) missing.push("telefone");
-      if (!fm.get("location")) missing.push("localizacao");
 
       // Outbox preview (pendency list)
       const { data: pends, error: pendsErr } = await supabase
@@ -586,7 +841,7 @@ serve(async (req) => {
           to_phone: from,
           type: "text",
           body_text: msg,
-          payload_json: { kind: "outbox_preview", case_id: caseId, missing },
+          payload_json: { kind: "outbox_preview", case_id: caseId },
           correlation_id: correlationId,
           occurred_at: new Date().toISOString(),
         });

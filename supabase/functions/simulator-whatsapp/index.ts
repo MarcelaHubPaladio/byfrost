@@ -8,21 +8,105 @@ function toDigits(s: string) {
   return (s ?? "").replace(/\D/g, "");
 }
 
+function normalizeLine(s: string) {
+  return (s ?? "").replace(/\s+/g, " ").trim();
+}
+
+function parsePtBrMoneyToNumber(value: string) {
+  // "16.029,00" -> 16029.00
+  const v = (value ?? "").trim();
+  if (!v) return null;
+  const cleaned = v.replace(/[^0-9.,]/g, "");
+  if (!cleaned) return null;
+  const normalized = cleaned.replace(/\./g, "").replace(/,/g, ".");
+  const n = Number(normalized);
+  return Number.isFinite(n) ? n : null;
+}
+
 function extractFieldsFromText(text: string) {
-  const cpfMatch = text.match(/\b(\d{3}\.?(\d{3})\.?(\d{3})-?(\d{2}))\b/);
-  const cpf = cpfMatch ? toDigits(cpfMatch[1]) : null;
-  const rgMatch = text.match(/\bRG\s*[:\-]?\s*(\d{6,12})\b/i) ?? text.match(/\b(\d{7,10})\b/);
-  const rg = rgMatch ? toDigits(rgMatch[1]) : null;
-  const birthMatch = text.match(/\b(\d{2}[\/-]\d{2}[\/-]\d{2,4})\b/);
-  const birth_date_text = birthMatch ? birthMatch[1] : null;
-  const phoneMatch = text.match(/\b(\(?\d{2}\)?\s*9?\d{4}[-\s]?\d{4})\b/);
-  const phone_raw = phoneMatch ? phoneMatch[1] : null;
-  const totalMatch = text.match(/R\$\s*([0-9\.,]{2,})/);
-  const total_raw = totalMatch ? totalMatch[0] : null;
-  const nameMatch = text.match(/\bNome\s*[:\-]\s*(.+)/i);
-  const name = nameMatch ? nameMatch[1].trim().slice(0, 80) : null;
+  // IMPORTANT: OCR text can contain multiple fields on the same line (forms).
+  // Prefer "label -> value" parsing line-by-line; avoid generic digit matches (which often capture dates).
+  const lines = String(text ?? "")
+    .split(/\r?\n/)
+    .map(normalizeLine)
+    .filter(Boolean);
+
+  const pickByLineRegex = (re: RegExp) => {
+    for (const line of lines) {
+      const m = line.match(re);
+      if (m?.[1]) return normalizeLine(m[1]);
+    }
+    return null;
+  };
+
+  // --- Name ---
+  let name = pickByLineRegex(/\bnome\b\s*[:\-]?\s*(.+)/i);
+  if (name) {
+    // remove trailing "Código do Cliente" (often appears on same line)
+    name = name.replace(/\bc[oó]digo\s+do\s+cliente\b.*$/i, "").trim();
+    // If we still have a stray label on the tail, cut at common ones
+    name = name.replace(/\b(e-?mail|end(er|e)en?c?o|telefone|data|cpf|cnpj|rg)\b.*$/i, "").trim();
+    if (name.length > 80) name = name.slice(0, 80).trim();
+  }
+
+  // --- Document numbers ---
+  // CPF (11 digits) or CNPJ (14 digits) often appears as "CPF/CNPJ: ..."
+  const cpfCnpjRaw =
+    pickByLineRegex(/\bcpf\s*\/?\s*cnpj\b\s*[:\-]?\s*([0-9\.\/-]{11,18})/i) ??
+    pickByLineRegex(/\bcnpj\b\s*[:\-]?\s*([0-9\.\/-]{11,18})/i) ??
+    pickByLineRegex(/\bcpf\b\s*[:\-]?\s*([0-9\.\/-]{11,18})/i);
+
+  const cpfCnpjDigits = cpfCnpjRaw ? toDigits(cpfCnpjRaw) : null;
+  const cpf = cpfCnpjDigits && cpfCnpjDigits.length === 11 ? cpfCnpjDigits : null;
+
+  // RG: only accept if explicitly labeled as RG (avoid picking dates)
+  const rgRaw = pickByLineRegex(/\brg\b\s*[:\-]?\s*([0-9\.\-]{6,14})/i);
+  const rg = rgRaw ? toDigits(rgRaw) : null;
+
+  // --- Dates ---
+  const birth_date_text = pickByLineRegex(
+    /\bdata\s+de\s+nascimento\b\s*[:\-]?\s*(\d{1,2}\s*[\/\-]\s*\d{1,2}\s*[\/\-]\s*\d{2,4})/i
+  );
+
+  // Order date (useful later)
+  const order_date_text = pickByLineRegex(
+    /\bdata\b\s*[:\-]?\s*(\d{1,2}\s*[\/\-]\s*\d{1,2}\s*[\/\-]\s*\d{2,4})/i
+  );
+
+  // --- Phone ---
+  // Only accept phone if explicitly labeled to avoid grabbing dates like 28/01/2026
+  const phoneLabeled = pickByLineRegex(/\btelefone\b\s*[:\-]?\s*(.+)/i);
+  let phone_raw: string | null = null;
+  if (phoneLabeled) {
+    // Typical: (42) 9 8871-0710
+    const m = phoneLabeled.match(/(\(?\d{2}\)?\s*9?\s*\d{4}[-\s]?\d{4})/);
+    phone_raw = m?.[1] ? normalizeLine(m[1]) : null;
+  }
+
+  // --- Total ---
+  // In many forms, there is no "R$" prefix. Pick the largest pt-BR money-like value.
+  const moneyMatches = Array.from(String(text ?? "").matchAll(/(?:R\$\s*)?(\d{1,3}(?:\.\d{3})*,\d{2})/g));
+  let bestMoney: { raw: string; value: number } | null = null;
+  for (const mm of moneyMatches) {
+    const raw = mm?.[1] ?? "";
+    const n = parsePtBrMoneyToNumber(raw);
+    if (n === null) continue;
+    if (!bestMoney || n > bestMoney.value) bestMoney = { raw, value: n };
+  }
+  const total_raw = bestMoney ? `R$ ${bestMoney.raw}` : null;
+
   const signaturePresent = /assinatura/i.test(text);
-  return { name, cpf, rg, birth_date_text, phone_raw, total_raw, signaturePresent };
+
+  return {
+    name,
+    cpf,
+    rg,
+    birth_date_text,
+    order_date_text,
+    phone_raw,
+    total_raw,
+    signaturePresent,
+  };
 }
 
 async function runOcrGoogleVision(input: { imageUrl?: string | null; imageBase64?: string | null }) {
@@ -43,6 +127,10 @@ async function runOcrGoogleVision(input: { imageUrl?: string | null; imageBase64
     requests: [
       {
         image: { content },
+        imageContext: {
+          // Helps with PT-BR forms (labels like "Telefone", "Data", "Código do Cliente")
+          languageHints: ["pt"],
+        },
         features: [{ type: "DOCUMENT_TEXT_DETECTION" }],
       },
     ],
@@ -221,7 +309,8 @@ serve(async (req) => {
     // Debug payload to help you validate what happened
     const debug: any = {
       journey: { journeyId, journeyKey: journeyKey || "(default: sales_order)" },
-      ocr: { attempted: false, ok: false, error: null as string | null },
+      ocr: { attempted: false, ok: false, error: null as string | null, textPreview: null as string | null },
+      extracted: null as any,
       created: { pendencies: 0, case_fields: 0, attachments: 0, timeline: 0, wa_messages: 0 },
       notes: [] as string[],
     };
@@ -363,6 +452,7 @@ serve(async (req) => {
         const ocr = await runOcrGoogleVision({ imageUrl: mediaUrl, imageBase64: mediaBase64 });
         if (ocr.ok) {
           debug.ocr.ok = true;
+          debug.ocr.textPreview = ocr.text ? String(ocr.text).slice(0, 1200) : "";
 
           // case_fields table is keyed by case_id (no tenant_id column)
           {
@@ -383,20 +473,26 @@ serve(async (req) => {
           }
 
           const extracted = extractFieldsFromText(ocr.text);
+          debug.extracted = extracted;
 
           const upserts: any[] = [];
           if (extracted.name)
-            upserts.push({ case_id: caseId, key: "name", value_text: extracted.name, confidence: 0.7, source: "ocr", last_updated_by: "extract" });
+            upserts.push({ case_id: caseId, key: "name", value_text: extracted.name, confidence: 0.75, source: "ocr", last_updated_by: "extract" });
           if (extracted.cpf)
-            upserts.push({ case_id: caseId, key: "cpf", value_text: extracted.cpf, confidence: extracted.cpf.length === 11 ? 0.8 : 0.4, source: "ocr", last_updated_by: "extract" });
+            upserts.push({ case_id: caseId, key: "cpf", value_text: extracted.cpf, confidence: extracted.cpf.length === 11 ? 0.85 : 0.4, source: "ocr", last_updated_by: "extract" });
           if (extracted.rg)
             upserts.push({ case_id: caseId, key: "rg", value_text: extracted.rg, confidence: extracted.rg.length >= 7 ? 0.7 : 0.4, source: "ocr", last_updated_by: "extract" });
           if (extracted.birth_date_text)
-            upserts.push({ case_id: caseId, key: "birth_date_text", value_text: extracted.birth_date_text, confidence: 0.65, source: "ocr", last_updated_by: "extract" });
-          if (extracted.phone_raw)
-            upserts.push({ case_id: caseId, key: "phone", value_text: extracted.phone_raw, confidence: 0.65, source: "ocr", last_updated_by: "extract" });
+            upserts.push({ case_id: caseId, key: "birth_date_text", value_text: extracted.birth_date_text, confidence: 0.7, source: "ocr", last_updated_by: "extract" });
+          if (extracted.order_date_text)
+            upserts.push({ case_id: caseId, key: "order_date_text", value_text: extracted.order_date_text, confidence: 0.75, source: "ocr", last_updated_by: "extract" });
+          if (extracted.phone_raw) {
+            const digits = toDigits(extracted.phone_raw);
+            const conf = digits.length >= 10 && digits.length <= 13 ? 0.8 : 0.55;
+            upserts.push({ case_id: caseId, key: "phone", value_text: extracted.phone_raw, confidence: conf, source: "ocr", last_updated_by: "extract" });
+          }
           if (extracted.total_raw)
-            upserts.push({ case_id: caseId, key: "total_raw", value_text: extracted.total_raw, confidence: 0.6, source: "ocr", last_updated_by: "extract" });
+            upserts.push({ case_id: caseId, key: "total_raw", value_text: extracted.total_raw, confidence: 0.7, source: "ocr", last_updated_by: "extract" });
           upserts.push({ case_id: caseId, key: "signature_present", value_text: extracted.signaturePresent ? "yes" : "no", confidence: 0.5, source: "ocr", last_updated_by: "extract" });
 
           if (upserts.length) {

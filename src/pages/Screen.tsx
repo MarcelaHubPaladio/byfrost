@@ -5,10 +5,11 @@ const STORAGE_KEY = "youtube_wall_2x2_video_ids_v1";
 
 type WallState = {
   videoIds: Array<string | null>;
+  audioIdx: number | null;
 };
 
 function normalizeState(raw: unknown): WallState {
-  const fallback: WallState = { videoIds: [null, null, null, null] };
+  const fallback: WallState = { videoIds: [null, null, null, null], audioIdx: null };
   if (!raw || typeof raw !== "object") return fallback;
 
   const any = raw as any;
@@ -21,7 +22,22 @@ function normalizeState(raw: unknown): WallState {
     videoIds[i] = typeof v === "string" && v.trim() ? v.trim() : null;
   }
 
-  return { videoIds };
+  const rawAudioIdx =
+    typeof any.audioIdx === "number" && Number.isFinite(any.audioIdx)
+      ? any.audioIdx
+      : null;
+
+  const audioIdx =
+    rawAudioIdx !== null && rawAudioIdx >= 0 && rawAudioIdx < 4
+      ? rawAudioIdx
+      : null;
+
+  return { videoIds, audioIdx };
+}
+
+function firstAvailableAudioIdx(videoIds: Array<string | null>): number | null {
+  const idx = videoIds.findIndex((v) => Boolean(v));
+  return idx >= 0 ? idx : null;
 }
 
 export default function Screen() {
@@ -32,6 +48,7 @@ export default function Screen() {
     null,
   ]);
   const [maximizedIdx, setMaximizedIdx] = useState<number | null>(null);
+  const [audioIdx, setAudioIdx] = useState<number | null>(null);
 
   useEffect(() => {
     try {
@@ -40,19 +57,33 @@ export default function Screen() {
       const parsed = JSON.parse(raw);
       const next = normalizeState(parsed);
       setVideoIds(next.videoIds);
+      setAudioIdx(next.audioIdx ?? firstAvailableAudioIdx(next.videoIds));
     } catch {
       // ignore
     }
   }, []);
 
+  // Keep audioIdx valid when videos are removed.
   useEffect(() => {
-    const payload: WallState = { videoIds };
+    if (audioIdx === null) {
+      const next = firstAvailableAudioIdx(videoIds);
+      if (next !== null) setAudioIdx(next);
+      return;
+    }
+
+    if (!videoIds[audioIdx]) {
+      setAudioIdx(firstAvailableAudioIdx(videoIds));
+    }
+  }, [videoIds, audioIdx]);
+
+  useEffect(() => {
+    const payload: WallState = { videoIds, audioIdx };
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
     } catch {
       // ignore
     }
-  }, [videoIds]);
+  }, [videoIds, audioIdx]);
 
   const anyMaximized = maximizedIdx !== null;
 
@@ -82,6 +113,8 @@ export default function Screen() {
                 hidden={false}
                 maximized={maximized}
                 anyMaximized={anyMaximized}
+                audioSelected={audioIdx === idx}
+                onSelectAudio={() => setAudioIdx(idx)}
                 onToggleMaximize={() =>
                   setMaximizedIdx((cur) => (cur === idx ? null : idx))
                 }

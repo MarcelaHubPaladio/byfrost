@@ -10,6 +10,8 @@ import {
   Plus,
   X,
   Check,
+  Volume2,
+  VolumeX,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { extractYouTubeVideoId } from "@/lib/youtube";
@@ -21,6 +23,8 @@ type YTPlayer = {
   getPlayerState: () => number;
   cueVideoById?: (videoId: string) => void;
   loadVideoById?: (videoId: string) => void;
+  mute?: () => void;
+  unMute?: () => void;
   destroy: () => void;
 };
 
@@ -29,6 +33,8 @@ type YouTubeQuadrantProps = {
   videoId: string | null;
   maximized: boolean;
   anyMaximized: boolean;
+  audioSelected: boolean;
+  onSelectAudio: () => void;
   onToggleMaximize: () => void;
   onSetVideoId: (next: string | null) => void;
   hidden?: boolean;
@@ -46,6 +52,16 @@ export function YouTubeQuadrant(props: YouTubeQuadrantProps) {
   const [draftUrl, setDraftUrl] = useState("");
 
   const title = useMemo(() => `Quadrante ${props.index + 1}`, [props.index]);
+
+  // Keep mute state in sync with the selected audio quadrant.
+  useEffect(() => {
+    const p = playerRef.current;
+    if (!p) return;
+    if (!props.videoId) return;
+
+    if (props.audioSelected) p.unMute?.();
+    else p.mute?.();
+  }, [props.audioSelected, props.videoId]);
 
   useEffect(() => {
     if (!ready) return;
@@ -75,6 +91,13 @@ export function YouTubeQuadrant(props: YouTubeQuadrantProps) {
       setIsPlaying(state === 1);
     };
 
+    const onReady = () => {
+      const p = playerRef.current;
+      if (!p) return;
+      if (props.audioSelected) p.unMute?.();
+      else p.mute?.();
+    };
+
     if (!playerRef.current) {
       playerRef.current = new YT.Player(containerRef.current, {
         width: "100%",
@@ -90,6 +113,7 @@ export function YouTubeQuadrant(props: YouTubeQuadrantProps) {
           disablekb: 1,
         },
         events: {
+          onReady,
           onStateChange,
         },
       });
@@ -104,8 +128,12 @@ export function YouTubeQuadrant(props: YouTubeQuadrantProps) {
       const p = playerRef.current;
       if (p.cueVideoById) p.cueVideoById(props.videoId);
       else if (p.loadVideoById) p.loadVideoById(props.videoId);
+
+      // Enforce mute/unmute for the new video.
+      if (props.audioSelected) p.unMute?.();
+      else p.mute?.();
     }
-  }, [ready, props.videoId]);
+  }, [ready, props.videoId, props.audioSelected]);
 
   useEffect(() => {
     return () => {
@@ -119,10 +147,18 @@ export function YouTubeQuadrant(props: YouTubeQuadrantProps) {
   const togglePlayPause = () => {
     const p = playerRef.current;
     if (!p) return;
+
     const state = p.getPlayerState();
     // 1 = playing
-    if (state === 1) p.pauseVideo();
-    else p.playVideo();
+    if (state === 1) {
+      p.pauseVideo();
+      return;
+    }
+
+    // When the user hits play on this quadrant, make it the audible one.
+    props.onSelectAudio();
+    p.unMute?.();
+    p.playVideo();
   };
 
   const startEditing = () => {
@@ -213,6 +249,25 @@ export function YouTubeQuadrant(props: YouTubeQuadrantProps) {
             aria-label={isPlaying ? "Pausar" : "Play"}
           >
             {isPlaying ? <Pause className="h-5 w-5" /> : <Play className="h-5 w-5" />}
+          </Button>
+
+          <Button
+            type="button"
+            size="icon"
+            variant="secondary"
+            className={cn(
+              "h-10 w-10 rounded-xl text-white hover:bg-white/15",
+              props.audioSelected ? "bg-white/15" : "bg-white/10"
+            )}
+            onClick={props.onSelectAudio}
+            disabled={!props.videoId}
+            aria-label={props.audioSelected ? "Áudio selecionado" : "Ouvir este vídeo"}
+          >
+            {props.audioSelected ? (
+              <Volume2 className="h-5 w-5" />
+            ) : (
+              <VolumeX className="h-5 w-5" />
+            )}
           </Button>
         </div>
       </div>

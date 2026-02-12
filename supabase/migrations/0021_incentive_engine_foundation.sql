@@ -7,7 +7,7 @@
 
 -- 0) Compatibility: provide a memberships source if the project doesn't have one yet.
 -- The Byfrost schema uses public.users_profile as the canonical tenant membership table.
-DO $$
+DO $do$
 begin
   if not exists (
     select 1
@@ -20,14 +20,15 @@ begin
      where table_schema = 'public'
        and table_name = 'memberships'
   ) then
-    execute $$
+    execute $sql$
       create view public.memberships as
       select up.user_id, up.tenant_id
         from public.users_profile up
        where up.deleted_at is null
-    $$;
+    $sql$;
   end if;
-end$$;
+end
+$do$;
 
 -- 1) incentive_participants
 create table if not exists public.incentive_participants (
@@ -51,7 +52,7 @@ create index if not exists incentive_participants_user_id_idx
 
 alter table public.incentive_participants enable row level security;
 
-DO $$
+DO $do$
 begin
   if not exists (
     select 1 from pg_policies
@@ -59,7 +60,7 @@ begin
        and tablename = 'incentive_participants'
        and policyname = 'incentive_participants_select'
   ) then
-    execute $$
+    execute $sql$
       create policy incentive_participants_select
       on public.incentive_participants
       for select
@@ -69,7 +70,7 @@ begin
         or tenant_id = auth.uid()::uuid
         or tenant_id in (select m.tenant_id from public.memberships m where m.user_id = auth.uid())
       )
-    $$;
+    $sql$;
   end if;
 
   if not exists (
@@ -78,7 +79,7 @@ begin
        and tablename = 'incentive_participants'
        and policyname = 'incentive_participants_insert'
   ) then
-    execute $$
+    execute $sql$
       create policy incentive_participants_insert
       on public.incentive_participants
       for insert
@@ -88,7 +89,7 @@ begin
         or tenant_id = auth.uid()::uuid
         or tenant_id in (select m.tenant_id from public.memberships m where m.user_id = auth.uid())
       )
-    $$;
+    $sql$;
   end if;
 
   if not exists (
@@ -97,7 +98,7 @@ begin
        and tablename = 'incentive_participants'
        and policyname = 'incentive_participants_update'
   ) then
-    execute $$
+    execute $sql$
       create policy incentive_participants_update
       on public.incentive_participants
       for update
@@ -112,7 +113,7 @@ begin
         or tenant_id = auth.uid()::uuid
         or tenant_id in (select m.tenant_id from public.memberships m where m.user_id = auth.uid())
       )
-    $$;
+    $sql$;
   end if;
 
   if not exists (
@@ -121,7 +122,7 @@ begin
        and tablename = 'incentive_participants'
        and policyname = 'incentive_participants_delete'
   ) then
-    execute $$
+    execute $sql$
       create policy incentive_participants_delete
       on public.incentive_participants
       for delete
@@ -131,9 +132,10 @@ begin
         or tenant_id = auth.uid()::uuid
         or tenant_id in (select m.tenant_id from public.memberships m where m.user_id = auth.uid())
       )
-    $$;
+    $sql$;
   end if;
-end$$;
+end
+$do$;
 
 -- 2) participant_types (extensible per tenant; NOT an enum)
 create table if not exists public.participant_types (
@@ -148,7 +150,7 @@ create index if not exists participant_types_tenant_id_idx
 
 alter table public.participant_types enable row level security;
 
-DO $$
+DO $do$
 begin
   if not exists (
     select 1 from pg_policies
@@ -156,7 +158,7 @@ begin
        and tablename = 'participant_types'
        and policyname = 'participant_types_select'
   ) then
-    execute $$
+    execute $sql$
       create policy participant_types_select
       on public.participant_types
       for select
@@ -166,7 +168,7 @@ begin
         or tenant_id = auth.uid()::uuid
         or tenant_id in (select m.tenant_id from public.memberships m where m.user_id = auth.uid())
       )
-    $$;
+    $sql$;
   end if;
 
   if not exists (
@@ -175,7 +177,7 @@ begin
        and tablename = 'participant_types'
        and policyname = 'participant_types_insert'
   ) then
-    execute $$
+    execute $sql$
       create policy participant_types_insert
       on public.participant_types
       for insert
@@ -185,7 +187,7 @@ begin
         or tenant_id = auth.uid()::uuid
         or tenant_id in (select m.tenant_id from public.memberships m where m.user_id = auth.uid())
       )
-    $$;
+    $sql$;
   end if;
 
   if not exists (
@@ -194,7 +196,7 @@ begin
        and tablename = 'participant_types'
        and policyname = 'participant_types_update'
   ) then
-    execute $$
+    execute $sql$
       create policy participant_types_update
       on public.participant_types
       for update
@@ -209,7 +211,7 @@ begin
         or tenant_id = auth.uid()::uuid
         or tenant_id in (select m.tenant_id from public.memberships m where m.user_id = auth.uid())
       )
-    $$;
+    $sql$;
   end if;
 
   if not exists (
@@ -218,7 +220,7 @@ begin
        and tablename = 'participant_types'
        and policyname = 'participant_types_delete'
   ) then
-    execute $$
+    execute $sql$
       create policy participant_types_delete
       on public.participant_types
       for delete
@@ -228,9 +230,10 @@ begin
         or tenant_id = auth.uid()::uuid
         or tenant_id in (select m.tenant_id from public.memberships m where m.user_id = auth.uid())
       )
-    $$;
+    $sql$;
   end if;
-end$$;
+end
+$do$;
 
 -- 3) campaigns (universal incentive campaign model)
 create table if not exists public.campaigns (
@@ -252,7 +255,7 @@ create index if not exists campaigns_tenant_id_idx
 
 alter table public.campaigns enable row level security;
 
-DO $$
+DO $do$
 begin
   if not exists (
     select 1 from pg_policies
@@ -260,7 +263,7 @@ begin
        and tablename = 'campaigns'
        and policyname = 'campaigns_select'
   ) then
-    execute $$
+    execute $sql$
       create policy campaigns_select
       on public.campaigns
       for select
@@ -270,7 +273,7 @@ begin
         or tenant_id = auth.uid()::uuid
         or tenant_id in (select m.tenant_id from public.memberships m where m.user_id = auth.uid())
       )
-    $$;
+    $sql$;
   end if;
 
   if not exists (
@@ -279,7 +282,7 @@ begin
        and tablename = 'campaigns'
        and policyname = 'campaigns_insert'
   ) then
-    execute $$
+    execute $sql$
       create policy campaigns_insert
       on public.campaigns
       for insert
@@ -289,7 +292,7 @@ begin
         or tenant_id = auth.uid()::uuid
         or tenant_id in (select m.tenant_id from public.memberships m where m.user_id = auth.uid())
       )
-    $$;
+    $sql$;
   end if;
 
   if not exists (
@@ -298,7 +301,7 @@ begin
        and tablename = 'campaigns'
        and policyname = 'campaigns_update'
   ) then
-    execute $$
+    execute $sql$
       create policy campaigns_update
       on public.campaigns
       for update
@@ -313,7 +316,7 @@ begin
         or tenant_id = auth.uid()::uuid
         or tenant_id in (select m.tenant_id from public.memberships m where m.user_id = auth.uid())
       )
-    $$;
+    $sql$;
   end if;
 
   if not exists (
@@ -322,7 +325,7 @@ begin
        and tablename = 'campaigns'
        and policyname = 'campaigns_delete'
   ) then
-    execute $$
+    execute $sql$
       create policy campaigns_delete
       on public.campaigns
       for delete
@@ -332,6 +335,7 @@ begin
         or tenant_id = auth.uid()::uuid
         or tenant_id in (select m.tenant_id from public.memberships m where m.user_id = auth.uid())
       )
-    $$;
+    $sql$;
   end if;
-end$$;
+end
+$do$;

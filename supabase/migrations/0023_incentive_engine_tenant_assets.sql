@@ -2,7 +2,7 @@
 -- Idempotent migration: safe to re-run.
 
 -- 1) Storage bucket (private by default; access via signed URLs)
-DO $$
+DO $do$
 begin
   if exists (select 1 from pg_namespace where nspname = 'storage') then
     if not exists (select 1 from storage.buckets where id = 'tenant-assets') then
@@ -10,7 +10,8 @@ begin
       values ('tenant-assets', 'tenant-assets', false);
     end if;
   end if;
-end$$;
+end
+$do$;
 
 -- 2) Helper: extract tenant_id from storage object path.
 -- Supports both:
@@ -51,7 +52,7 @@ end;
 $$;
 
 -- 3) Storage RLS for tenant-assets (uploads restricted by tenant folder)
-DO $$
+DO $do$
 begin
   if exists (select 1 from pg_namespace where nspname = 'storage') then
     execute 'alter table storage.objects enable row level security';
@@ -62,7 +63,7 @@ begin
          and tablename = 'objects'
          and policyname = 'tenant_assets_select'
     ) then
-      execute $$
+      execute $sql$
         create policy tenant_assets_select
         on storage.objects
         for select
@@ -77,7 +78,7 @@ begin
             )
           )
         )
-      $$;
+      $sql$;
     end if;
 
     if not exists (
@@ -86,7 +87,7 @@ begin
          and tablename = 'objects'
          and policyname = 'tenant_assets_insert'
     ) then
-      execute $$
+      execute $sql$
         create policy tenant_assets_insert
         on storage.objects
         for insert
@@ -101,7 +102,7 @@ begin
             )
           )
         )
-      $$;
+      $sql$;
     end if;
 
     if not exists (
@@ -110,7 +111,7 @@ begin
          and tablename = 'objects'
          and policyname = 'tenant_assets_update'
     ) then
-      execute $$
+      execute $sql$
         create policy tenant_assets_update
         on storage.objects
         for update
@@ -135,7 +136,7 @@ begin
             )
           )
         )
-      $$;
+      $sql$;
     end if;
 
     if not exists (
@@ -144,7 +145,7 @@ begin
          and tablename = 'objects'
          and policyname = 'tenant_assets_delete'
     ) then
-      execute $$
+      execute $sql$
         create policy tenant_assets_delete
         on storage.objects
         for delete
@@ -159,31 +160,33 @@ begin
             )
           )
         )
-      $$;
+      $sql$;
     end if;
   end if;
-end$$;
+end
+$do$;
 
 -- 4) Documentation: these columns store the storage path (not a permanent public URL)
-DO $$
+DO $do$
 begin
   if exists (
     select 1 from information_schema.columns
      where table_schema='public' and table_name='incentive_participants' and column_name='photo_url'
   ) then
-    execute $$
+    execute $sql$
       comment on column public.incentive_participants.photo_url
       is 'Storage path (bucket tenant-assets). Use signed URLs for access. Expected: <tenant_id>/participants/<uuid>-<filename>'
-    $$;
+    $sql$;
   end if;
 
   if exists (
     select 1 from information_schema.columns
      where table_schema='public' and table_name='incentive_events' and column_name='attachment_url'
   ) then
-    execute $$
+    execute $sql$
       comment on column public.incentive_events.attachment_url
       is 'Storage path (bucket tenant-assets). Use signed URLs for access. Expected: <tenant_id>/events/<uuid>-<filename>'
-    $$;
+    $sql$;
   end if;
-end$$;
+end
+$do$;

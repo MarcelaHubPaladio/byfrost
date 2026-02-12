@@ -48,9 +48,10 @@ const INCENTIVE_ENGINE_INSTALL_SQL = `
 -- BYFROST Incentive Engine installer (0021–0025)
 -- Execute in Supabase Dashboard → SQL Editor
 
+-- IMPORTANT: this script uses dollar-quoting tags ($do$, $sql$) to avoid nested $$ issues.
+
 -- 0021_incentive_engine_foundation.sql
--- Incentive Engine (Foundation) — universal core tables
-DO $$
+DO $do$
 begin
   if not exists (
     select 1
@@ -63,14 +64,15 @@ begin
      where table_schema = 'public'
        and table_name = 'memberships'
   ) then
-    execute $$
+    execute $sql$
       create view public.memberships as
       select up.user_id, up.tenant_id
         from public.users_profile up
        where up.deleted_at is null
-    $$;
+    $sql$;
   end if;
-end$$;
+end
+$do$;
 
 create table if not exists public.incentive_participants (
   id uuid primary key default gen_random_uuid(),
@@ -87,34 +89,35 @@ create table if not exists public.incentive_participants (
 create index if not exists incentive_participants_tenant_id_idx on public.incentive_participants(tenant_id);
 create index if not exists incentive_participants_user_id_idx on public.incentive_participants(user_id);
 alter table public.incentive_participants enable row level security;
-DO $$
+DO $do$
 begin
   if not exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'incentive_participants' and policyname = 'incentive_participants_select') then
-    execute $$
+    execute $sql$
       create policy incentive_participants_select on public.incentive_participants for select to authenticated
       using (public.is_super_admin() or tenant_id = auth.uid()::uuid or tenant_id in (select m.tenant_id from public.memberships m where m.user_id = auth.uid()));
-    $$;
+    $sql$;
   end if;
   if not exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'incentive_participants' and policyname = 'incentive_participants_insert') then
-    execute $$
+    execute $sql$
       create policy incentive_participants_insert on public.incentive_participants for insert to authenticated
       with check (public.is_super_admin() or tenant_id = auth.uid()::uuid or tenant_id in (select m.tenant_id from public.memberships m where m.user_id = auth.uid()));
-    $$;
+    $sql$;
   end if;
   if not exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'incentive_participants' and policyname = 'incentive_participants_update') then
-    execute $$
+    execute $sql$
       create policy incentive_participants_update on public.incentive_participants for update to authenticated
       using (public.is_super_admin() or tenant_id = auth.uid()::uuid or tenant_id in (select m.tenant_id from public.memberships m where m.user_id = auth.uid()))
       with check (public.is_super_admin() or tenant_id = auth.uid()::uuid or tenant_id in (select m.tenant_id from public.memberships m where m.user_id = auth.uid()));
-    $$;
+    $sql$;
   end if;
   if not exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'incentive_participants' and policyname = 'incentive_participants_delete') then
-    execute $$
+    execute $sql$
       create policy incentive_participants_delete on public.incentive_participants for delete to authenticated
       using (public.is_super_admin() or tenant_id = auth.uid()::uuid or tenant_id in (select m.tenant_id from public.memberships m where m.user_id = auth.uid()));
-    $$;
+    $sql$;
   end if;
-end$$;
+end
+$do$;
 
 create table if not exists public.participant_types (
   id uuid primary key default gen_random_uuid(),
@@ -124,34 +127,35 @@ create table if not exists public.participant_types (
 );
 create index if not exists participant_types_tenant_id_idx on public.participant_types(tenant_id);
 alter table public.participant_types enable row level security;
-DO $$
+DO $do$
 begin
   if not exists (select 1 from pg_policies where schemaname='public' and tablename='participant_types' and policyname='participant_types_select') then
-    execute $$
+    execute $sql$
       create policy participant_types_select on public.participant_types for select to authenticated
       using (public.is_super_admin() or tenant_id = auth.uid()::uuid or tenant_id in (select m.tenant_id from public.memberships m where m.user_id = auth.uid()));
-    $$;
+    $sql$;
   end if;
   if not exists (select 1 from pg_policies where schemaname='public' and tablename='participant_types' and policyname='participant_types_insert') then
-    execute $$
+    execute $sql$
       create policy participant_types_insert on public.participant_types for insert to authenticated
       with check (public.is_super_admin() or tenant_id = auth.uid()::uuid or tenant_id in (select m.tenant_id from public.memberships m where m.user_id = auth.uid()));
-    $$;
+    $sql$;
   end if;
   if not exists (select 1 from pg_policies where schemaname='public' and tablename='participant_types' and policyname='participant_types_update') then
-    execute $$
+    execute $sql$
       create policy participant_types_update on public.participant_types for update to authenticated
       using (public.is_super_admin() or tenant_id = auth.uid()::uuid or tenant_id in (select m.tenant_id from public.memberships m where m.user_id = auth.uid()))
       with check (public.is_super_admin() or tenant_id = auth.uid()::uuid or tenant_id in (select m.tenant_id from public.memberships m where m.user_id = auth.uid()));
-    $$;
+    $sql$;
   end if;
   if not exists (select 1 from pg_policies where schemaname='public' and tablename='participant_types' and policyname='participant_types_delete') then
-    execute $$
+    execute $sql$
       create policy participant_types_delete on public.participant_types for delete to authenticated
       using (public.is_super_admin() or tenant_id = auth.uid()::uuid or tenant_id in (select m.tenant_id from public.memberships m where m.user_id = auth.uid()));
-    $$;
+    $sql$;
   end if;
-end$$;
+end
+$do$;
 
 create table if not exists public.campaigns (
   id uuid primary key default gen_random_uuid(),
@@ -168,34 +172,35 @@ create table if not exists public.campaigns (
 );
 create index if not exists campaigns_tenant_id_idx on public.campaigns(tenant_id);
 alter table public.campaigns enable row level security;
-DO $$
+DO $do$
 begin
   if not exists (select 1 from pg_policies where schemaname='public' and tablename='campaigns' and policyname='campaigns_select') then
-    execute $$
+    execute $sql$
       create policy campaigns_select on public.campaigns for select to authenticated
       using (public.is_super_admin() or tenant_id = auth.uid()::uuid or tenant_id in (select m.tenant_id from public.memberships m where m.user_id = auth.uid()));
-    $$;
+    $sql$;
   end if;
   if not exists (select 1 from pg_policies where schemaname='public' and tablename='campaigns' and policyname='campaigns_insert') then
-    execute $$
+    execute $sql$
       create policy campaigns_insert on public.campaigns for insert to authenticated
       with check (public.is_super_admin() or tenant_id = auth.uid()::uuid or tenant_id in (select m.tenant_id from public.memberships m where m.user_id = auth.uid()));
-    $$;
+    $sql$;
   end if;
   if not exists (select 1 from pg_policies where schemaname='public' and tablename='campaigns' and policyname='campaigns_update') then
-    execute $$
+    execute $sql$
       create policy campaigns_update on public.campaigns for update to authenticated
       using (public.is_super_admin() or tenant_id = auth.uid()::uuid or tenant_id in (select m.tenant_id from public.memberships m where m.user_id = auth.uid()))
       with check (public.is_super_admin() or tenant_id = auth.uid()::uuid or tenant_id in (select m.tenant_id from public.memberships m where m.user_id = auth.uid()));
-    $$;
+    $sql$;
   end if;
   if not exists (select 1 from pg_policies where schemaname='public' and tablename='campaigns' and policyname='campaigns_delete') then
-    execute $$
+    execute $sql$
       create policy campaigns_delete on public.campaigns for delete to authenticated
       using (public.is_super_admin() or tenant_id = auth.uid()::uuid or tenant_id in (select m.tenant_id from public.memberships m where m.user_id = auth.uid()));
-    $$;
+    $sql$;
   end if;
-end$$;
+end
+$do$;
 
 -- 0022_incentive_engine_operations.sql
 create table if not exists public.campaign_participants (
@@ -208,34 +213,35 @@ create table if not exists public.campaign_participants (
 );
 create index if not exists campaign_participants_tenant_campaign_idx on public.campaign_participants(tenant_id, campaign_id);
 alter table public.campaign_participants enable row level security;
-DO $$
+DO $do$
 begin
   if not exists (select 1 from pg_policies where schemaname='public' and tablename='campaign_participants' and policyname='campaign_participants_select') then
-    execute $$
+    execute $sql$
       create policy campaign_participants_select on public.campaign_participants for select to authenticated
       using (public.is_super_admin() or (tenant_id = auth.uid()::uuid or tenant_id in (select m.tenant_id from public.memberships m where m.user_id = auth.uid())));
-    $$;
+    $sql$;
   end if;
   if not exists (select 1 from pg_policies where schemaname='public' and tablename='campaign_participants' and policyname='campaign_participants_insert') then
-    execute $$
+    execute $sql$
       create policy campaign_participants_insert on public.campaign_participants for insert to authenticated
       with check (public.is_super_admin() or (tenant_id = auth.uid()::uuid or tenant_id in (select m.tenant_id from public.memberships m where m.user_id = auth.uid())));
-    $$;
+    $sql$;
   end if;
   if not exists (select 1 from pg_policies where schemaname='public' and tablename='campaign_participants' and policyname='campaign_participants_update') then
-    execute $$
+    execute $sql$
       create policy campaign_participants_update on public.campaign_participants for update to authenticated
       using (public.is_super_admin() or (tenant_id = auth.uid()::uuid or tenant_id in (select m.tenant_id from public.memberships m where m.user_id = auth.uid())))
       with check (public.is_super_admin() or (tenant_id = auth.uid()::uuid or tenant_id in (select m.tenant_id from public.memberships m where m.user_id = auth.uid())));
-    $$;
+    $sql$;
   end if;
   if not exists (select 1 from pg_policies where schemaname='public' and tablename='campaign_participants' and policyname='campaign_participants_delete') then
-    execute $$
+    execute $sql$
       create policy campaign_participants_delete on public.campaign_participants for delete to authenticated
       using (public.is_super_admin() or (tenant_id = auth.uid()::uuid or tenant_id in (select m.tenant_id from public.memberships m where m.user_id = auth.uid())));
-    $$;
+    $sql$;
   end if;
-end$$;
+end
+$do$;
 
 create table if not exists public.incentive_events (
   id uuid primary key default gen_random_uuid(),
@@ -255,34 +261,35 @@ create index if not exists incentive_events_tenant_id_idx on public.incentive_ev
 create index if not exists incentive_events_campaign_id_idx on public.incentive_events(campaign_id);
 create index if not exists incentive_events_participant_id_idx on public.incentive_events(participant_id);
 alter table public.incentive_events enable row level security;
-DO $$
+DO $do$
 begin
   if not exists (select 1 from pg_policies where schemaname='public' and tablename='incentive_events' and policyname='incentive_events_select') then
-    execute $$
+    execute $sql$
       create policy incentive_events_select on public.incentive_events for select to authenticated
       using (public.is_super_admin() or (tenant_id = auth.uid()::uuid or tenant_id in (select m.tenant_id from public.memberships m where m.user_id = auth.uid())));
-    $$;
+    $sql$;
   end if;
   if not exists (select 1 from pg_policies where schemaname='public' and tablename='incentive_events' and policyname='incentive_events_insert') then
-    execute $$
+    execute $sql$
       create policy incentive_events_insert on public.incentive_events for insert to authenticated
       with check (public.is_super_admin() or (tenant_id = auth.uid()::uuid or tenant_id in (select m.tenant_id from public.memberships m where m.user_id = auth.uid())));
-    $$;
+    $sql$;
   end if;
   if not exists (select 1 from pg_policies where schemaname='public' and tablename='incentive_events' and policyname='incentive_events_update') then
-    execute $$
+    execute $sql$
       create policy incentive_events_update on public.incentive_events for update to authenticated
       using (public.is_super_admin() or (tenant_id = auth.uid()::uuid or tenant_id in (select m.tenant_id from public.memberships m where m.user_id = auth.uid())))
       with check (public.is_super_admin() or (tenant_id = auth.uid()::uuid or tenant_id in (select m.tenant_id from public.memberships m where m.user_id = auth.uid())));
-    $$;
+    $sql$;
   end if;
   if not exists (select 1 from pg_policies where schemaname='public' and tablename='incentive_events' and policyname='incentive_events_delete') then
-    execute $$
+    execute $sql$
       create policy incentive_events_delete on public.incentive_events for delete to authenticated
       using (public.is_super_admin() or (tenant_id = auth.uid()::uuid or tenant_id in (select m.tenant_id from public.memberships m where m.user_id = auth.uid())));
-    $$;
+    $sql$;
   end if;
-end$$;
+end
+$do$;
 
 create or replace view public.campaign_ranking as
 with base as (
@@ -315,7 +322,7 @@ select
 from base b;
 
 -- 0023_incentive_engine_tenant_assets.sql
-DO $$
+DO $do$
 begin
   if exists (select 1 from pg_namespace where nspname = 'storage') then
     if not exists (select 1 from storage.buckets where id = 'tenant-assets') then
@@ -323,7 +330,8 @@ begin
       values ('tenant-assets', 'tenant-assets', false);
     end if;
   end if;
-end$$;
+end
+$do$;
 
 create or replace function public.storage_object_tenant_id(p_name text)
 returns uuid
@@ -356,13 +364,13 @@ begin
 end;
 $$;
 
-DO $$
+DO $do$
 begin
   if exists (select 1 from pg_namespace where nspname = 'storage') then
     execute 'alter table storage.objects enable row level security';
 
     if not exists (select 1 from pg_policies where schemaname = 'storage' and tablename = 'objects' and policyname = 'tenant_assets_select') then
-      execute $$
+      execute $sql$
         create policy tenant_assets_select
         on storage.objects
         for select
@@ -377,11 +385,11 @@ begin
             )
           )
         );
-      $$;
+      $sql$;
     end if;
 
     if not exists (select 1 from pg_policies where schemaname = 'storage' and tablename = 'objects' and policyname = 'tenant_assets_insert') then
-      execute $$
+      execute $sql$
         create policy tenant_assets_insert
         on storage.objects
         for insert
@@ -396,11 +404,11 @@ begin
             )
           )
         );
-      $$;
+      $sql$;
     end if;
 
     if not exists (select 1 from pg_policies where schemaname = 'storage' and tablename = 'objects' and policyname = 'tenant_assets_update') then
-      execute $$
+      execute $sql$
         create policy tenant_assets_update
         on storage.objects
         for update
@@ -425,11 +433,11 @@ begin
             )
           )
         );
-      $$;
+      $sql$;
     end if;
 
     if not exists (select 1 from pg_policies where schemaname = 'storage' and tablename = 'objects' and policyname = 'tenant_assets_delete') then
-      execute $$
+      execute $sql$
         create policy tenant_assets_delete
         on storage.objects
         for delete
@@ -444,10 +452,11 @@ begin
             )
           )
         );
-      $$;
+      $sql$;
     end if;
   end if;
-end$$;
+end
+$do$;
 
 -- 0024_incentive_engine_campaign_finalize_snapshot.sql
 create table if not exists public.campaign_ranking_snapshot (
@@ -481,34 +490,35 @@ as $$
     );
 $$;
 
-DO $$
+DO $do$
 begin
   if not exists (select 1 from pg_policies where schemaname='public' and tablename='campaign_ranking_snapshot' and policyname='campaign_ranking_snapshot_select') then
-    execute $$
+    execute $sql$
       create policy campaign_ranking_snapshot_select on public.campaign_ranking_snapshot for select to authenticated
       using (public.is_super_admin() or tenant_id = auth.uid()::uuid or tenant_id in (select m.tenant_id from public.memberships m where m.user_id = auth.uid()));
-    $$;
+    $sql$;
   end if;
   if not exists (select 1 from pg_policies where schemaname='public' and tablename='campaign_ranking_snapshot' and policyname='campaign_ranking_snapshot_insert') then
-    execute $$
+    execute $sql$
       create policy campaign_ranking_snapshot_insert on public.campaign_ranking_snapshot for insert to authenticated
       with check (public.is_tenant_admin(tenant_id));
-    $$;
+    $sql$;
   end if;
   if not exists (select 1 from pg_policies where schemaname='public' and tablename='campaign_ranking_snapshot' and policyname='campaign_ranking_snapshot_update') then
-    execute $$
+    execute $sql$
       create policy campaign_ranking_snapshot_update on public.campaign_ranking_snapshot for update to authenticated
       using (public.is_tenant_admin(tenant_id))
       with check (public.is_tenant_admin(tenant_id));
-    $$;
+    $sql$;
   end if;
   if not exists (select 1 from pg_policies where schemaname='public' and tablename='campaign_ranking_snapshot' and policyname='campaign_ranking_snapshot_delete') then
-    execute $$
+    execute $sql$
       create policy campaign_ranking_snapshot_delete on public.campaign_ranking_snapshot for delete to authenticated
       using (public.is_tenant_admin(tenant_id));
-    $$;
+    $sql$;
   end if;
-end$$;
+end
+$do$;
 
 create or replace function public.campaigns_set_finalized_at()
 returns trigger
@@ -583,13 +593,13 @@ create trigger trg_campaigns_snapshot_ranking_on_finish
 after update on public.campaigns
 for each row execute function public.campaigns_snapshot_ranking_on_finish();
 
-DO $$
+DO $do$
 begin
   if exists (select 1 from pg_policies where schemaname='public' and tablename='incentive_events' and policyname='incentive_events_insert') then
     execute 'drop policy incentive_events_insert on public.incentive_events';
   end if;
 
-  execute $$
+  execute $sql$
     create policy incentive_events_insert
     on public.incentive_events
     for insert
@@ -611,11 +621,12 @@ begin
         )
       )
     );
-  $$;
-end$$;
+  $sql$;
+end
+$do$;
 
 -- 0025_incentive_participants_require_cpf_whatsapp.sql
-DO $$
+DO $do$
 begin
   if not exists (
     select 1
@@ -642,7 +653,8 @@ begin
   if not exists (select 1 from pg_constraint where conname = 'incentive_participants_whatsapp_nonempty') then
     execute 'alter table public.incentive_participants add constraint incentive_participants_whatsapp_nonempty check (whatsapp <> '''''''')';
   end if;
-end$$;
+end
+$do$;
 
 -- Optional: force PostgREST to reload schema cache
 -- notify pgrst, 'reload schema';

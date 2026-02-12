@@ -40,7 +40,7 @@ as $$
 $$;
 
 -- 3) RLS policies for snapshot (read for tenant members; writes for tenant admins)
-DO $$
+DO $do$
 begin
   if not exists (
     select 1 from pg_policies
@@ -48,7 +48,7 @@ begin
        and tablename='campaign_ranking_snapshot'
        and policyname='campaign_ranking_snapshot_select'
   ) then
-    execute $$
+    execute $sql$
       create policy campaign_ranking_snapshot_select
       on public.campaign_ranking_snapshot
       for select
@@ -58,7 +58,7 @@ begin
         or tenant_id = auth.uid()::uuid
         or tenant_id in (select m.tenant_id from public.memberships m where m.user_id = auth.uid())
       )
-    $$;
+    $sql$;
   end if;
 
   if not exists (
@@ -67,13 +67,13 @@ begin
        and tablename='campaign_ranking_snapshot'
        and policyname='campaign_ranking_snapshot_insert'
   ) then
-    execute $$
+    execute $sql$
       create policy campaign_ranking_snapshot_insert
       on public.campaign_ranking_snapshot
       for insert
       to authenticated
       with check (public.is_tenant_admin(tenant_id))
-    $$;
+    $sql$;
   end if;
 
   if not exists (
@@ -82,14 +82,14 @@ begin
        and tablename='campaign_ranking_snapshot'
        and policyname='campaign_ranking_snapshot_update'
   ) then
-    execute $$
+    execute $sql$
       create policy campaign_ranking_snapshot_update
       on public.campaign_ranking_snapshot
       for update
       to authenticated
       using (public.is_tenant_admin(tenant_id))
       with check (public.is_tenant_admin(tenant_id))
-    $$;
+    $sql$;
   end if;
 
   if not exists (
@@ -98,15 +98,16 @@ begin
        and tablename='campaign_ranking_snapshot'
        and policyname='campaign_ranking_snapshot_delete'
   ) then
-    execute $$
+    execute $sql$
       create policy campaign_ranking_snapshot_delete
       on public.campaign_ranking_snapshot
       for delete
       to authenticated
       using (public.is_tenant_admin(tenant_id))
-    $$;
+    $sql$;
   end if;
-end$$;
+end
+$do$;
 
 -- 4) When a campaign is finished: ensure finalized_at
 create or replace function public.campaigns_set_finalized_at()
@@ -184,7 +185,7 @@ after update on public.campaigns
 for each row execute function public.campaigns_snapshot_ranking_on_finish();
 
 -- 6) Lock new events when campaign is finished (except tenant admins / super-admin)
-DO $$
+DO $do$
 begin
   if exists (
     select 1 from pg_policies
@@ -195,7 +196,7 @@ begin
     execute 'drop policy incentive_events_insert on public.incentive_events';
   end if;
 
-  execute $$
+  execute $sql$
     create policy incentive_events_insert
     on public.incentive_events
     for insert
@@ -217,5 +218,6 @@ begin
         )
       )
     )
-  $$;
-end$$;
+  $sql$;
+end
+$do$;

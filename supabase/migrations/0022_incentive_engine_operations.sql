@@ -16,7 +16,7 @@ create index if not exists campaign_participants_tenant_campaign_idx
 
 alter table public.campaign_participants enable row level security;
 
-DO $$
+DO $do$
 begin
   if not exists (
     select 1 from pg_policies
@@ -24,7 +24,7 @@ begin
        and tablename='campaign_participants'
        and policyname='campaign_participants_select'
   ) then
-    execute $$
+    execute $sql$
       create policy campaign_participants_select
       on public.campaign_participants
       for select
@@ -36,7 +36,7 @@ begin
           or tenant_id in (select m.tenant_id from public.memberships m where m.user_id = auth.uid())
         )
       )
-    $$;
+    $sql$;
   end if;
 
   if not exists (
@@ -45,7 +45,7 @@ begin
        and tablename='campaign_participants'
        and policyname='campaign_participants_insert'
   ) then
-    execute $$
+    execute $sql$
       create policy campaign_participants_insert
       on public.campaign_participants
       for insert
@@ -57,7 +57,7 @@ begin
           or tenant_id in (select m.tenant_id from public.memberships m where m.user_id = auth.uid())
         )
       )
-    $$;
+    $sql$;
   end if;
 
   if not exists (
@@ -66,7 +66,7 @@ begin
        and tablename='campaign_participants'
        and policyname='campaign_participants_update'
   ) then
-    execute $$
+    execute $sql$
       create policy campaign_participants_update
       on public.campaign_participants
       for update
@@ -85,7 +85,7 @@ begin
           or tenant_id in (select m.tenant_id from public.memberships m where m.user_id = auth.uid())
         )
       )
-    $$;
+    $sql$;
   end if;
 
   if not exists (
@@ -94,7 +94,7 @@ begin
        and tablename='campaign_participants'
        and policyname='campaign_participants_delete'
   ) then
-    execute $$
+    execute $sql$
       create policy campaign_participants_delete
       on public.campaign_participants
       for delete
@@ -106,9 +106,10 @@ begin
           or tenant_id in (select m.tenant_id from public.memberships m where m.user_id = auth.uid())
         )
       )
-    $$;
+    $sql$;
   end if;
-end$$;
+end
+$do$;
 
 -- 2) incentive_events
 create table if not exists public.incentive_events (
@@ -137,7 +138,7 @@ create index if not exists incentive_events_participant_id_idx
 
 alter table public.incentive_events enable row level security;
 
-DO $$
+DO $do$
 begin
   if not exists (
     select 1 from pg_policies
@@ -145,7 +146,7 @@ begin
        and tablename='incentive_events'
        and policyname='incentive_events_select'
   ) then
-    execute $$
+    execute $sql$
       create policy incentive_events_select
       on public.incentive_events
       for select
@@ -157,7 +158,7 @@ begin
           or tenant_id in (select m.tenant_id from public.memberships m where m.user_id = auth.uid())
         )
       )
-    $$;
+    $sql$;
   end if;
 
   if not exists (
@@ -166,7 +167,7 @@ begin
        and tablename='incentive_events'
        and policyname='incentive_events_insert'
   ) then
-    execute $$
+    execute $sql$
       create policy incentive_events_insert
       on public.incentive_events
       for insert
@@ -178,7 +179,7 @@ begin
           or tenant_id in (select m.tenant_id from public.memberships m where m.user_id = auth.uid())
         )
       )
-    $$;
+    $sql$;
   end if;
 
   if not exists (
@@ -187,7 +188,7 @@ begin
        and tablename='incentive_events'
        and policyname='incentive_events_update'
   ) then
-    execute $$
+    execute $sql$
       create policy incentive_events_update
       on public.incentive_events
       for update
@@ -206,7 +207,7 @@ begin
           or tenant_id in (select m.tenant_id from public.memberships m where m.user_id = auth.uid())
         )
       )
-    $$;
+    $sql$;
   end if;
 
   if not exists (
@@ -215,7 +216,7 @@ begin
        and tablename='incentive_events'
        and policyname='incentive_events_delete'
   ) then
-    execute $$
+    execute $sql$
       create policy incentive_events_delete
       on public.incentive_events
       for delete
@@ -227,9 +228,10 @@ begin
           or tenant_id in (select m.tenant_id from public.memberships m where m.user_id = auth.uid())
         )
       )
-    $$;
+    $sql$;
   end if;
-end$$;
+end
+$do$;
 
 -- 3) View: campaign_ranking (always calculated; never persisted)
 create or replace view public.campaign_ranking as

@@ -11,8 +11,8 @@ function json(data: any, status = 200) {
   });
 }
 
-function err(message: string, status = 400) {
-  return json({ ok: false, error: message }, status);
+function err(message: string, status = 400, detail?: any) {
+  return json({ ok: false, error: message, detail }, status);
 }
 
 function getInput(req: Request) {
@@ -69,8 +69,8 @@ serve(async (req) => {
       .limit(10);
 
     if (rErr) {
-      console.error(`[${fn}] ranking query failed`, { error: rErr.message, tenantSlug, campaignId });
-      return err("ranking_query_failed", 500);
+      console.error(`[${fn}] ranking query failed`, { error: rErr, tenantSlug, campaignId });
+      return err("ranking_query_failed", 500, { message: rErr.message, code: (rErr as any).code });
     }
 
     const participantIds = (rankingRows ?? []).map((r: any) => r.participant_id).filter(Boolean);
@@ -87,8 +87,8 @@ serve(async (req) => {
         .in("id", participantIds);
 
       if (pErr) {
-        console.error(`[${fn}] participants query failed`, { error: pErr.message, tenantSlug, campaignId });
-        return err("participants_query_failed", 500);
+        console.error(`[${fn}] participants query failed`, { error: pErr, tenantSlug, campaignId });
+        return err("participants_query_failed", 500, { message: pErr.message, code: (pErr as any).code });
       }
 
       for (const p of participants ?? []) {
@@ -131,7 +131,7 @@ serve(async (req) => {
 
     return json({ ok: true, items, updated_at: new Date().toISOString() });
   } catch (e: any) {
-    console.error(`[${fn}] unhandled`, { error: e?.message ?? String(e) });
-    return err("internal_error", 500);
+    console.error(`[${fn}] unhandled`, { error: e });
+    return err("internal_error", 500, { message: e?.message ?? String(e) });
   }
 });

@@ -75,6 +75,7 @@ export default function PublicCampaignRanking() {
   const [items, setItems] = useState<Row[]>([]);
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [errorDetail, setErrorDetail] = useState<any>(null);
 
   const top3 = items.slice(0, 3);
   const top10 = items.slice(0, 10);
@@ -87,6 +88,7 @@ export default function PublicCampaignRanking() {
 
       try {
         setError(null);
+        setErrorDetail(null);
         const url = new URL(RANKING_URL);
         url.searchParams.set("tenant_slug", tenant);
         url.searchParams.set("campaign_id", campaign);
@@ -96,7 +98,11 @@ export default function PublicCampaignRanking() {
 
         if (!res.ok || !json?.ok) {
           const msg = String(json?.error ?? `HTTP ${res.status}`);
-          throw new Error(msg);
+          const detail = json?.detail ?? null;
+          // helpful for debugging in console
+          // eslint-disable-next-line no-console
+          console.error("public ranking failed", { status: res.status, msg, detail, url: url.toString() });
+          throw Object.assign(new Error(msg), { detail });
         }
 
         if (cancelled) return;
@@ -105,6 +111,7 @@ export default function PublicCampaignRanking() {
       } catch (e: any) {
         if (cancelled) return;
         setError(String(e?.message ?? "Erro"));
+        setErrorDetail(e?.detail ?? null);
         setItems([]);
       }
     }
@@ -120,6 +127,25 @@ export default function PublicCampaignRanking() {
       clearInterval(id);
     };
   }, [tenant, campaign]);
+
+  const helpText = useMemo(() => {
+    switch (error) {
+      case "tenant_not_found":
+        return "Tenant não encontrado. Verifique o tenant_slug na URL.";
+      case "campaign_not_found":
+        return "Campanha não encontrada para este tenant. Verifique o campaign_id na URL.";
+      case "forbidden":
+        return "Esta campanha não está pública. No painel, deixe visibility=public para liberar o ranking.";
+      case "ranking_query_failed":
+        return "Falha ao consultar o ranking (view/campos podem não existir). Confirme se as migrations do Incentive Engine foram aplicadas.";
+      case "participants_query_failed":
+        return "Falha ao carregar participantes. Confirme se as tabelas do Incentive Engine existem e se o projeto tem a função configurada.";
+      case "missing_params":
+        return "URL incompleta. Use /incentives/<tenant_slug>/<campaign_id>."
+      default:
+        return null;
+    }
+  }, [error]);
 
   const updatedAtFmt = useMemo(() => {
     if (!updatedAt) return null;
@@ -142,11 +168,23 @@ export default function PublicCampaignRanking() {
           <div className="text-xs text-slate-500">
             Atualizado em tempo real{updatedAtFmt ? ` • ${updatedAtFmt}` : ""}
           </div>
+          <div className="text-[11px] text-slate-400">
+            URL esperada: <span className="font-mono">/incentives/{tenant ?? "<tenant_slug>"}/{campaign ?? "<campaign_id>"}</span>
+          </div>
         </div>
 
         {error && (
           <Card className="mt-6 rounded-3xl border-rose-200 bg-rose-50 p-4 text-sm text-rose-900">
-            Não foi possível carregar o ranking: {error}
+            <div className="font-semibold">Não foi possível carregar o ranking</div>
+            <div className="mt-1">Erro: {error}</div>
+            {helpText && <div className="mt-2 text-sm text-rose-900/90">{helpText}</div>}
+            {errorDetail?.message && (
+              <div className="mt-2 rounded-2xl border border-rose-200 bg-white/60 p-3 text-[12px] text-rose-900">
+                <div className="font-semibold">Detalhe</div>
+                <div className="mt-1 font-mono">{String(errorDetail.message)}</div>
+                {errorDetail.code && <div className="mt-1 font-mono">code: {String(errorDetail.code)}</div>}
+              </div>
+            )}
           </Card>
         )}
 

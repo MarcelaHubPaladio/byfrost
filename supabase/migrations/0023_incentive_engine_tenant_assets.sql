@@ -52,10 +52,20 @@ end;
 $$;
 
 -- 3) Storage RLS for tenant-assets (uploads restricted by tenant folder)
+-- NOTE:
+-- - In Supabase, storage.objects is managed by the Storage extension and may not be owned by your SQL role.
+-- - RLS is typically already enabled on storage.objects.
+-- - The app can operate without these policies because uploads/signing are handled via Edge Functions.
 DO $do$
 begin
   if exists (select 1 from pg_namespace where nspname = 'storage') then
-    execute 'alter table storage.objects enable row level security';
+
+    -- Try to enable RLS, but don't fail if the current SQL role is not the table owner.
+    begin
+      execute 'alter table storage.objects enable row level security';
+    exception when insufficient_privilege then
+      raise notice 'Skipping: not table owner to enable RLS on storage.objects (usually already enabled).';
+    end;
 
     if not exists (
       select 1 from pg_policies
@@ -63,22 +73,25 @@ begin
          and tablename = 'objects'
          and policyname = 'tenant_assets_select'
     ) then
-      execute $sql$
-        create policy tenant_assets_select
-        on storage.objects
-        for select
-        to authenticated
-        using (
-          bucket_id = 'tenant-assets'
-          and (
-            public.is_super_admin()
-            or public.storage_object_tenant_id(name) = auth.uid()::uuid
-            or public.storage_object_tenant_id(name) in (
-              select m.tenant_id from public.memberships m where m.user_id = auth.uid()
+      begin
+        execute $sql$
+          create policy tenant_assets_select
+          on storage.objects
+          for select
+          to authenticated
+          using (
+            bucket_id = 'tenant-assets'
+            and (
+              public.is_super_admin()
+              or public.storage_object_tenant_id(name) in (
+                select m.tenant_id from public.memberships m where m.user_id = auth.uid()
+              )
             )
           )
-        )
-      $sql$;
+        $sql$;
+      exception when insufficient_privilege then
+        raise notice 'Skipping: not table owner to create policy tenant_assets_select on storage.objects.';
+      end;
     end if;
 
     if not exists (
@@ -87,22 +100,25 @@ begin
          and tablename = 'objects'
          and policyname = 'tenant_assets_insert'
     ) then
-      execute $sql$
-        create policy tenant_assets_insert
-        on storage.objects
-        for insert
-        to authenticated
-        with check (
-          bucket_id = 'tenant-assets'
-          and (
-            public.is_super_admin()
-            or public.storage_object_tenant_id(name) = auth.uid()::uuid
-            or public.storage_object_tenant_id(name) in (
-              select m.tenant_id from public.memberships m where m.user_id = auth.uid()
+      begin
+        execute $sql$
+          create policy tenant_assets_insert
+          on storage.objects
+          for insert
+          to authenticated
+          with check (
+            bucket_id = 'tenant-assets'
+            and (
+              public.is_super_admin()
+              or public.storage_object_tenant_id(name) in (
+                select m.tenant_id from public.memberships m where m.user_id = auth.uid()
+              )
             )
           )
-        )
-      $sql$;
+        $sql$;
+      exception when insufficient_privilege then
+        raise notice 'Skipping: not table owner to create policy tenant_assets_insert on storage.objects.';
+      end;
     end if;
 
     if not exists (
@@ -111,32 +127,34 @@ begin
          and tablename = 'objects'
          and policyname = 'tenant_assets_update'
     ) then
-      execute $sql$
-        create policy tenant_assets_update
-        on storage.objects
-        for update
-        to authenticated
-        using (
-          bucket_id = 'tenant-assets'
-          and (
-            public.is_super_admin()
-            or public.storage_object_tenant_id(name) = auth.uid()::uuid
-            or public.storage_object_tenant_id(name) in (
-              select m.tenant_id from public.memberships m where m.user_id = auth.uid()
+      begin
+        execute $sql$
+          create policy tenant_assets_update
+          on storage.objects
+          for update
+          to authenticated
+          using (
+            bucket_id = 'tenant-assets'
+            and (
+              public.is_super_admin()
+              or public.storage_object_tenant_id(name) in (
+                select m.tenant_id from public.memberships m where m.user_id = auth.uid()
+              )
             )
           )
-        )
-        with check (
-          bucket_id = 'tenant-assets'
-          and (
-            public.is_super_admin()
-            or public.storage_object_tenant_id(name) = auth.uid()::uuid
-            or public.storage_object_tenant_id(name) in (
-              select m.tenant_id from public.memberships m where m.user_id = auth.uid()
+          with check (
+            bucket_id = 'tenant-assets'
+            and (
+              public.is_super_admin()
+              or public.storage_object_tenant_id(name) in (
+                select m.tenant_id from public.memberships m where m.user_id = auth.uid()
+              )
             )
           )
-        )
-      $sql$;
+        $sql$;
+      exception when insufficient_privilege then
+        raise notice 'Skipping: not table owner to create policy tenant_assets_update on storage.objects.';
+      end;
     end if;
 
     if not exists (
@@ -145,22 +163,25 @@ begin
          and tablename = 'objects'
          and policyname = 'tenant_assets_delete'
     ) then
-      execute $sql$
-        create policy tenant_assets_delete
-        on storage.objects
-        for delete
-        to authenticated
-        using (
-          bucket_id = 'tenant-assets'
-          and (
-            public.is_super_admin()
-            or public.storage_object_tenant_id(name) = auth.uid()::uuid
-            or public.storage_object_tenant_id(name) in (
-              select m.tenant_id from public.memberships m where m.user_id = auth.uid()
+      begin
+        execute $sql$
+          create policy tenant_assets_delete
+          on storage.objects
+          for delete
+          to authenticated
+          using (
+            bucket_id = 'tenant-assets'
+            and (
+              public.is_super_admin()
+              or public.storage_object_tenant_id(name) in (
+                select m.tenant_id from public.memberships m where m.user_id = auth.uid()
+              )
             )
           )
-        )
-      $sql$;
+        $sql$;
+      exception when insufficient_privilege then
+        raise notice 'Skipping: not table owner to create policy tenant_assets_delete on storage.objects.';
+      end;
     end if;
   end if;
 end

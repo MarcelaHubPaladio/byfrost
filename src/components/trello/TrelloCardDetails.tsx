@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { showError, showSuccess } from "@/utils/toast";
 import { cn } from "@/lib/utils";
 import { CalendarDays, ClipboardList, Save, UserRound } from "lucide-react";
-import { CaseOwnerCard } from "@/components/crm/CaseOwnerCard";
+import { TrelloResponsibleCard } from "@/components/trello/TrelloResponsibleCard";
 import { CaseTasksCard } from "@/components/crm/CaseTasksCard";
 import { CaseTimeline, type CaseTimelineEvent } from "@/components/case/CaseTimeline";
 
@@ -235,7 +235,11 @@ export function TrelloCardDetails(props: { tenantId: string; caseId: string }) {
         </div>
       </Card>
 
-      <CaseOwnerCard tenantId={props.tenantId} caseId={props.caseId} assignedVendorId={caseQ.data?.assigned_vendor_id ?? null} />
+      <TrelloResponsibleCard
+        tenantId={props.tenantId}
+        caseId={props.caseId}
+        assignedVendorId={caseQ.data?.assigned_vendor_id ?? null}
+      />
 
       <CaseTasksCard tenantId={props.tenantId} caseId={props.caseId} />
 

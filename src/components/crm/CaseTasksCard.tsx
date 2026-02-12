@@ -17,12 +17,25 @@ type TaskRow = {
   title: string;
   status: string;
   created_at: string;
+  meta_json: any;
   deleted_at: string | null;
 };
 
 function isDone(status: string) {
   const s = String(status ?? "").toLowerCase();
   return s === "done" || s === "completed" || s === "closed";
+}
+
+function fmtCompletedAt(meta: any) {
+  const raw = meta?.completed_at ?? null;
+  if (!raw) return null;
+  try {
+    const d = new Date(String(raw));
+    if (Number.isNaN(d.getTime())) return null;
+    return d.toLocaleString();
+  } catch {
+    return null;
+  }
 }
 
 export function CaseTasksCard(props: { tenantId: string; caseId: string }) {
@@ -39,7 +52,7 @@ export function CaseTasksCard(props: { tenantId: string; caseId: string }) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("tasks")
-        .select("id,tenant_id,case_id,title,status,created_at,deleted_at")
+        .select("id,tenant_id,case_id,title,status,created_at,meta_json,deleted_at")
         .eq("tenant_id", props.tenantId)
         .eq("case_id", props.caseId)
         .is("deleted_at", null)
@@ -77,7 +90,7 @@ export function CaseTasksCard(props: { tenantId: string; caseId: string }) {
         status: "open",
         // CHECK constraint do banco: created_by in ('system','ai','admin')
         created_by: "admin",
-        meta_json: {},
+        meta_json: { completed_at: null },
       });
       if (error) throw error;
 
@@ -99,9 +112,15 @@ export function CaseTasksCard(props: { tenantId: string; caseId: string }) {
   const toggle = async (task: TaskRow) => {
     try {
       const next = isDone(task.status) ? "open" : "done";
+      const now = new Date().toISOString();
+      const nextMeta = {
+        ...(task.meta_json ?? {}),
+        completed_at: next === "done" ? now : null,
+      };
+
       const { error } = await supabase
         .from("tasks")
-        .update({ status: next })
+        .update({ status: next, meta_json: nextMeta })
         .eq("tenant_id", props.tenantId)
         .eq("id", task.id);
       if (error) throw error;
@@ -111,6 +130,7 @@ export function CaseTasksCard(props: { tenantId: string; caseId: string }) {
         from: task.status,
         to: next,
         title: task.title,
+        completed_at: next === "done" ? now : null,
       });
 
       await Promise.all([
@@ -193,40 +213,48 @@ export function CaseTasksCard(props: { tenantId: string; caseId: string }) {
       <div className="mt-4 space-y-2">
         {(tasksQ.data ?? []).map((t) => {
           const done = isDone(t.status);
+          const completedAt = fmtCompletedAt(t.meta_json);
           return (
             <div
               key={t.id}
               className={cn(
-                "flex items-center justify-between gap-3 rounded-2xl border px-3 py-2",
+                "rounded-2xl border px-3 py-2",
                 done ? "border-emerald-200 bg-emerald-50" : "border-slate-200 bg-slate-50"
               )}
             >
-              <button
-                type="button"
-                onClick={() => toggle(t)}
-                className="flex min-w-0 flex-1 items-center gap-3 text-left"
-                title="Marcar como feito"
-              >
-                <Checkbox checked={done} />
-                <div
-                  className={cn(
-                    "truncate text-sm font-medium",
-                    done ? "text-emerald-900 line-through" : "text-slate-900"
-                  )}
+              <div className="flex items-center justify-between gap-3">
+                <button
+                  type="button"
+                  onClick={() => toggle(t)}
+                  className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                  title="Marcar como feito"
                 >
-                  {t.title}
-                </div>
-              </button>
+                  <Checkbox checked={done} />
+                  <div className="min-w-0">
+                    <div
+                      className={cn(
+                        "truncate text-sm font-medium",
+                        done ? "text-emerald-900 line-through" : "text-slate-900"
+                      )}
+                    >
+                      {t.title}
+                    </div>
+                    {done && completedAt ? (
+                      <div className="mt-0.5 text-[11px] text-emerald-800/80">Concluída em {completedAt}</div>
+                    ) : null}
+                  </div>
+                </button>
 
-              <Button
-                type="button"
-                variant="secondary"
-                className="h-9 w-9 rounded-2xl p-0"
-                onClick={() => remove(t)}
-                title="Remover"
-              >
-                <Trash2 className="h-4 w-4" />
-              </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="h-9 w-9 rounded-2xl p-0"
+                  onClick={() => remove(t)}
+                  title="Remover"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
           );
         })}

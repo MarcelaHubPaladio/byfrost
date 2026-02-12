@@ -44,6 +44,7 @@ import { TenantJourneysPanel } from "@/components/admin/TenantJourneysPanel";
 import { JourneyPromptsPanel } from "@/components/admin/JourneyPromptsPanel";
 import { AccessMatrixPanel } from "@/components/admin/AccessMatrixPanel";
 import { OrgChartPanel } from "@/components/admin/OrgChartPanel";
+import { IncentivesPanel } from "@/components/admin/IncentivesPanel";
 import { Trash2, PauseCircle, PlayCircle, ChevronLeft, ChevronRight, UsersRound, Smartphone, Copy, Shield } from "lucide-react";
 
 type UserRole = string;
@@ -1047,6 +1048,9 @@ export default function Admin() {
                 <TabsTrigger value="branding" className="rounded-xl">
                   Branding
                 </TabsTrigger>
+                <TabsTrigger value="incentives" className="rounded-xl">
+                  Incentives
+                </TabsTrigger>
               </TabsList>
 
               <TabsContent value="tenants" className="mt-4">
@@ -1997,6 +2001,10 @@ export default function Admin() {
 
               <TabsContent value="branding" className="mt-4">
                 <TenantBrandingPanel />
+              </TabsContent>
+
+              <TabsContent value="incentives" className="mt-4">
+                <IncentivesPanel />
               </TabsContent>
             </Tabs>
           </div>

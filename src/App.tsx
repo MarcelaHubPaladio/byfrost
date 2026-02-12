@@ -33,6 +33,7 @@ import Content from "@/pages/Content";
 import ContentDetail from "@/pages/ContentDetail";
 import Screen from "@/pages/Screen";
 import PublicCampaignRanking from "@/pages/PublicCampaignRanking";
+import IncentivesEventsManage from "@/pages/IncentivesEventsManage";
 
 const queryClient = new QueryClient();
 
@@ -57,6 +58,16 @@ const App = () => (
 
                 {/* Incentive Engine (public ranking; no auth) */}
                 <Route path="/incentives/:tenant/:campaign" element={<PublicCampaignRanking />} />
+
+                {/* Incentives (gestão interna; protegido por matriz de acesso) */}
+                <Route
+                  path="/app/incentives/events"
+                  element={
+                    <RequireRouteAccess routeKey="app.incentives_events_manage">
+                      <IncentivesEventsManage />
+                    </RequireRouteAccess>
+                  }
+                />
 
                 {/* Dashboard por jornada (slug = journeys.key) */}
                 <Route

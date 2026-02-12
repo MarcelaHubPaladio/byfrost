@@ -172,7 +172,7 @@ function normalizeWhatsapp(raw: string) {
 
 export function IncentivesPanel() {
   const qc = useQueryClient();
-  const { activeTenantId } = useTenant();
+  const { activeTenantId, activeTenant } = useTenant();
 
   // ---- Participants ----
   const [pName, setPName] = useState("");
@@ -942,6 +942,9 @@ export function IncentivesPanel() {
                           {manageCampaign.finalized_at
                             ? ` • finalized_at ${new Date(manageCampaign.finalized_at).toLocaleString()}`
                             : ""}
+                        </div>
+                        <div className="mt-1 text-[11px] text-slate-600">
+                          Link do ranking: <span className="font-mono">/incentives/{activeTenant?.slug ?? "<tenant>"}/{manageCampaign.id}</span>
                         </div>
                       </div>
                       {manageCampaign.visibility === "public" && (

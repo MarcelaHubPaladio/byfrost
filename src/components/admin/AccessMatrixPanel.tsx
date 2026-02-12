@@ -80,6 +80,13 @@ const DEFAULT_ROUTES: RouteRow[] = [
     path_pattern: "/app/simulator",
     description: "Simulador de automação",
   },
+  {
+    key: "app.incentives_events_manage",
+    name: "Incentivos • Gestão de eventos",
+    category: "Incentivos",
+    path_pattern: "/app/incentives/events",
+    description: "Tela de gestão para criar/editar/remover eventos",
+  },
 ];
 
 const DEFAULT_ROLES = [
@@ -429,7 +436,7 @@ export function AccessMatrixPanel() {
             ))}
             {roles.length === 0 && (
               <div className="rounded-2xl border border-dashed border-slate-200 bg-white/60 p-4 text-xs text-slate-500">
-                Nenhum cargo habilitado para este tenant. Clique em “Inicializar padrão” ou crie um novo.
+                Nenhum cargo habilitado para este tenant. Clique em "Inicializar padrão" ou crie um novo.
               </div>
             )}
           </div>
@@ -503,7 +510,7 @@ export function AccessMatrixPanel() {
           </div>
 
           <div className="mt-4 text-[11px] text-slate-500">
-            Dica: uma rota só vira “protegida” quando você liga o switch na matriz.
+            Dica: uma rota só vira "protegida" quando você liga o switch na matriz.
           </div>
         </div>
       </div>

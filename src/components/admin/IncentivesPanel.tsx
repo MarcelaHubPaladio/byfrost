@@ -37,6 +37,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { showError, showSuccess } from "@/utils/toast";
 import { cn } from "@/lib/utils";
 import { CalendarClock, Lock, Plus, Trophy, Upload, Users } from "lucide-react";
+import { ParticipantsMultiSelect } from "@/components/admin/ParticipantsMultiSelect";
 
 const BUCKET = "tenant-assets";
 const UPLOAD_URL =
@@ -873,7 +874,7 @@ export function IncentivesPanel() {
 
   // ---- Events ----
   const [eCampaignId, setECampaignId] = useState<string | null>(null);
-  const [eParticipantId, setEParticipantId] = useState<string | null>(null);
+  const [eParticipantIds, setEParticipantIds] = useState<string[]>([]);
   const [eType, setEType] = useState<string>("points");
   const [eValue, setEValue] = useState<string>("");
   const [ePoints, setEPoints] = useState<string>("");
@@ -1220,8 +1221,8 @@ export function IncentivesPanel() {
 
   const createEvent = async () => {
     if (!activeTenantId) return;
-    if (!eCampaignId || !eParticipantId) {
-      showError("Selecione campanha e participante.");
+    if (!eCampaignId || eParticipantIds.length === 0) {
+      showError("Selecione campanha e pelo menos 1 participante.");
       return;
     }
 
@@ -1238,23 +1239,25 @@ export function IncentivesPanel() {
       const valueNum = eValue.trim() ? Number(eValue.replace(",", ".")) : null;
       const pointsNum = ePoints.trim() ? Number(ePoints.replace(",", ".")) : null;
 
-      const { error } = await supabase.from("incentive_events").insert({
+      const rows = eParticipantIds.map((pid) => ({
         tenant_id: activeTenantId,
         campaign_id: eCampaignId,
-        participant_id: eParticipantId,
+        participant_id: pid,
         event_type: eType,
         value: Number.isFinite(valueNum as any) ? valueNum : null,
         points: Number.isFinite(pointsNum as any) ? pointsNum : null,
         attachment_url: attachmentPath,
-      });
+      }));
 
+      const { error } = await supabase.from("incentive_events").insert(rows);
       if (error) throw error;
 
       setEValue("");
       setEPoints("");
+      setEParticipantIds([]);
       if (eventFileRef.current) eventFileRef.current.value = "";
 
-      showSuccess("Evento lançado.");
+      showSuccess(`Evento lançado para ${rows.length} participante(s).`);
       await qc.invalidateQueries({ queryKey: ["incentives_events", activeTenantId, eCampaignId] });
     } catch (e: any) {
       showError(`Falha ao lançar evento: ${e?.message ?? "erro"}`);
@@ -1842,21 +1845,18 @@ export function IncentivesPanel() {
 
                 <div>
                   <Label className="text-xs">Participante</Label>
-                  <Select value={eParticipantId ?? ""} onValueChange={(v) => setEParticipantId(v)}>
-                    <SelectTrigger className="mt-1 h-11 rounded-2xl">
-                      <SelectValue placeholder="Selecione um participante" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {(participantsQ.data ?? []).map((p) => (
-                        <SelectItem key={p.id} value={p.id}>
-                          {p.display_name ?? p.name}
-                        </SelectItem>
-                      ))}
-                      {(participantsQ.data ?? []).length === 0 && (
-                        <div className="px-3 py-2 text-xs text-slate-500">Crie participantes primeiro.</div>
-                      )}
-                    </SelectContent>
-                  </Select>
+                  <div className="mt-1">
+                    <ParticipantsMultiSelect
+                      options={(participantsQ.data ?? []).map((p) => ({
+                        value: p.id,
+                        label: p.display_name ?? p.name,
+                      }))}
+                      value={eParticipantIds}
+                      onChange={setEParticipantIds}
+                      placeholder="Selecione 1 ou mais participantes"
+                      disabled={creatingEvent}
+                    />
+                  </div>
                 </div>
 
                 <div className="grid gap-3 sm:grid-cols-3">
@@ -1901,7 +1901,7 @@ export function IncentivesPanel() {
                 </div>
 
                 <Button onClick={createEvent} disabled={creatingEvent} className="h-11 rounded-2xl">
-                  {creatingEvent ? "Enviando…" : "Lançar evento"}
+                  {creatingEvent ? "Enviando…" : eParticipantIds.length > 1 ? `Lançar evento (${eParticipantIds.length})` : "Lançar evento"}
                 </Button>
 
                 <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">

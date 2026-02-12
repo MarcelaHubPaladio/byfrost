@@ -19,9 +19,41 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { showError, showSuccess } from "@/utils/toast";
-import { Clock, MapPin, RefreshCw, Search, Sparkles, ShieldAlert, Plus } from "lucide-react";
+import {
+  Clock,
+  MapPin,
+  RefreshCw,
+  Search,
+  Sparkles,
+  ShieldAlert,
+  Plus,
+  LayoutList,
+  Columns2,
+  Download,
+} from "lucide-react";
 import { NewSalesOrderDialog } from "@/components/case/NewSalesOrderDialog";
 import { getStateLabel } from "@/lib/journeyLabels";
+
+const DASHBOARD_VIEW_MODE_KEY_PREFIX = "dashboard_view_mode_v1:";
+
+function csvCell(v: any) {
+  const s = String(v ?? "");
+  const escaped = s.replace(/\"/g, '""');
+  if (/[\n\r",]/.test(escaped)) return `"${escaped}"`;
+  return escaped;
+}
+
+function downloadTextFile(filename: string, content: string, mime = "text/plain;charset=utf-8") {
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
 
 type CaseRow = {
   id: string;
@@ -124,6 +156,7 @@ export default function Dashboard() {
   const [q, setQ] = useState("");
   const [movingCaseId, setMovingCaseId] = useState<string | null>(null);
   const [newSalesOrderOpen, setNewSalesOrderOpen] = useState(false);
+  const [exportingCsv, setExportingCsv] = useState(false);
 
   const instanceQ = useQuery({
     queryKey: ["wa_instance_active_first", activeTenantId],
@@ -193,8 +226,137 @@ export default function Dashboard() {
 
   const isCrm = Boolean(selectedJourney?.is_crm);
 
-  // List view for a specific journey
-  const isFfFlowListJourney = selectedKey === "ff_flow_20260129200457";
+  // List view (only implemented for this journey right now)
+  const canChooseListView = selectedKey === "ff_flow_20260129200457";
+  const [viewMode, setViewMode] = useState<"kanban" | "list">("kanban");
+
+  useEffect(() => {
+    if (!selectedKey) return;
+
+    // Default mode
+    const defaultMode: "kanban" | "list" = selectedKey === "ff_flow_20260129200457" ? "list" : "kanban";
+
+    try {
+      const saved = localStorage.getItem(DASHBOARD_VIEW_MODE_KEY_PREFIX + selectedKey);
+      if (saved === "kanban" || saved === "list") setViewMode(saved);
+      else setViewMode(defaultMode);
+    } catch {
+      setViewMode(defaultMode);
+    }
+  }, [selectedKey]);
+
+  const effectiveViewMode: "kanban" | "list" = canChooseListView ? viewMode : "kanban";
+
+  const setAndPersistViewMode = (next: "kanban" | "list") => {
+    setViewMode(next);
+    try {
+      if (selectedKey) localStorage.setItem(DASHBOARD_VIEW_MODE_KEY_PREFIX + selectedKey, next);
+    } catch {
+      // ignore
+    }
+  };
+
+  const exportConversationsCsv = async () => {
+    if (!activeTenantId) return;
+    if (exportingCsv) return;
+
+    const rowsToExport = journeyRows; // export all cases in this journey (ignores search filter)
+    const caseIds = rowsToExport.map((r) => r.id);
+
+    if (caseIds.length === 0) {
+      showError("Nenhum caso para exportar.");
+      return;
+    }
+
+    setExportingCsv(true);
+    try {
+      const msgs: Array<{
+        case_id: string | null;
+        occurred_at: string;
+        direction: "inbound" | "outbound";
+        from_phone: string | null;
+        to_phone: string | null;
+        type: string;
+        body_text: string | null;
+        media_url: string | null;
+      }> = [];
+
+      // Chunk caseIds to avoid very large IN lists.
+      const chunkSize = 50;
+      for (let i = 0; i < caseIds.length; i += chunkSize) {
+        const chunk = caseIds.slice(i, i + chunkSize);
+        const { data, error } = await supabase
+          .from("wa_messages")
+          .select("case_id,occurred_at,direction,from_phone,to_phone,type,body_text,media_url")
+          .eq("tenant_id", activeTenantId)
+          .in("case_id", chunk)
+          .order("occurred_at", { ascending: true })
+          .limit(10000);
+        if (error) throw error;
+        msgs.push(...((data ?? []) as any));
+      }
+
+      const msgsByCase = new Map<string, typeof msgs>();
+      for (const m of msgs) {
+        const cid = String((m as any).case_id ?? "");
+        if (!cid) continue;
+        const arr = msgsByCase.get(cid) ?? [];
+        arr.push(m);
+        msgsByCase.set(cid, arr);
+      }
+
+      const caseById = new Map<string, CaseRow>();
+      for (const r of rowsToExport) caseById.set(r.id, r);
+
+      const headers = ["nome", "numero", "case_id", "conversa"]; // conversa inclui timestamps
+      const out: string[] = [];
+      out.push(headers.map(csvCell).join(","));
+
+      for (const cid of caseIds) {
+        const c = caseById.get(cid);
+        if (!c) continue;
+
+        const cust = isCrm ? customersQ.data?.get(String((c as any).customer_id ?? "")) : null;
+
+        const name =
+          (isCrm
+            ? (cust?.name ??
+              casePhoneQ.data?.get(c.id) ??
+              getMetaPhone((c as any).meta_json) ??
+              cust?.phone_e164 ??
+              c.title ??
+              "Caso")
+            : c.title ?? "Caso") ?? "Caso";
+
+        const phone =
+          (isCrm
+            ? (cust?.phone_e164 ?? casePhoneQ.data?.get(c.id) ?? getMetaPhone((c as any).meta_json) ?? "")
+            : (getMetaPhone((c as any).meta_json) ?? "")) ?? "";
+
+        const transcript = (msgsByCase.get(cid) ?? [])
+          .map((m) => {
+            const ts = new Date(m.occurred_at).toISOString();
+            const dir = m.direction;
+            const body = (m.body_text ?? "").trim();
+            const media = m.media_url ? ` ${m.media_url}` : "";
+            const fallback = `[${m.type}]${media}`;
+            return `${ts} ${dir}: ${body || fallback}`;
+          })
+          .join("\n");
+
+        out.push([name, phone, cid, transcript].map(csvCell).join(","));
+      }
+
+      const csv = out.join("\n");
+      const fname = `conversas_${selectedKey || "journey"}_${new Date().toISOString().slice(0, 10)}.csv`;
+      downloadTextFile(fname, csv, "text/csv;charset=utf-8");
+      showSuccess("CSV exportado.");
+    } catch (e: any) {
+      showError(`Falha ao exportar CSV: ${e?.message ?? "erro"}`);
+    } finally {
+      setExportingCsv(false);
+    }
+  };
 
   const pickFirstJourney = () => {
     const first = journeyQ.data?.[0];
@@ -645,6 +807,52 @@ export default function Dashboard() {
                 </Button>
               ) : null}
 
+              {canChooseListView ? (
+                <div className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white/70 p-1 shadow-sm">
+                  <Button
+                    type="button"
+                    variant={effectiveViewMode === "list" ? "default" : "secondary"}
+                    className={cn(
+                      "h-9 rounded-2xl",
+                      effectiveViewMode === "list"
+                        ? "bg-[hsl(var(--byfrost-accent))] text-white hover:bg-[hsl(var(--byfrost-accent)/0.92)]"
+                        : ""
+                    )}
+                    onClick={() => setAndPersistViewMode("list")}
+                    title="Visualização em lista"
+                  >
+                    <LayoutList className="mr-2 h-4 w-4" /> Lista
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={effectiveViewMode === "kanban" ? "default" : "secondary"}
+                    className={cn(
+                      "h-9 rounded-2xl",
+                      effectiveViewMode === "kanban"
+                        ? "bg-[hsl(var(--byfrost-accent))] text-white hover:bg-[hsl(var(--byfrost-accent)/0.92)]"
+                        : ""
+                    )}
+                    onClick={() => setAndPersistViewMode("kanban")}
+                    title="Visualização em colunas (kanban)"
+                  >
+                    <Columns2 className="mr-2 h-4 w-4" /> Kanban
+                  </Button>
+                </div>
+              ) : null}
+
+              {selectedKey ? (
+                <Button
+                  variant="secondary"
+                  className="h-10 rounded-2xl"
+                  onClick={exportConversationsCsv}
+                  disabled={exportingCsv}
+                  title="Exporta as conversas (WhatsApp) dos casos desta jornada"
+                >
+                  <Download className="mr-2 h-4 w-4" />
+                  {exportingCsv ? "Exportando…" : "Exportar conversas (CSV)"}
+                </Button>
+              ) : null}
+
               <Button
                 variant="secondary"
                 className="h-10 rounded-2xl"
@@ -796,7 +1004,7 @@ export default function Dashboard() {
 
           {selectedKey && (
             <div className="mt-4 overflow-x-auto pb-1">
-              {isFfFlowListJourney ? (
+              {effectiveViewMode === "list" ? (
                 <div className="min-w-[980px]">
                   <div className="rounded-[24px] border border-slate-200 bg-white">
                     <Table>

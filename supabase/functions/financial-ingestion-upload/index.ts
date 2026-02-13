@@ -32,8 +32,8 @@ function json(data: any, status = 200) {
   });
 }
 
-function err(message: string, status = 400) {
-  return json({ ok: false, error: message }, status);
+function err(message: string, status = 400, details?: any) {
+  return json({ ok: false, error: message, details: details ?? null }, status);
 }
 
 function decodeBase64ToBytes(b64: string) {
@@ -41,6 +41,277 @@ function decodeBase64ToBytes(b64: string) {
   const bytes = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
   return bytes;
+}
+
+function stripDiacritics(s: string) {
+  try {
+    return String(s ?? "")
+      .normalize("NFD")
+      .replace(/\p{Diacritic}/gu, "");
+  } catch {
+    return String(s ?? "");
+  }
+}
+
+function normalizeHeader(s: string) {
+  return stripDiacritics(String(s ?? ""))
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .replace(/\s/g, "_");
+}
+
+function normalizeDescription(s: string) {
+  return String(s ?? "").replace(/\s+/g, " ").trim();
+}
+
+function parseDateLoose(s: string): string | null {
+  const v = String(s ?? "").trim();
+  if (!v) return null;
+  // dd/mm/yyyy
+  const m = v.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (m) return `${m[3]}-${m[2]}-${m[1]}`;
+  // yyyy-mm-dd
+  const m2 = v.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (m2) return `${m2[1]}-${m2[2]}-${m2[3]}`;
+  return null;
+}
+
+function parseAmountLoose(s: string): number | null {
+  const v = String(s ?? "").trim();
+  if (!v) return null;
+  let t = v.replace(/[^0-9,\.-]/g, "").trim();
+
+  const lastDot = t.lastIndexOf(".");
+  const lastComma = t.lastIndexOf(",");
+  if (lastDot >= 0 && lastComma >= 0) {
+    const decSep = lastDot > lastComma ? "." : ",";
+    const thouSep = decSep === "." ? "," : ".";
+    t = t.split(thouSep).join("");
+    if (decSep === ",") t = t.replace(",", ".");
+  } else if (lastComma >= 0 && lastDot < 0) {
+    t = t.replace(/\./g, "").replace(",", ".");
+  }
+
+  const n = Number(t);
+  if (Number.isNaN(n)) return null;
+  return n;
+}
+
+async function sha256Hex(text: string) {
+  const enc = new TextEncoder().encode(text);
+  const hash = await crypto.subtle.digest("SHA-256", enc);
+  return Array.from(new Uint8Array(hash))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+function parseCsvWithPreamble(text: string) {
+  const lines = String(text ?? "")
+    .replace(/^\uFEFF/, "")
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0);
+  if (lines.length < 2) return { headers: [] as string[], rows: [] as Record<string, string>[] };
+
+  const splitLine = (line: string) => {
+    // supports commas/semicolons, minimal quote support
+    const sep = line.includes(";") && !line.includes(",") ? ";" : ",";
+    const out: string[] = [];
+    let cur = "";
+    let inQ = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (ch === '"') {
+        inQ = !inQ;
+        continue;
+      }
+      if (!inQ && ch === sep) {
+        out.push(cur);
+        cur = "";
+        continue;
+      }
+      cur += ch;
+    }
+    out.push(cur);
+    return out.map((s) => s.trim());
+  };
+
+  // Some Brazilian bank exports include a preamble (account/period/balance).
+  // Find the first line that looks like a header.
+  const isHeaderLine = (parts: string[]) => {
+    if (parts.length < 3) return false;
+    const joined = normalizeHeader(parts.join(" "));
+    const hasDate = joined.includes("data");
+    const hasAmount = joined.includes("valor") || joined.includes("amount") || joined.includes("montante");
+    const hasDesc = joined.includes("descricao") || joined.includes("description") || joined.includes("historico");
+    return hasDate && hasAmount && hasDesc;
+  };
+
+  let headerIdx = 0;
+  for (let i = 0; i < Math.min(lines.length, 25); i++) {
+    const parts = splitLine(lines[i]);
+    if (isHeaderLine(parts)) {
+      headerIdx = i;
+      break;
+    }
+  }
+
+  const rawHeaders = splitLine(lines[headerIdx]);
+  const headers = rawHeaders.map((h) => normalizeHeader(h));
+
+  const rows: Record<string, string>[] = [];
+  for (const line of lines.slice(headerIdx + 1)) {
+    const parts = splitLine(line);
+    if (!parts.length) continue;
+    const row: Record<string, string> = {};
+    for (let i = 0; i < headers.length; i++) {
+      row[headers[i]] = String(parts[i] ?? "").trim();
+    }
+    rows.push(row);
+  }
+
+  return { headers, rows };
+}
+
+function pickField(row: Record<string, string>, keys: string[]) {
+  for (const k of keys) {
+    if (row[k] != null && String(row[k]).trim() !== "") return String(row[k]);
+  }
+  return "";
+}
+
+async function processCsvIntoLedger(opts: {
+  supabase: any;
+  tenantId: string;
+  ingestionJobId: string;
+  bucket: string;
+  path: string;
+}) {
+  const { supabase, tenantId, ingestionJobId, bucket, path } = opts;
+
+  await supabase.from("ingestion_jobs").update({ status: "processing", error_log: null }).eq("id", ingestionJobId);
+
+  const { data: dl, error: dlErr } = await supabase.storage.from(bucket).download(path);
+  if (dlErr || !dl) throw new Error(`download_failed:${dlErr?.message ?? "unknown"}`);
+
+  const bytes = new Uint8Array(await dl.arrayBuffer());
+  const text = new TextDecoder().decode(bytes);
+
+  const parsed = parseCsvWithPreamble(text);
+
+  // Ensure we have at least one bank account to attach transactions.
+  let accountId: string | null = null;
+  {
+    const { data: acc } = await supabase
+      .from("bank_accounts")
+      .select("id")
+      .eq("tenant_id", tenantId)
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    accountId = (acc as any)?.id ?? null;
+  }
+
+  if (!accountId) {
+    const { data: created, error: cErr } = await supabase
+      .from("bank_accounts")
+      .insert({
+        tenant_id: tenantId,
+        bank_name: "Import",
+        account_name: "Conta padrão (import)",
+        account_type: "checking",
+        currency: "BRL",
+      })
+      .select("id")
+      .maybeSingle();
+    if (cErr || !created?.id) throw new Error(`failed_to_create_default_account:${cErr?.message ?? ""}`);
+    accountId = created.id;
+  }
+
+  const dateKeys = ["data", "date", "transaction_date", "dt", "data_mov", "data_lancamento", "data_lancamento"];
+  const descKeys = ["descricao", "description", "historico", "memo", "narrativa", "desc"];
+  const amountKeys = ["valor", "amount", "montante", "value", "vlr"];
+
+  const inserts: any[] = [];
+  const errors: string[] = [];
+
+  for (const row of parsed.rows) {
+    const dateRaw = pickField(row, dateKeys);
+    const txDate = parseDateLoose(dateRaw);
+    if (!txDate) {
+      errors.push(`invalid_date:${dateRaw}`);
+      continue;
+    }
+
+    const descRaw = pickField(row, descKeys);
+    const descNorm = normalizeDescription(descRaw);
+
+    let amt = parseAmountLoose(pickField(row, amountKeys));
+    let inferredType: "credit" | "debit" = "debit";
+
+    if (amt == null) {
+      errors.push(`invalid_amount:${JSON.stringify(row)}`);
+      continue;
+    }
+
+    inferredType = amt >= 0 ? "credit" : "debit";
+    if (amt < 0) amt = Math.abs(amt);
+
+    const fingerprint = await sha256Hex(
+      JSON.stringify({
+        tenant_id: tenantId,
+        account_id: accountId,
+        transaction_date: txDate,
+        amount: Number(amt.toFixed(2)),
+        description: descNorm,
+      })
+    );
+
+    inserts.push({
+      tenant_id: tenantId,
+      account_id: accountId,
+      amount: Number(amt.toFixed(2)),
+      type: inferredType,
+      description: descRaw,
+      transaction_date: txDate,
+      competence_date: txDate,
+      status: "posted",
+      fingerprint,
+      source: "import",
+      raw_payload: { format: "csv", ...row },
+    });
+  }
+
+  const chunkSize = 250;
+  let inserted = 0;
+
+  for (let i = 0; i < inserts.length; i += chunkSize) {
+    const chunk = inserts.slice(i, i + chunkSize);
+    const { data, error } = await supabase
+      .from("financial_transactions")
+      .upsert(chunk, { onConflict: "tenant_id,fingerprint", ignoreDuplicates: true })
+      .select("id");
+
+    if (error) throw new Error(`persist_failed:${error.message}`);
+
+    inserted += (data ?? []).length;
+
+    await supabase
+      .from("ingestion_jobs")
+      .update({ processed_rows: inserted, status: "processing" })
+      .eq("id", ingestionJobId);
+  }
+
+  const errLog = errors.length ? errors.slice(0, 30).join("\n") : null;
+
+  await supabase
+    .from("ingestion_jobs")
+    .update({ status: "done", processed_rows: inserted, error_log: errLog })
+    .eq("id", ingestionJobId);
+
+  return { ok: true, inserted, parsedRows: parsed.rows.length, errors: errors.length };
 }
 
 serve(async (req) => {
@@ -97,7 +368,7 @@ serve(async (req) => {
 
     if (upErr) {
       console.error(`[${fn}] upload failed`, { tenantId, error: upErr.message });
-      return err(upErr.message, 500);
+      return err("upload_failed", 500, { message: upErr.message });
     }
 
     const { data: job, error: jobErr } = await supabase
@@ -117,40 +388,24 @@ serve(async (req) => {
       return err("failed_to_create_job", 500);
     }
 
-    const idempotencyKey = `FIN_INGEST:${job.id}`;
-
-    const { error: qErr } = await supabase.from("job_queue").insert({
-      tenant_id: tenantId,
-      type: "FINANCIAL_INGESTION",
-      idempotency_key: idempotencyKey,
-      payload_json: {
-        ingestion_job_id: job.id,
-        storage_bucket: BUCKET,
-        storage_path: path,
-        file_name: safeName,
-        content_type: contentType,
-      },
-      status: "pending",
-      run_after: new Date().toISOString(),
+    // IMPORTANT (dashboard-only deployments): process immediately.
+    // The original architecture enqueued job_queue for an async worker (jobs-processor),
+    // but that worker may not be deployed when using the Supabase Dashboard only.
+    const out = await processCsvIntoLedger({
+      supabase,
+      tenantId,
+      ingestionJobId: job.id,
+      bucket: BUCKET,
+      path,
     });
 
-    if (qErr) {
-      console.error(`[${fn}] failed to enqueue job_queue`, { tenantId, qErr });
-      await supabase
-        .from("ingestion_jobs")
-        .update({ status: "failed", error_log: String(qErr.message ?? qErr) })
-        .eq("id", job.id);
-      return err("failed_to_enqueue", 500);
-    }
+    console.log(`[${fn}] uploaded + processed`, { tenantId, jobId: job.id, path, by: userId, out });
 
-    console.log(`[${fn}] uploaded + enqueued`, { tenantId, jobId: job.id, path, by: userId });
-
-    return json({ ok: true, ingestionJobId: job.id });
+    return json({ ok: true, ingestionJobId: job.id, result: out });
   } catch (e: any) {
     console.error("[financial-ingestion-upload] unhandled", { error: e?.message ?? String(e) });
     const msg = String(e?.message ?? "internal_error");
-    // Provide a more explicit error when required env vars are missing.
     if (msg.includes("missing_supabase_env")) return err("missing_supabase_env", 500);
-    return err("internal_error", 500);
+    return err("internal_error", 500, { message: msg });
   }
 });

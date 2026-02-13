@@ -20,6 +20,20 @@ async function fileToBase64(file: File) {
   return btoa(binary);
 }
 
+async function validateAccessToken(accessToken: string) {
+  const url = `${SUPABASE_URL_IN_USE}/auth/v1/user`;
+  const res = await fetch(url, {
+    method: "GET",
+    headers: {
+      apikey: SUPABASE_ANON_KEY_IN_USE,
+      Authorization: `Bearer ${accessToken}`,
+    },
+  });
+  if (res.ok) return true;
+  const text = await res.text();
+  return { ok: false as const, status: res.status, text };
+}
+
 function helpForEdgeFunctionError(message: string) {
   const m = (message ?? "").toLowerCase();
   if (m.includes("failed to send a request") || m.includes("failed to fetch")) {
@@ -147,6 +161,13 @@ export function FinancialIngestionPanel() {
       }
       if (!accessToken) throw new Error("Sessão inválida. Faça logout/login.");
 
+      // 3) Validate token against Supabase Auth endpoint (helps distinguish gateway vs session issues)
+      const tokenCheck = await validateAccessToken(accessToken);
+      if (tokenCheck !== true) {
+        console.warn("[finance-ingestion] access token rejected by auth endpoint", tokenCheck);
+        throw new Error(`Token inválido no Auth: HTTP ${tokenCheck.status}`);
+      }
+
       let { res, json, text } = await postToIngestionFunction({ accessToken, body });
 
       // If token is rejected, attempt a refresh + retry once.
@@ -154,6 +175,13 @@ export function FinancialIngestionPanel() {
         await supabase.auth.refreshSession();
         accessToken = (await supabase.auth.getSession()).data.session?.access_token ?? null;
         if (!accessToken) throw new Error("Sessão inválida. Faça logout/login.");
+
+        const tokenCheck2 = await validateAccessToken(accessToken);
+        if (tokenCheck2 !== true) {
+          console.warn("[finance-ingestion] refreshed token rejected by auth endpoint", tokenCheck2);
+          throw new Error(`Token inválido no Auth: HTTP ${tokenCheck2.status}`);
+        }
+
         ({ res, json, text } = await postToIngestionFunction({ accessToken, body }));
       }
 
@@ -174,7 +202,11 @@ export function FinancialIngestionPanel() {
     } catch (e: any) {
       const msg = String(e?.message ?? "erro");
       const help = helpForEdgeFunctionError(msg);
-      showError(`Falha no upload: ${msg}${help ? `\n\n${help}` : ""}`);
+      const extra =
+        msg.includes("HTTP 401") || msg.toLowerCase().includes("invalid jwt")
+          ? "\n\nSe o token é válido no Auth mas a Function retorna Invalid JWT, desligue 'Verify JWT' nessa Edge Function no painel do Supabase e deixe a validação acontecer dentro da função."
+          : "";
+      showError(`Falha no upload: ${msg}${help ? `\n\n${help}` : ""}${extra}`);
     } finally {
       setUploading(false);
     }

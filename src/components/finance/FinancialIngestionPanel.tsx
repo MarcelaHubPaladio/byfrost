@@ -30,7 +30,50 @@ function helpForEdgeFunctionError(message: string) {
       "• No Supabase, confirme que Edge Functions está habilitado e a função existe."
     );
   }
+  if (m.includes("non-2xx")) {
+    return (
+      "A Edge Function respondeu com erro (4xx/5xx). Normalmente é:\n" +
+      "• bucket de Storage inexistente ('financial-ingestion')\n" +
+      "• env vars ausentes na função\n" +
+      "• erro ao inserir em ingestion_jobs/job_queue\n" +
+      "Vou tentar buscar o erro detalhado na próxima tentativa."
+    );
+  }
   return null;
+}
+
+async function tryFetchFunctionError(params: { body: any }) {
+  const { data: sess } = await supabase.auth.getSession();
+  const token = sess.session?.access_token;
+  if (!token) return null;
+
+  const url = `${SUPABASE_URL_IN_USE}/functions/v1/financial-ingestion-upload`;
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(params.body),
+    });
+
+    const text = await res.text();
+    let json: any = null;
+    try {
+      json = JSON.parse(text);
+    } catch {
+      // ignore
+    }
+
+    return {
+      status: res.status,
+      bodyText: text,
+      bodyJson: json,
+    };
+  } catch {
+    return null;
+  }
 }
 
 export function FinancialIngestionPanel() {
@@ -64,6 +107,13 @@ export function FinancialIngestionPanel() {
     try {
       const b64 = await fileToBase64(file);
 
+      const body = {
+        tenantId: activeTenantId,
+        fileName: file.name,
+        contentType: file.type || "application/octet-stream",
+        fileBase64: b64,
+      };
+
       // Debug: helps diagnose project mismatch / missing deploy.
       const baseUrl = (supabase as any)?.supabaseUrl as string | undefined;
       console.log("[finance-ingestion] invoking edge function", {
@@ -74,19 +124,26 @@ export function FinancialIngestionPanel() {
         sizeKb: Math.round(file.size / 1024),
       });
 
-      const { data, error } = await supabase.functions.invoke("financial-ingestion-upload", {
-        body: {
-          tenantId: activeTenantId,
-          fileName: file.name,
-          contentType: file.type || "application/octet-stream",
-          fileBase64: b64,
-        },
-      });
+      const { data, error } = await supabase.functions.invoke("financial-ingestion-upload", { body });
 
       if (error) {
         console.error("[finance-ingestion] invoke error", error);
+
+        // Attempt to fetch the function error body (helps a lot for non-2xx cases).
+        const details = await tryFetchFunctionError({ body });
+        if (details) {
+          console.log("[finance-ingestion] function error details", details);
+          const msg =
+            details.bodyJson?.error ||
+            details.bodyJson?.message ||
+            (details.bodyText ? details.bodyText.slice(0, 220) : null) ||
+            error.message;
+          throw new Error(`HTTP ${details.status}: ${msg}`);
+        }
+
         throw error;
       }
+
       if (!data?.ok) throw new Error(String(data?.error ?? "Falha no upload"));
 
       showSuccess("Upload recebido. Processamento assíncrono iniciado.");

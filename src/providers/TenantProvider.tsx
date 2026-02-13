@@ -9,6 +9,7 @@ type TenantInfo = {
   name: string;
   slug: string;
   branding_json?: any;
+  modules_json?: any;
   role: TenantRole;
 };
 
@@ -67,7 +68,7 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
     if (isSuperAdmin) {
       const { data, error } = await supabase
         .from("tenants")
-        .select("id,name,slug,branding_json")
+        .select("id,name,slug,branding_json,modules_json")
         .is("deleted_at", null)
         .order("created_at", { ascending: false })
         .limit(500);
@@ -85,6 +86,7 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
         name: t.name,
         slug: t.slug,
         branding_json: t.branding_json ?? {},
+        modules_json: t.modules_json ?? {},
         role: "admin",
       }));
 
@@ -106,7 +108,7 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
     // Regular users: tenant list comes from users_profile membership.
     const { data, error } = await supabase
       .from("users_profile")
-      .select("tenant_id, role, tenants(id,name,slug,branding_json)")
+      .select("tenant_id, role, tenants(id,name,slug,branding_json,modules_json)")
       .eq("user_id", user.id)
       .is("deleted_at", null);
 
@@ -124,6 +126,7 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
         name: row.tenants?.name ?? "Tenant",
         slug: row.tenants?.slug ?? "tenant",
         branding_json: row.tenants?.branding_json ?? {},
+        modules_json: row.tenants?.modules_json ?? {},
         role: String(row.role ?? "vendor"),
       }))
       .filter((t: any) => Boolean(t.id));

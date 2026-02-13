@@ -303,6 +303,10 @@ function isActiveFinancePath(pathname: string) {
   return pathname === "/app/finance" || pathname.startsWith("/app/finance/");
 }
 
+function isFinanceEnabled(modulesJson: any) {
+  return Boolean(modulesJson?.finance_enabled === true);
+}
+
 type FinanceNavChild = {
   to: string;
   label: string;
@@ -333,6 +337,7 @@ export function AppShell({
   const [mobileFinanceOpen, setMobileFinanceOpen] = useState(false);
 
   const roleKey = String(activeTenant?.role ?? "");
+  const financeEnabledForTenant = isSuperAdmin || isFinanceEnabled(activeTenant?.modules_json);
 
   const navAccessQ = useQuery({
     queryKey: ["nav_access", activeTenantId, roleKey],
@@ -385,6 +390,7 @@ export function AppShell({
   };
 
   const financeHasAnyAccess = useMemo(() => {
+    if (!financeEnabledForTenant) return false;
     if (isSuperAdmin) return true;
     const keys = [
       "app.finance.cockpit",
@@ -396,7 +402,7 @@ export function AppShell({
       "app.finance.board",
     ];
     return keys.some((k) => can(k));
-  }, [isSuperAdmin, navAccessQ.isLoading, navAccessQ.data, activeTenantId, roleKey]);
+  }, [financeEnabledForTenant, isSuperAdmin, navAccessQ.isLoading, navAccessQ.data, activeTenantId, roleKey]);
 
   const showChatInNav = isSuperAdmin ? true : chatAccess.isLoading ? false : chatAccess.hasAccess;
 

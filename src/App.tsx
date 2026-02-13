@@ -10,6 +10,7 @@ import { ThemeProvider } from "@/providers/ThemeProvider";
 import { RequireTenantRole } from "@/components/RequireTenantRole";
 import { RequireRouteAccess } from "@/components/RequireRouteAccess";
 import { RequireChatInstanceAccess } from "@/components/RequireChatInstanceAccess";
+import { RequireFinanceEnabled } from "@/components/RequireFinanceEnabled";
 
 import Index from "@/pages/Index";
 import NotFound from "@/pages/NotFound";
@@ -80,57 +81,71 @@ const App = () => (
                 <Route
                   path="/app/finance"
                   element={
-                    <RequireRouteAccess routeKey="app.finance.cockpit">
-                      <FinanceControlTower />
-                    </RequireRouteAccess>
+                    <RequireFinanceEnabled>
+                      <RequireRouteAccess routeKey="app.finance.cockpit">
+                        <FinanceControlTower />
+                      </RequireRouteAccess>
+                    </RequireFinanceEnabled>
                   }
                 />
                 <Route
                   path="/app/finance/board"
                   element={
-                    <RequireRouteAccess routeKey="app.finance.board">
-                      <FinanceDecisionBoard />
-                    </RequireRouteAccess>
+                    <RequireFinanceEnabled>
+                      <RequireRouteAccess routeKey="app.finance.board">
+                        <FinanceDecisionBoard />
+                      </RequireRouteAccess>
+                    </RequireFinanceEnabled>
                   }
                 />
                 <Route
                   path="/app/finance/ledger"
                   element={
-                    <RequireRouteAccess routeKey="app.finance.ledger">
-                      <FinanceLedger />
-                    </RequireRouteAccess>
+                    <RequireFinanceEnabled>
+                      <RequireRouteAccess routeKey="app.finance.ledger">
+                        <FinanceLedger />
+                      </RequireRouteAccess>
+                    </RequireFinanceEnabled>
                   }
                 />
                 <Route
                   path="/app/finance/tensions"
                   element={
-                    <RequireRouteAccess routeKey="app.finance.tensions">
-                      <FinanceTensions />
-                    </RequireRouteAccess>
+                    <RequireFinanceEnabled>
+                      <RequireRouteAccess routeKey="app.finance.tensions">
+                        <FinanceTensions />
+                      </RequireRouteAccess>
+                    </RequireFinanceEnabled>
                   }
                 />
                 <Route
                   path="/app/finance/decisions"
                   element={
-                    <RequireRouteAccess routeKey="app.finance.decisions">
-                      <FinanceDecisions />
-                    </RequireRouteAccess>
+                    <RequireFinanceEnabled>
+                      <RequireRouteAccess routeKey="app.finance.decisions">
+                        <FinanceDecisions />
+                      </RequireRouteAccess>
+                    </RequireFinanceEnabled>
                   }
                 />
                 <Route
                   path="/app/finance/ingestion"
                   element={
-                    <RequireRouteAccess routeKey="app.finance.ingestion">
-                      <FinanceIngestion />
-                    </RequireRouteAccess>
+                    <RequireFinanceEnabled>
+                      <RequireRouteAccess routeKey="app.finance.ingestion">
+                        <FinanceIngestion />
+                      </RequireRouteAccess>
+                    </RequireFinanceEnabled>
                   }
                 />
                 <Route
                   path="/app/finance/planning"
                   element={
-                    <RequireRouteAccess routeKey="app.finance.planning">
-                      <FinancePlanning />
-                    </RequireRouteAccess>
+                    <RequireFinanceEnabled>
+                      <RequireRouteAccess routeKey="app.finance.planning">
+                        <FinancePlanning />
+                      </RequireRouteAccess>
+                    </RequireFinanceEnabled>
                   }
                 />
 

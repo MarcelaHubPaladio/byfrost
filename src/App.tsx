@@ -38,6 +38,7 @@ import FinanceIngestion from "@/pages/FinanceIngestion";
 import FinancePlanning from "@/pages/FinancePlanning";
 import FinanceLedger from "@/pages/FinanceLedger";
 import FinanceTensions from "@/pages/FinanceTensions";
+import FinanceDecisions from "@/pages/FinanceDecisions";
 
 const queryClient = new QueryClient();
 
@@ -87,6 +88,14 @@ const App = () => (
                   element={
                     <RequireRouteAccess routeKey="app.settings">
                       <FinanceTensions />
+                    </RequireRouteAccess>
+                  }
+                />
+                <Route
+                  path="/app/finance/decisions"
+                  element={
+                    <RequireRouteAccess routeKey="app.settings">
+                      <FinanceDecisions />
                     </RequireRouteAccess>
                   }
                 />

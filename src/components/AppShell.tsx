@@ -24,6 +24,7 @@ import {
   CalendarClock,
   Wallet,
   AlertTriangle,
+  ClipboardList,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -145,6 +146,7 @@ function getPageName(pathname: string) {
   if (pathname.startsWith("/app/presence")) return "Ponto";
   if (pathname.startsWith("/app/finance/ledger")) return "Financeiro • Lançamentos";
   if (pathname.startsWith("/app/finance/tensions")) return "Financeiro • Tensões";
+  if (pathname.startsWith("/app/finance/decisions")) return "Financeiro • Decisões";
   if (pathname.startsWith("/app/finance/ingestion")) return "Financeiro • Ingestão";
   if (pathname.startsWith("/app/finance/planning")) return "Financeiro • Planejamento";
   if (pathname.startsWith("/app/incentives/events")) return "Incentivos • Eventos";
@@ -531,6 +533,7 @@ export function AppShell({
                 {/* Financeiro */}
                 <NavTile to="/app/finance/ledger" icon={Wallet} label="Financeiro" disabled={!can("app.settings")} />
                 <NavTile to="/app/finance/tensions" icon={AlertTriangle} label="Tensões" disabled={!can("app.settings")} />
+                <NavTile to="/app/finance/decisions" icon={ClipboardList} label="Decisões" disabled={!can("app.settings")} />
 
                 {hasIncentivesCampaigns && (
                   <NavTile
@@ -676,6 +679,13 @@ export function AppShell({
                               to="/app/finance/tensions"
                               icon={AlertTriangle}
                               label="Tensões"
+                              disabled={!can("app.settings")}
+                              onNavigate={() => setMobileNavOpen(false)}
+                            />
+                            <MobileNavItem
+                              to="/app/finance/decisions"
+                              icon={ClipboardList}
+                              label="Decisões"
                               disabled={!can("app.settings")}
                               onNavigate={() => setMobileNavOpen(false)}
                             />

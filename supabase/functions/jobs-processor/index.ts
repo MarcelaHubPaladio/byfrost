@@ -852,6 +852,137 @@ function computeScores(opts: { impact: number; urgency: number; cascade: number 
   return { impact, urgency, cascade, final };
 }
 
+async function ensureDecisionCardFromTension(opts: {
+  supabase: any;
+  tenantId: string;
+  tensionEventId: string;
+  tensionType: string;
+  description: string;
+  severity: string;
+  referenceId?: string | null;
+}) {
+  const { supabase, tenantId, tensionEventId, tensionType, description, severity, referenceId } = opts;
+
+  // Rule critical: do NOT create card if there is no actionable recommendation.
+  const actions: Array<{ title: string; detail?: string }> = [];
+  let title = "Decisão financeira";
+  let dueDate: string | null = null;
+
+  if (tensionType === "cash_negative") {
+    title = "Evitar caixa negativo";
+    dueDate = addDaysIsoDate(new Date().toISOString().slice(0, 10), 2);
+
+    actions.push({
+      title: "Priorizar recebíveis",
+      detail: "Liste recebíveis e acione cobranças/antecipações para recuperar caixa rapidamente.",
+    });
+    actions.push({
+      title: "Renegociar pagáveis",
+      detail: "Negocie prazos/parcelamentos com fornecedores para aliviar o curto prazo.",
+    });
+    actions.push({
+      title: "Cortar gastos não essenciais",
+      detail: "Revise despesas variáveis e congele o que não for crítico.",
+    });
+  }
+
+  if (tensionType === "runway_low") {
+    title = "Aumentar runway de caixa";
+    dueDate = addDaysIsoDate(new Date().toISOString().slice(0, 10), 7);
+
+    actions.push({
+      title: "Ajustar orçamento",
+      detail: "Revise orçamento e reduza custos que estejam acima do planejado.",
+    });
+    actions.push({
+      title: "Acelerar entradas",
+      detail: "Antecipar recebíveis e melhorar prazos de pagamento de clientes.",
+    });
+  }
+
+  if (tensionType === "revenue_not_received") {
+    title = "Cobrar receita em atraso";
+    dueDate = addDaysIsoDate(new Date().toISOString().slice(0, 10), 3);
+
+    // Actionable only if reference is a receivable (we set reference_id to the oldest overdue id).
+    if (referenceId) {
+      actions.push({
+        title: "Contatar cliente e negociar pagamento",
+        detail: `Recebível em atraso (ref: ${String(referenceId).slice(0, 8)}…). Registrar acordo e novo vencimento se necessário.`,
+      });
+    }
+    actions.push({
+      title: "Revisar política de crédito",
+      detail: "Reavaliar prazos/condições para reduzir inadimplência recorrente.",
+    });
+  }
+
+  if (tensionType === "budget_deviation") {
+    title = "Corrigir desvio de orçamento";
+    dueDate = addDaysIsoDate(new Date().toISOString().slice(0, 10), 10);
+
+    actions.push({
+      title: "Identificar origem do excesso",
+      detail: "Revise transações recentes categorizadas e identifique o que elevou o custo.",
+    });
+    actions.push({
+      title: "Replanejar ou reduzir custo",
+      detail: "Se o gasto foi necessário, atualize o orçamento; caso contrário, reduza e bloqueie recorrências.",
+    });
+  }
+
+  if (actions.length === 0) return { ok: true, skipped: true, reason: "no_action" };
+
+  // Avoid duplicates: unique (tenant_id, tension_event_id)
+  const { data: existing } = await supabase
+    .from("financial_decision_cards")
+    .select("id")
+    .eq("tenant_id", tenantId)
+    .eq("tension_event_id", tensionEventId)
+    .limit(1);
+
+  if ((existing ?? []).length) return { ok: true, skipped: true, reason: "already_exists" };
+
+  const { data: created, error } = await supabase
+    .from("financial_decision_cards")
+    .insert({
+      tenant_id: tenantId,
+      tension_event_id: tensionEventId,
+      title,
+      description,
+      severity: severity || "medium",
+      recommended_actions: actions,
+      status: "open",
+      owner: null,
+      due_date: dueDate,
+    })
+    .select("id")
+    .maybeSingle();
+
+  if (error || !created?.id) throw new Error(`financial_decision_cards_insert_failed:${error?.message ?? ""}`);
+
+  await supabase.from("decision_logs").insert({
+    tenant_id: tenantId,
+    case_id: null,
+    agent_id: null,
+    input_summary: `Card criado para tensão: ${tensionType}`,
+    output_summary: title,
+    reasoning_public: "Card de decisão criado automaticamente porque há ações recomendadas executáveis.",
+    why_json: {
+      kind: "financial_decision_card",
+      tension_event_id: tensionEventId,
+      tension_type: tensionType,
+      severity,
+      recommended_actions: actions,
+      due_date: dueDate,
+    },
+    confidence_json: { overall: 0.8, method: "rules" },
+    occurred_at: new Date().toISOString(),
+  });
+
+  return { ok: true, cardId: created.id };
+}
+
 async function createTensionEventWithScore(opts: {
   supabase: any;
   tenantId: string;
@@ -916,6 +1047,21 @@ async function createTensionEventWithScore(opts: {
     confidence_json: { overall: 0.8, method: "rules" },
     occurred_at: new Date().toISOString(),
   });
+
+  // Create a decision card ONLY if actionable.
+  try {
+    await ensureDecisionCardFromTension({
+      supabase,
+      tenantId,
+      tensionEventId: ev.id,
+      tensionType,
+      description,
+      severity: "medium",
+      referenceId: referenceId ?? null,
+    });
+  } catch (e) {
+    console.warn(`[financial_decision_engine] failed to create decision card (ignored)`, { tenantId, e: String(e) });
+  }
 
   return { ok: true, eventId: ev.id };
 }
@@ -1137,6 +1283,12 @@ async function runFinancialTensionChecks(opts: { supabase: any; tenantId: string
   }
 
   return { ok: true };
+}
+
+function addDaysIsoDate(dateIso: string, days: number) {
+  const d = new Date(`${dateIso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
 }
 
 serve(async (req) => {

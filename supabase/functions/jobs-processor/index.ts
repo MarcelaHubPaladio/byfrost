@@ -539,6 +539,52 @@ function parseDateLoose(s: string): string | null {
   return null;
 }
 
+function parseOfxDateLoose(s: string): string | null {
+  // OFX usually: YYYYMMDD or YYYYMMDDHHMMSS[...]
+  const v = String(s ?? "").trim();
+  const m = v.match(/^(\d{4})(\d{2})(\d{2})/);
+  if (!m) return parseDateLoose(v);
+  return `${m[1]}-${m[2]}-${m[3]}`;
+}
+
+function extractOfxTag(block: string, tag: string) {
+  const re = new RegExp(`<${tag}>([^<\r\n]*)`, "i");
+  const m = String(block ?? "").match(re);
+  return (m?.[1] ?? "").trim();
+}
+
+function parseOfx(text: string) {
+  const raw = String(text ?? "");
+  const blocks = raw.match(/<STMTTRN>[\s\S]*?<\/STMTTRN>/gi) ?? [];
+
+  const rows: Record<string, string>[] = [];
+
+  for (const b of blocks) {
+    const dt = extractOfxTag(b, "DTPOSTED");
+    const txDate = parseOfxDateLoose(dt);
+    if (!txDate) continue;
+
+    const amt = extractOfxTag(b, "TRNAMT");
+    const memo = extractOfxTag(b, "MEMO") || extractOfxTag(b, "NAME");
+
+    // Keep OFX identifiers in raw_payload for traceability
+    const fitid = extractOfxTag(b, "FITID");
+    const refnum = extractOfxTag(b, "REFNUM");
+    const checknum = extractOfxTag(b, "CHECKNUM");
+
+    rows.push({
+      transaction_date: txDate,
+      description: memo,
+      amount: amt,
+      fitid,
+      refnum,
+      checknum,
+    });
+  }
+
+  return { headers: [] as string[], rows };
+}
+
 function parseCsv(text: string) {
   const lines = String(text ?? "")
     .replace(/^\uFEFF/, "")
@@ -634,7 +680,13 @@ async function processFinancialIngestionJob(opts: {
   const text = new TextDecoder().decode(bytes);
 
   // PIPELINE: upload → parse → normalize → deduplicate → persist
-  const parsed = parseCsv(text);
+  const isOfx =
+    /\n\s*OFXHEADER\s*:/i.test(text) ||
+    /<OFX[>\s]/i.test(text) ||
+    /<STMTTRN>/i.test(text) ||
+    path.toLowerCase().endsWith(".ofx");
+
+  const parsed = isOfx ? parseOfx(text) : parseCsv(text);
 
   // Ensure we have at least one bank account to attach transactions.
   // If tenant has none, create a default one.
@@ -701,6 +753,9 @@ async function processFinancialIngestionJob(opts: {
         amt = Math.abs(db);
         inferredType = "debit";
       }
+    } else {
+      // If amount is signed (common in exports / OFX), infer type from sign.
+      inferredType = amt >= 0 ? "credit" : "debit";
     }
 
     if (amt == null) {
@@ -735,7 +790,7 @@ async function processFinancialIngestionJob(opts: {
       status: "posted",
       fingerprint,
       source: "import",
-      raw_payload: row,
+      raw_payload: { format: isOfx ? "ofx" : "csv", ...row },
     });
   }
 

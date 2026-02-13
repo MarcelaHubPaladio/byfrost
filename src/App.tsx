@@ -40,6 +40,7 @@ import FinanceLedger from "@/pages/FinanceLedger";
 import FinanceTensions from "@/pages/FinanceTensions";
 import FinanceDecisions from "@/pages/FinanceDecisions";
 import FinanceControlTower from "@/pages/FinanceControlTower";
+import FinanceDecisionBoard from "@/pages/FinanceDecisionBoard";
 
 const queryClient = new QueryClient();
 
@@ -81,6 +82,14 @@ const App = () => (
                   element={
                     <RequireRouteAccess routeKey="app.settings">
                       <FinanceControlTower />
+                    </RequireRouteAccess>
+                  }
+                />
+                <Route
+                  path="/app/finance/board"
+                  element={
+                    <RequireRouteAccess routeKey="app.settings">
+                      <FinanceDecisionBoard />
                     </RequireRouteAccess>
                   }
                 />

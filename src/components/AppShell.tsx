@@ -22,11 +22,12 @@ import {
   Lock,
   Menu,
   CalendarClock,
+  Gauge,
   Wallet,
   AlertTriangle,
   ClipboardList,
-  Gauge,
-  Columns3,
+  ChevronRight,
+  ArrowDownUp,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -40,6 +41,11 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { checkRouteAccess } from "@/lib/access";
 
 function hexToRgb(hex: string) {
@@ -141,8 +147,6 @@ function getPageName(pathname: string) {
   if (pathname === "/" || pathname === "/app" || pathname.startsWith("/app/j/")) return "Dashboard";
   if (pathname.startsWith("/app/chat")) return "Chat";
   if (pathname.startsWith("/app/crm")) return "CRM";
-  if (pathname.startsWith("/crm/cases/")) return "Case (CRM)";
-  if (pathname.startsWith("/app/cases/")) return "Case";
   if (pathname.startsWith("/app/content")) return "Conteúdo";
   if (pathname.startsWith("/app/presence/manage")) return "Gestão de Presença";
   if (pathname.startsWith("/app/presence")) return "Ponto";
@@ -293,6 +297,24 @@ function isPresenceManagerRole(role: string | null | undefined) {
   return ["admin", "manager", "supervisor", "leader"].includes(String(role ?? "").toLowerCase());
 }
 
+function isActiveFinancePath(pathname: string) {
+  return pathname === "/app/finance" || pathname.startsWith("/app/finance/");
+}
+
+type FinanceNavChild = {
+  to: string;
+  label: string;
+  icon: any;
+  routeKey: string;
+};
+
+const FINANCE_NAV_CHILDREN: FinanceNavChild[] = [
+  { to: "/app/finance/ledger", label: "Lançamentos", icon: Wallet, routeKey: "app.finance.ledger" },
+  { to: "/app/finance/ingestion", label: "Ingestão", icon: ArrowDownUp, routeKey: "app.finance.ingestion" },
+  { to: "/app/finance/decisions", label: "Decisões", icon: ClipboardList, routeKey: "app.finance.decisions" },
+  { to: "/app/finance/tensions", label: "Tensões", icon: AlertTriangle, routeKey: "app.finance.tensions" },
+];
+
 export function AppShell({
   children,
   hideTopBar,
@@ -304,6 +326,7 @@ export function AppShell({
   const chatAccess = useChatInstanceAccess();
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [mobileFinanceOpen, setMobileFinanceOpen] = useState(false);
 
   const roleKey = String(activeTenant?.role ?? "");
 
@@ -324,6 +347,14 @@ export function AppShell({
         "app.settings",
         "app.me",
         "app.admin",
+        // Finance
+        "app.finance.cockpit",
+        "app.finance.ledger",
+        "app.finance.ingestion",
+        "app.finance.decisions",
+        "app.finance.tensions",
+        "app.finance.planning",
+        "app.finance.board",
       ];
 
       const map: Record<string, boolean> = {};
@@ -348,6 +379,20 @@ export function AppShell({
     if (navAccessQ.isLoading || !navAccessQ.data) return true;
     return Boolean(navAccessQ.data[routeKey]);
   };
+
+  const financeHasAnyAccess = useMemo(() => {
+    if (isSuperAdmin) return true;
+    const keys = [
+      "app.finance.cockpit",
+      "app.finance.ledger",
+      "app.finance.ingestion",
+      "app.finance.decisions",
+      "app.finance.tensions",
+      "app.finance.planning",
+      "app.finance.board",
+    ];
+    return keys.some((k) => can(k));
+  }, [isSuperAdmin, navAccessQ.isLoading, navAccessQ.data, activeTenantId, roleKey]);
 
   const showChatInNav = isSuperAdmin ? true : chatAccess.isLoading ? false : chatAccess.hasAccess;
 
@@ -473,6 +518,11 @@ export function AppShell({
   const userEmail = user?.email ?? "";
   const avatarUrl = (user?.user_metadata as any)?.avatar_url ?? null;
 
+  // Keep mobile finance submenu in sync with current route
+  useEffect(() => {
+    if (isActiveFinancePath(loc.pathname)) setMobileFinanceOpen(true);
+  }, [loc.pathname]);
+
   return (
     <div className="min-h-screen bg-[hsl(var(--byfrost-bg))]">
       {/* Super-admin: floating tenant switch (top-right) */}
@@ -534,14 +584,59 @@ export function AppShell({
                   />
                 )}
 
-                {/* Financeiro */}
-                <NavTile to="/app/finance" icon={Gauge} label="Cockpit" disabled={!can("app.settings")} />
-                <NavTile to="/app/finance/board" icon={Columns3} label="Quadro" disabled={!can("app.settings")} />
-                <NavTile to="/app/finance/ledger" icon={Wallet} label="Lançamentos" disabled={!can("app.settings")} />
-                <NavTile to="/app/finance/planning" icon={ClipboardCheck} label="Plano" disabled={!can("app.settings")} />
-                <NavTile to="/app/finance/ingestion" icon={ArrowLeftRight} label="Ingestão" disabled={!can("app.settings")} />
-                <NavTile to="/app/finance/tensions" icon={AlertTriangle} label="Tensões" disabled={!can("app.settings")} />
-                <NavTile to="/app/finance/decisions" icon={ClipboardList} label="Decisões" disabled={!can("app.settings")} />
+                {/* Financeiro (desktop): Cockpit principal + submenu no hover */}
+                {financeHasAnyAccess && (
+                  <div className="group relative">
+                    <NavTile
+                      to="/app/finance"
+                      icon={Gauge}
+                      label="Cockpit"
+                      disabled={!can("app.finance.cockpit")}
+                    />
+
+                    <div
+                      className={cn(
+                        "pointer-events-none absolute left-[100%] top-0 z-50 pl-2 opacity-0 transition",
+                        "group-hover:pointer-events-auto group-hover:opacity-100"
+                      )}
+                    >
+                      <div className="min-w-[220px] rounded-2xl border border-slate-200 bg-white/95 p-2 shadow-lg backdrop-blur dark:border-slate-800 dark:bg-slate-950/90">
+                        <div className="px-2 pb-1.5 text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+                          Financeiro
+                        </div>
+                        <div className="grid gap-1">
+                          {FINANCE_NAV_CHILDREN.map(({ to, label, icon: Icon, routeKey }) => (
+                            <NavLink
+                              key={to}
+                              to={to}
+                              className={({ isActive }) =>
+                                cn(
+                                  "flex items-center justify-between gap-2 rounded-xl px-2 py-2 text-sm font-semibold transition",
+                                  isActive || loc.pathname === to
+                                    ? "bg-[hsl(var(--byfrost-accent)/0.10)] text-[hsl(var(--byfrost-accent))]"
+                                    : "text-slate-800 hover:bg-slate-100 dark:text-slate-100 dark:hover:bg-slate-800/60",
+                                  !can(routeKey) &&
+                                    "pointer-events-none opacity-50 grayscale cursor-not-allowed"
+                                )
+                              }
+                              title={can(routeKey) ? label : `${label} (sem permissão)`}
+                            >
+                              <div className="flex items-center gap-2">
+                                <Icon className="h-4 w-4" />
+                                <span>{label}</span>
+                              </div>
+                              {can(routeKey) ? (
+                                <ChevronRight className="h-4 w-4 opacity-40" />
+                              ) : (
+                                <Lock className="h-4 w-4 opacity-70" />
+                              )}
+                            </NavLink>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {hasIncentivesCampaigns && (
                   <NavTile
@@ -675,56 +770,56 @@ export function AppShell({
                               />
                             )}
 
-                            {/* Financeiro */}
-                            <MobileNavItem
-                              to="/app/finance"
-                              icon={Gauge}
-                              label="Cockpit"
-                              disabled={!can("app.settings")}
-                              onNavigate={() => setMobileNavOpen(false)}
-                            />
-                            <MobileNavItem
-                              to="/app/finance/board"
-                              icon={Columns3}
-                              label="Quadro"
-                              disabled={!can("app.settings")}
-                              onNavigate={() => setMobileNavOpen(false)}
-                            />
-                            <MobileNavItem
-                              to="/app/finance/ledger"
-                              icon={Wallet}
-                              label="Lançamentos"
-                              disabled={!can("app.settings")}
-                              onNavigate={() => setMobileNavOpen(false)}
-                            />
-                            <MobileNavItem
-                              to="/app/finance/planning"
-                              icon={ClipboardCheck}
-                              label="Plano"
-                              disabled={!can("app.settings")}
-                              onNavigate={() => setMobileNavOpen(false)}
-                            />
-                            <MobileNavItem
-                              to="/app/finance/ingestion"
-                              icon={ArrowLeftRight}
-                              label="Ingestão"
-                              disabled={!can("app.settings")}
-                              onNavigate={() => setMobileNavOpen(false)}
-                            />
-                            <MobileNavItem
-                              to="/app/finance/tensions"
-                              icon={AlertTriangle}
-                              label="Tensões"
-                              disabled={!can("app.settings")}
-                              onNavigate={() => setMobileNavOpen(false)}
-                            />
-                            <MobileNavItem
-                              to="/app/finance/decisions"
-                              icon={ClipboardList}
-                              label="Decisões"
-                              disabled={!can("app.settings")}
-                              onNavigate={() => setMobileNavOpen(false)}
-                            />
+                            {/* Financeiro (mobile): Cockpit + abrir filhos ao clicar */}
+                            {financeHasAnyAccess && (
+                              <Collapsible open={mobileFinanceOpen} onOpenChange={setMobileFinanceOpen}>
+                                <CollapsibleTrigger asChild>
+                                  <button
+                                    type="button"
+                                    className={cn(
+                                      "flex w-full items-center justify-between gap-3 rounded-2xl border px-4 py-3 transition",
+                                      isActiveFinancePath(loc.pathname)
+                                        ? "border-[hsl(var(--byfrost-accent)/0.35)] bg-[hsl(var(--byfrost-accent)/0.10)] text-[hsl(var(--byfrost-accent))]"
+                                        : "border-slate-200 bg-white/75 text-slate-800 hover:border-slate-300 hover:bg-white",
+                                      "dark:border-slate-800 dark:bg-slate-950/40 dark:text-slate-100 dark:hover:bg-slate-950/60"
+                                    )
+                                    }
+                                    title="Financeiro"
+                                  >
+                                    <div className="flex items-center gap-3">
+                                      <Gauge className="h-5 w-5" />
+                                      <span className="text-sm font-semibold tracking-tight">Cockpit</span>
+                                    </div>
+                                    <ChevronRight
+                                      className={cn(
+                                        "h-5 w-5 opacity-70 transition",
+                                        mobileFinanceOpen && "rotate-90"
+                                      )}
+                                    />
+                                  </button>
+                                </CollapsibleTrigger>
+
+                                <CollapsibleContent className="mt-2 grid gap-2 pl-2">
+                                  <MobileNavItem
+                                    to="/app/finance"
+                                    icon={Gauge}
+                                    label="Cockpit"
+                                    disabled={!can("app.finance.cockpit")}
+                                    onNavigate={() => setMobileNavOpen(false)}
+                                  />
+                                  {FINANCE_NAV_CHILDREN.map(({ to, label, icon, routeKey }) => (
+                                    <MobileNavItem
+                                      key={to}
+                                      to={to}
+                                      icon={icon}
+                                      label={label}
+                                      disabled={!can(routeKey)}
+                                      onNavigate={() => setMobileNavOpen(false)}
+                                    />
+                                  ))}
+                                </CollapsibleContent>
+                              </Collapsible>
+                            )}
 
                             {hasIncentivesCampaigns && (
                               <MobileNavItem

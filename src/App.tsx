@@ -80,7 +80,7 @@ const App = () => (
                 <Route
                   path="/app/finance"
                   element={
-                    <RequireRouteAccess routeKey="app.settings">
+                    <RequireRouteAccess routeKey="app.finance.cockpit">
                       <FinanceControlTower />
                     </RequireRouteAccess>
                   }
@@ -88,7 +88,7 @@ const App = () => (
                 <Route
                   path="/app/finance/board"
                   element={
-                    <RequireRouteAccess routeKey="app.settings">
+                    <RequireRouteAccess routeKey="app.finance.board">
                       <FinanceDecisionBoard />
                     </RequireRouteAccess>
                   }
@@ -96,7 +96,7 @@ const App = () => (
                 <Route
                   path="/app/finance/ledger"
                   element={
-                    <RequireRouteAccess routeKey="app.settings">
+                    <RequireRouteAccess routeKey="app.finance.ledger">
                       <FinanceLedger />
                     </RequireRouteAccess>
                   }
@@ -104,7 +104,7 @@ const App = () => (
                 <Route
                   path="/app/finance/tensions"
                   element={
-                    <RequireRouteAccess routeKey="app.settings">
+                    <RequireRouteAccess routeKey="app.finance.tensions">
                       <FinanceTensions />
                     </RequireRouteAccess>
                   }
@@ -112,7 +112,7 @@ const App = () => (
                 <Route
                   path="/app/finance/decisions"
                   element={
-                    <RequireRouteAccess routeKey="app.settings">
+                    <RequireRouteAccess routeKey="app.finance.decisions">
                       <FinanceDecisions />
                     </RequireRouteAccess>
                   }
@@ -120,7 +120,7 @@ const App = () => (
                 <Route
                   path="/app/finance/ingestion"
                   element={
-                    <RequireRouteAccess routeKey="app.settings">
+                    <RequireRouteAccess routeKey="app.finance.ingestion">
                       <FinanceIngestion />
                     </RequireRouteAccess>
                   }
@@ -128,7 +128,7 @@ const App = () => (
                 <Route
                   path="/app/finance/planning"
                   element={
-                    <RequireRouteAccess routeKey="app.settings">
+                    <RequireRouteAccess routeKey="app.finance.planning">
                       <FinancePlanning />
                     </RequireRouteAccess>
                   }
@@ -273,7 +273,6 @@ const App = () => (
                   }
                 />
 
-                {/* Super-admin only */}
                 <Route
                   path="/app/admin"
                   element={
@@ -284,6 +283,7 @@ const App = () => (
                 />
 
                 <Route path="*" element={<NotFound />} />
+                <Route path="/app/*" element={<Navigate to="/app" replace />} />
               </Routes>
             </BrowserRouter>
           </TenantProvider>

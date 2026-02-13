@@ -1,6 +1,27 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
-import { corsHeaders } from "../_shared/cors.ts";
-import { createSupabaseAdmin } from "../_shared/supabaseAdmin.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+// NOTE:
+// This function is intentionally self-contained (no ../_shared imports)
+// so it can be deployed via the Supabase Dashboard editor, which bundles a single folder.
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+};
+
+function createSupabaseAdmin() {
+  const url = Deno.env.get("SUPABASE_URL") ?? "";
+  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+  if (!url || !serviceRoleKey) {
+    throw new Error("missing_supabase_env");
+  }
+  return createClient(url, serviceRoleKey, {
+    auth: { persistSession: false },
+    global: { headers: { "X-Client-Info": "byfrost-financial-ingestion-upload" } },
+  });
+}
 
 const BUCKET = "financial-ingestion";
 
@@ -24,7 +45,7 @@ function decodeBase64ToBytes(b64: string) {
 
 serve(async (req) => {
   const fn = "financial-ingestion-upload";
-  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders, status: 204 });
 
   try {
     if (req.method !== "POST") return err("method_not_allowed", 405);
@@ -115,10 +136,10 @@ serve(async (req) => {
 
     if (qErr) {
       console.error(`[${fn}] failed to enqueue job_queue`, { tenantId, qErr });
-      await supabase.from("ingestion_jobs").update({ status: "failed", error_log: String(qErr.message ?? qErr) }).eq(
-        "id",
-        job.id
-      );
+      await supabase
+        .from("ingestion_jobs")
+        .update({ status: "failed", error_log: String(qErr.message ?? qErr) })
+        .eq("id", job.id);
       return err("failed_to_enqueue", 500);
     }
 
@@ -127,6 +148,9 @@ serve(async (req) => {
     return json({ ok: true, ingestionJobId: job.id });
   } catch (e: any) {
     console.error("[financial-ingestion-upload] unhandled", { error: e?.message ?? String(e) });
+    const msg = String(e?.message ?? "internal_error");
+    // Provide a more explicit error when required env vars are missing.
+    if (msg.includes("missing_supabase_env")) return err("missing_supabase_env", 500);
     return err("internal_error", 500);
   }
 });

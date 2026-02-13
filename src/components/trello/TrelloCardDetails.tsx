@@ -12,6 +12,14 @@ import { TrelloResponsibleCard } from "@/components/trello/TrelloResponsibleCard
 import { CaseTasksCard } from "@/components/crm/CaseTasksCard";
 import { CaseTimeline, type CaseTimelineEvent } from "@/components/case/CaseTimeline";
 import { normalizeRichTextHtmlOrNull, RichTextEditor } from "@/components/RichTextEditor";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { ZoomableImage } from "@/components/case/ZoomableImage";
+import { TrelloAddImageDialog } from "@/components/trello/TrelloAddImageDialog";
 
 function fmtDateInput(iso: string | null) {
   if (!iso) return "";
@@ -33,6 +41,10 @@ function parseDateInput(v: string): string | null {
 
 export function TrelloCardDetails(props: { tenantId: string; caseId: string }) {
   const qc = useQueryClient();
+
+  const [imgOpen, setImgOpen] = useState(false);
+  const [imgSrc, setImgSrc] = useState<string>("");
+  const [imgTitle, setImgTitle] = useState<string>("");
 
   const caseQ = useQuery({
     queryKey: ["trello_case", props.tenantId, props.caseId],
@@ -157,6 +169,15 @@ export function TrelloCardDetails(props: { tenantId: string; caseId: string }) {
     ? new Date((caseQ.data?.meta_json as any)?.due_at).toLocaleDateString()
     : "—";
 
+  const images = useMemo(
+    () => (attachmentsQ.data ?? []).filter((a) => String(a.kind) === "image"),
+    [attachmentsQ.data]
+  );
+  const otherAttachments = useMemo(
+    () => (attachmentsQ.data ?? []).filter((a) => String(a.kind) !== "image"),
+    [attachmentsQ.data]
+  );
+
   return (
     <div className="space-y-4">
       <Card className="rounded-[22px] border-slate-200 bg-white p-4">
@@ -251,15 +272,56 @@ export function TrelloCardDetails(props: { tenantId: string; caseId: string }) {
             <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
               <ClipboardList className="h-4 w-4 text-slate-500" /> Anexos
             </div>
-            <div className="mt-1 text-xs text-slate-500">Lista de anexos vinculados ao case</div>
+            <div className="mt-1 text-xs text-slate-500">Imagens (base64) e outros anexos vinculados ao case</div>
           </div>
-          <Badge className="rounded-full border-0 bg-slate-100 text-slate-700 hover:bg-slate-100">
-            {(attachmentsQ.data ?? []).length}
-          </Badge>
+          <div className="flex items-center gap-2">
+            <TrelloAddImageDialog
+              tenantId={props.tenantId}
+              caseId={props.caseId}
+              className="h-9"
+            />
+            <Badge className="rounded-full border-0 bg-slate-100 text-slate-700 hover:bg-slate-100">
+              {(attachmentsQ.data ?? []).length}
+            </Badge>
+          </div>
         </div>
 
-        <div className="mt-3 space-y-2">
-          {(attachmentsQ.data ?? []).map((a) => (
+        <div className="mt-3 space-y-3">
+          {images.length ? (
+            <div className="grid gap-3 sm:grid-cols-2">
+              {images.map((a) => {
+                const src = String(a.storage_path ?? "");
+                const label = String(a.original_filename ?? "imagem");
+                return (
+                  <button
+                    key={a.id}
+                    type="button"
+                    onClick={() => {
+                      setImgTitle(label);
+                      setImgSrc(src);
+                      setImgOpen(true);
+                    }}
+                    className="group relative overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 text-left"
+                    title="Visualizar"
+                  >
+                    <img
+                      src={src}
+                      alt={label}
+                      className="h-40 w-full object-cover transition group-hover:scale-[1.01]"
+                    />
+                    <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-slate-900/55 to-transparent p-3">
+                      <div className="truncate text-xs font-semibold text-white/95">{label}</div>
+                      <div className="mt-0.5 text-[11px] text-white/80">
+                        {new Date(a.created_at).toLocaleString()}
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
+
+          {otherAttachments.map((a) => (
             <a
               key={a.id}
               href={a.storage_path}
@@ -282,6 +344,17 @@ export function TrelloCardDetails(props: { tenantId: string; caseId: string }) {
           ) : null}
         </div>
       </Card>
+
+      <Dialog open={imgOpen} onOpenChange={setImgOpen}>
+        <DialogContent className="w-[96vw] max-w-[1100px] rounded-[24px] border-slate-200 bg-white p-0 shadow-xl overflow-hidden">
+          <DialogHeader className="px-5 pt-5">
+            <DialogTitle className="text-base font-semibold text-slate-900 truncate">{imgTitle}</DialogTitle>
+          </DialogHeader>
+          <div className="h-[75vh] w-full bg-slate-50">
+            {imgSrc ? <ZoomableImage src={imgSrc} alt={imgTitle || "imagem"} /> : null}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <CaseTimeline events={timelineQ.data ?? []} />
     </div>

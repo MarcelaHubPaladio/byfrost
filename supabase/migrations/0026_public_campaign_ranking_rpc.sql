@@ -11,12 +11,19 @@ language plpgsql
 security definer
 set search_path = public
 as $$
+-- Note: make sure this function owner has access to read tenants/campaigns/campaign_ranking
 declare
   v_tenant_id uuid;
+  v_tenant_name text;
+  v_branding jsonb;
   v_visibility text;
+  v_campaign_name text;
+  v_logo_bucket text;
+  v_logo_path text;
+  v_palette_primary_hex text;
 begin
-  select t.id
-    into v_tenant_id
+  select t.id, t.name, t.branding_json
+    into v_tenant_id, v_tenant_name, v_branding
     from public.tenants t
    where t.slug = p_tenant_slug
      and t.deleted_at is null
@@ -26,8 +33,8 @@ begin
     return jsonb_build_object('ok', false, 'error', 'tenant_not_found');
   end if;
 
-  select c.visibility
-    into v_visibility
+  select c.visibility, c.name
+    into v_visibility, v_campaign_name
     from public.campaigns c
    where c.id = p_campaign_id
      and c.tenant_id = v_tenant_id
@@ -41,6 +48,10 @@ begin
     return jsonb_build_object('ok', false, 'error', 'forbidden');
   end if;
 
+  v_logo_bucket := nullif(coalesce(v_branding->'logo'->>'bucket',''), '');
+  v_logo_path := nullif(coalesce(v_branding->'logo'->>'path',''), '');
+  v_palette_primary_hex := nullif(coalesce(v_branding->'palette'->'primary'->>'hex',''), '');
+
   return (
     with topn as (
       select cr.participant_id, cr.score, cr.rank
@@ -53,6 +64,13 @@ begin
     select jsonb_build_object(
       'ok', true,
       'updated_at', now(),
+      'tenant_name', coalesce(v_tenant_name, p_tenant_slug),
+      'tenant_slug', p_tenant_slug,
+      'campaign_name', coalesce(v_campaign_name, p_campaign_id::text),
+      'campaign_id', p_campaign_id,
+      'palette_primary_hex', v_palette_primary_hex,
+      'logo_bucket', v_logo_bucket,
+      'logo_path', v_logo_path,
       'items', coalesce(
         jsonb_agg(
           jsonb_build_object(

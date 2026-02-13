@@ -78,8 +78,76 @@ export default function PublicCampaignRanking() {
   const [error, setError] = useState<string | null>(null);
   const [errorDetail, setErrorDetail] = useState<any>(null);
 
+  const [tenantName, setTenantName] = useState<string | null>(null);
+  const [campaignName, setCampaignName] = useState<string | null>(null);
+  const [logoUrl, setLogoUrl] = useState<string | null>(null);
+  const [primaryHex, setPrimaryHex] = useState<string | null>(null);
+
   const top3 = items.slice(0, 3);
   const top10 = items.slice(0, 10);
+
+  useEffect(() => {
+    const title = ["Ranking", tenantName ?? tenant, campaignName ?? campaign].filter(Boolean).join(" • ");
+    document.title = title || "Ranking";
+  }, [tenantName, campaignName, tenant, campaign]);
+
+  useEffect(() => {
+    // Apply tenant theme colors (best effort)
+    const hex = String(primaryHex ?? "").trim();
+    const root = document.documentElement;
+
+    const isValidHex = /^#[0-9a-fA-F]{6}$/.test(hex);
+    if (!isValidHex) {
+      root.style.removeProperty("--tenant-accent");
+      root.style.removeProperty("--tenant-bg");
+      return;
+    }
+
+    const v = hex.replace("#", "");
+    const r = parseInt(v.slice(0, 2), 16);
+    const g = parseInt(v.slice(2, 4), 16);
+    const b = parseInt(v.slice(4, 6), 16);
+
+    const toHsl = (rr: number, gg: number, bb: number) => {
+      rr /= 255;
+      gg /= 255;
+      bb /= 255;
+      const max = Math.max(rr, gg, bb);
+      const min = Math.min(rr, gg, bb);
+      let h = 0;
+      let s = 0;
+      const l = (max + min) / 2;
+      const d = max - min;
+      if (d !== 0) {
+        s = d / (1 - Math.abs(2 * l - 1));
+        switch (max) {
+          case rr:
+            h = ((gg - bb) / d) % 6;
+            break;
+          case gg:
+            h = (bb - rr) / d + 2;
+            break;
+          case bb:
+            h = (rr - gg) / d + 4;
+            break;
+        }
+        h *= 60;
+        if (h < 0) h += 360;
+      }
+      return { h: Math.round(h), s: Math.round(s * 100), l: Math.round(l * 100) };
+    };
+
+    const accent = toHsl(r, g, b);
+    const bg = { h: accent.h, s: Math.min(35, Math.max(10, Math.round(accent.s * 0.35))), l: 97 };
+
+    root.style.setProperty("--tenant-accent", `${accent.h} ${accent.s}% ${accent.l}%`);
+    root.style.setProperty("--tenant-bg", `${bg.h} ${bg.s}% ${bg.l}%`);
+
+    return () => {
+      root.style.removeProperty("--tenant-accent");
+      root.style.removeProperty("--tenant-bg");
+    };
+  }, [primaryHex]);
 
   useEffect(() => {
     let cancelled = false;
@@ -91,7 +159,13 @@ export default function PublicCampaignRanking() {
         setError(null);
         setErrorDetail(null);
 
-        // 1) Try Edge Function first (supports signed URLs for private photos)
+        // reset meta
+        setTenantName(null);
+        setCampaignName(null);
+        setLogoUrl(null);
+        setPrimaryHex(null);
+
+        // 1) Try Edge Function first (supports signed URLs for private photos + logo)
         const url = new URL(RANKING_URL);
         url.searchParams.set("tenant_slug", tenant);
         url.searchParams.set("campaign_id", campaign);
@@ -117,6 +191,10 @@ export default function PublicCampaignRanking() {
           if (cancelled) return;
           setItems((json.items ?? []) as Row[]);
           setUpdatedAt(String(json.updated_at ?? new Date().toISOString()));
+          setTenantName((json.tenant_name as string | null | undefined) ?? null);
+          setCampaignName((json.campaign_name as string | null | undefined) ?? null);
+          setPrimaryHex((json.palette_primary_hex as string | null | undefined) ?? null);
+          setLogoUrl((json.logo_url as string | null | undefined) ?? null);
           return;
         }
 
@@ -137,6 +215,21 @@ export default function PublicCampaignRanking() {
         if (cancelled) return;
         setItems((data.items ?? []) as Row[]);
         setUpdatedAt(String(data.updated_at ?? new Date().toISOString()));
+        setTenantName((data.tenant_name as string | null | undefined) ?? null);
+        setCampaignName((data.campaign_name as string | null | undefined) ?? null);
+        setPrimaryHex((data.palette_primary_hex as string | null | undefined) ?? null);
+
+        // logo (best effort): works only if bucket is public
+        const bucket = (data.logo_bucket as string | null | undefined) ?? null;
+        const path = (data.logo_path as string | null | undefined) ?? null;
+        if (bucket && path) {
+          try {
+            const publicUrl = supabase.storage.from(bucket).getPublicUrl(path).data.publicUrl;
+            setLogoUrl(publicUrl);
+          } catch {
+            // ignore
+          }
+        }
       } catch (e: any) {
         if (cancelled) return;
         setError(String(e?.message ?? "Erro"));
@@ -145,10 +238,8 @@ export default function PublicCampaignRanking() {
       }
     }
 
-    // initial
     load();
 
-    // pseudo-realtime: refresh every 10s
     const id = setInterval(load, 10_000);
 
     return () => {
@@ -194,18 +285,33 @@ export default function PublicCampaignRanking() {
   }, [updatedAt]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white">
+    <div className="min-h-screen bg-gradient-to-b from-[hsl(var(--tenant-bg)/1)] to-white">
       <div className="mx-auto max-w-3xl px-4 py-10">
-        <div className="flex flex-col gap-2">
-          <div className="text-sm font-medium text-slate-600">Ranking</div>
-          <div className="text-2xl font-semibold tracking-tight text-slate-900">
-            Incentives • {tenant}
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-2xl border border-slate-200 bg-white">
+              {logoUrl ? (
+                <img src={logoUrl} alt="Logo do tenant" className="h-full w-full object-contain" />
+              ) : (
+                <div className="text-lg font-semibold text-slate-700">
+                  {(tenantName ?? tenant ?? "T").slice(0, 1).toUpperCase()}
+                </div>
+              )}
+            </div>
+            <div className="min-w-0">
+              <div className="text-sm font-medium text-slate-600">Ranking</div>
+              <div className="truncate text-2xl font-semibold tracking-tight text-slate-900">
+                {tenantName ?? tenant}
+              </div>
+              <div className="mt-1 text-xs text-slate-500">
+                {campaignName ?? campaign}
+                {updatedAtFmt ? ` • atualizado ${updatedAtFmt}` : ""}
+              </div>
+            </div>
           </div>
-          <div className="text-xs text-slate-500">
-            Atualizado em tempo real{updatedAtFmt ? ` • ${updatedAtFmt}` : ""}
-          </div>
-          <div className="text-[11px] text-slate-400">
-            URL esperada: <span className="font-mono">/incentives/{tenant ?? "<tenant_slug>"}/{campaign ?? "<campaign_id>"}</span>
+
+          <div className="hidden sm:block rounded-2xl border border-[hsl(var(--tenant-accent)/0.25)] bg-[hsl(var(--tenant-accent)/0.08)] px-3 py-2 text-xs font-semibold text-[hsl(var(--tenant-accent))]">
+            público
           </div>
         </div>
 

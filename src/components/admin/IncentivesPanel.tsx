@@ -190,6 +190,7 @@ export function IncentivesPanel() {
   const [manageCampaignId, setManageCampaignId] = useState<string | null>(null);
   const [addingParticipantId, setAddingParticipantId] = useState<string | null>(null);
   const [addingParticipant, setAddingParticipant] = useState(false);
+  const [editingCampaignName, setEditingCampaignName] = useState<string>("");
 
   // ---- Events ----
   const [eCampaignId, setECampaignId] = useState<string | null>(null);
@@ -287,6 +288,10 @@ export function IncentivesPanel() {
     if (!manageCampaignId) return null;
     return (campaignsQ.data ?? []).find((c) => c.id === manageCampaignId) ?? null;
   }, [campaignsQ.data, manageCampaignId]);
+
+  useEffect(() => {
+    if (manageCampaign?.name) setEditingCampaignName(manageCampaign.name);
+  }, [manageCampaignId, manageCampaign?.name]);
 
   const participantIdsInCampaign = useMemo(() => {
     const set = new Set<string>();
@@ -935,7 +940,7 @@ export function IncentivesPanel() {
                 <div className="grid gap-4">
                   <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
                     <div className="flex items-start justify-between gap-3">
-                      <div>
+                      <div className="min-w-0">
                         <div className="text-sm font-semibold text-slate-900">{manageCampaign.name}</div>
                         <div className="mt-1 text-xs text-slate-600">
                           {manageCampaign.visibility} • {manageCampaign.ranking_type} • status {manageCampaign.status}
@@ -950,6 +955,30 @@ export function IncentivesPanel() {
                       {manageCampaign.visibility === "public" && (
                         <Badge className="rounded-full border-0 bg-emerald-100 text-emerald-900">pública</Badge>
                       )}
+                    </div>
+
+                    <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_auto]">
+                      <div>
+                        <Label className="text-xs">Título da campanha (label)</Label>
+                        <Input
+                          value={editingCampaignName}
+                          onChange={(e) => setEditingCampaignName(e.target.value)}
+                          className="mt-1 h-11 rounded-2xl"
+                          placeholder="Ex: Campanha Março/2026"
+                        />
+                      </div>
+                      <div className="flex items-end">
+                        <Button
+                          className="h-11 rounded-2xl"
+                          disabled={!editingCampaignName.trim() || editingCampaignName.trim() === manageCampaign.name}
+                          onClick={async () => {
+                            await updateCampaign(manageCampaign.id, { name: editingCampaignName.trim() });
+                            showSuccess("Título da campanha atualizado.");
+                          }}
+                        >
+                          Salvar título
+                        </Button>
+                      </div>
                     </div>
                   </div>
 

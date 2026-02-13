@@ -42,7 +42,7 @@ serve(async (req) => {
 
     const { data: tenant, error: tErr } = await supabase
       .from("tenants")
-      .select("id, slug")
+      .select("id, slug, name, branding_json")
       .eq("slug", tenantSlug)
       .maybeSingle();
 
@@ -52,13 +52,27 @@ serve(async (req) => {
 
     const { data: campaign, error: cErr } = await supabase
       .from("campaigns")
-      .select("id, tenant_id, visibility")
+      .select("id, tenant_id, visibility, name")
       .eq("id", campaignId)
       .eq("tenant_id", tenant.id)
       .maybeSingle();
 
     if (cErr || !campaign) return err("campaign_not_found", 404);
     if (campaign.visibility !== "public") return err("forbidden", 403);
+
+    const palettePrimaryHex =
+      (tenant as any)?.branding_json?.palette?.primary?.hex ?? null;
+
+    const logoBucket = (tenant as any)?.branding_json?.logo?.bucket ?? null;
+    const logoPath = (tenant as any)?.branding_json?.logo?.path ?? null;
+    let logoUrl: string | null = null;
+
+    if (logoBucket && logoPath) {
+      const { data, error } = await supabase.storage
+        .from(String(logoBucket))
+        .createSignedUrl(String(logoPath), 60 * 60);
+      if (!error && data?.signedUrl) logoUrl = data.signedUrl;
+    }
 
     const { data: rankingRows, error: rErr } = await supabase
       .from("campaign_ranking")
@@ -129,7 +143,17 @@ serve(async (req) => {
       };
     });
 
-    return json({ ok: true, items, updated_at: new Date().toISOString() });
+    return json({
+      ok: true,
+      tenant_name: String((tenant as any)?.name ?? tenantSlug),
+      tenant_slug: tenantSlug,
+      campaign_name: String((campaign as any)?.name ?? campaignId),
+      campaign_id: campaignId,
+      palette_primary_hex: palettePrimaryHex,
+      logo_url: logoUrl,
+      items,
+      updated_at: new Date().toISOString(),
+    });
   } catch (e: any) {
     console.error(`[${fn}] unhandled`, { error: e });
     return err("internal_error", 500, { message: e?.message ?? String(e) });

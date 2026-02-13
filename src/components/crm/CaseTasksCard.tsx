@@ -21,6 +21,8 @@ type TaskRow = {
   deleted_at: string | null;
 };
 
+const MAX_TASK_TITLE = 160;
+
 function isDone(status: string) {
   const s = String(status ?? "").toLowerCase();
   return s === "done" || s === "completed" || s === "closed";
@@ -81,6 +83,11 @@ export function CaseTasksCard(props: { tenantId: string; caseId: string }) {
   const add = async () => {
     const t = title.trim();
     if (!t) return;
+    if (t.length > MAX_TASK_TITLE) {
+      showError(`A tarefa pode ter no máximo ${MAX_TASK_TITLE} caracteres.`);
+      return;
+    }
+
     setAdding(true);
     try {
       const { error } = await supabase.from("tasks").insert({
@@ -163,6 +170,8 @@ export function CaseTasksCard(props: { tenantId: string; caseId: string }) {
     }
   };
 
+  const remaining = MAX_TASK_TITLE - title.trim().length;
+
   return (
     <Card className="rounded-[22px] border-slate-200 bg-white p-4">
       <div className="flex items-start justify-between gap-3">
@@ -186,18 +195,24 @@ export function CaseTasksCard(props: { tenantId: string; caseId: string }) {
       )}
 
       <div className="mt-4 flex gap-2">
-        <Input
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              add();
-            }
-          }}
-          className="h-11 rounded-2xl"
-          placeholder="Nova tarefa (ex: confirmar endereço)"
-        />
+        <div className="min-w-0 flex-1">
+          <Input
+            value={title}
+            maxLength={MAX_TASK_TITLE}
+            onChange={(e) => setTitle(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                add();
+              }
+            }}
+            className="h-11 rounded-2xl"
+            placeholder="Nova tarefa (ex: confirmar endereço)"
+          />
+          <div className={cn("mt-1 text-[11px]", remaining < 0 ? "text-rose-600" : "text-slate-500")}>
+            {Math.max(0, remaining)} caracteres restantes
+          </div>
+        </div>
         <Button
           onClick={add}
           disabled={adding || !title.trim()}
@@ -226,14 +241,14 @@ export function CaseTasksCard(props: { tenantId: string; caseId: string }) {
                 <button
                   type="button"
                   onClick={() => toggle(t)}
-                  className="flex min-w-0 flex-1 items-center gap-3 text-left"
-                  title="Marcar como feito"
+                  className="flex min-w-0 flex-1 items-start gap-3 overflow-hidden text-left"
+                  title={t.title}
                 >
-                  <Checkbox checked={done} />
+                  <Checkbox checked={done} className="mt-0.5" />
                   <div className="min-w-0">
                     <div
                       className={cn(
-                        "truncate text-sm font-medium",
+                        "text-sm font-medium leading-snug break-words whitespace-normal line-clamp-2",
                         done ? "text-emerald-900 line-through" : "text-slate-900"
                       )}
                     >
@@ -258,12 +273,6 @@ export function CaseTasksCard(props: { tenantId: string; caseId: string }) {
             </div>
           );
         })}
-
-        {(tasksQ.data ?? []).length === 0 && !tasksQ.isError && (
-          <div className="rounded-2xl border border-dashed border-slate-200 bg-white/60 p-4 text-xs text-slate-500">
-            Sem tarefas ainda.
-          </div>
-        )}
       </div>
     </Card>
   );

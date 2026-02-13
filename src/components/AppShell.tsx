@@ -391,9 +391,25 @@ export function AppShell({
     },
   });
 
+  const incentivesHasCampaignsQ = useQuery({
+    queryKey: ["nav_incentives_has_campaigns", activeTenantId],
+    enabled: Boolean(activeTenantId),
+    staleTime: 30_000,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("campaigns")
+        .select("id")
+        .eq("tenant_id", activeTenantId!)
+        .limit(1);
+      if (error) throw error;
+      return Boolean((data ?? []).length > 0);
+    },
+  });
+
   const hasCrm = Boolean(crmEnabledQ.data);
   const hasPresence = Boolean(presenceEnabledQ.data);
   const hasMetaContent = Boolean(metaContentEnabledQ.data);
+  const hasIncentivesCampaigns = Boolean(incentivesHasCampaignsQ.data);
   const isPresenceManager = isSuperAdmin || isPresenceManagerRole(activeTenant?.role);
 
   const palettePrimaryHex = (activeTenant?.branding_json?.palette?.primary?.hex as string | undefined) ?? null;
@@ -505,12 +521,14 @@ export function AppShell({
                     disabled={!can("app.presence_manage")}
                   />
                 )}
-                <NavTile
-                  to="/app/incentives/events"
-                  icon={CalendarClock}
-                  label="Eventos"
-                  disabled={!can("app.incentives_events_manage")}
-                />
+                {hasIncentivesCampaigns && (
+                  <NavTile
+                    to="/app/incentives/events"
+                    icon={CalendarClock}
+                    label="Eventos"
+                    disabled={!can("app.incentives_events_manage")}
+                  />
+                )}
                 <NavTile to="/app/simulator" icon={FlaskConical} label="Simulador" disabled={!can("app.simulator")} />
                 {isSuperAdmin && <NavTile to="/app/admin" icon={Crown} label="Admin" disabled={!can("app.admin")} />}
                 <NavTile to="/app/settings" icon={Settings} label="Config" disabled={!can("app.settings")} />
@@ -634,13 +652,15 @@ export function AppShell({
                                 onNavigate={() => setMobileNavOpen(false)}
                               />
                             )}
-                            <MobileNavItem
-                              to="/app/incentives/events"
-                              icon={CalendarClock}
-                              label="Eventos"
-                              disabled={!can("app.incentives_events_manage")}
-                              onNavigate={() => setMobileNavOpen(false)}
-                            />
+                            {hasIncentivesCampaigns && (
+                              <MobileNavItem
+                                to="/app/incentives/events"
+                                icon={CalendarClock}
+                                label="Eventos"
+                                disabled={!can("app.incentives_events_manage")}
+                                onNavigate={() => setMobileNavOpen(false)}
+                              />
+                            )}
                             <MobileNavItem
                               to="/app/simulator"
                               icon={FlaskConical}

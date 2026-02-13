@@ -4,6 +4,8 @@ import { Card } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
 import { supabase } from "@/lib/supabase";
+import { Button } from "@/components/ui/button";
+import { RefreshCw } from "lucide-react";
 
 const RANKING_URL =
   "https://pryoirzeghatrgecwrci.supabase.co/functions/v1/public-campaign-ranking";
@@ -82,9 +84,96 @@ export default function PublicCampaignRanking() {
   const [campaignName, setCampaignName] = useState<string | null>(null);
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [primaryHex, setPrimaryHex] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
   const top3 = items.slice(0, 3);
   const top10 = items.slice(0, 10);
+
+  const loadRanking = async () => {
+    if (!tenant || !campaign) return;
+
+    setLoading(true);
+    try {
+      setError(null);
+      setErrorDetail(null);
+
+      // reset meta
+      setTenantName(null);
+      setCampaignName(null);
+      setLogoUrl(null);
+      setPrimaryHex(null);
+
+      // 1) Try Edge Function first (supports signed URLs for private photos + logo)
+      const url = new URL(RANKING_URL);
+      url.searchParams.set("tenant_slug", tenant);
+      url.searchParams.set("campaign_id", campaign);
+
+      const res = await fetch(url.toString(), { method: "GET" });
+      const json = await res.json().catch(() => null);
+
+      // If the function is not deployed in this Supabase project, Supabase often returns 404
+      // with a body that is either non-JSON or JSON that does NOT match our { ok, error } shape.
+      const looksLikeOurResponse =
+        Boolean(json) && typeof (json as any).ok === "boolean" && typeof (json as any).error === "string";
+      const shouldFallbackToRpc = res.status === 404 && !looksLikeOurResponse;
+
+      if (!shouldFallbackToRpc) {
+        if (!res.ok || !json?.ok) {
+          const msg = String(json?.error ?? `HTTP ${res.status}`);
+          const detail = json?.detail ?? null;
+          // eslint-disable-next-line no-console
+          console.error("public ranking failed", { status: res.status, msg, detail, url: url.toString() });
+          throw Object.assign(new Error(msg), { detail });
+        }
+
+        setItems((json.items ?? []) as Row[]);
+        setUpdatedAt(String(json.updated_at ?? new Date().toISOString()));
+        setTenantName((json.tenant_name as string | null | undefined) ?? null);
+        setCampaignName((json.campaign_name as string | null | undefined) ?? null);
+        setPrimaryHex((json.palette_primary_hex as string | null | undefined) ?? null);
+        setLogoUrl((json.logo_url as string | null | undefined) ?? null);
+        return;
+      }
+
+      // 2) Fallback: SQL RPC (does not require Edge Function deployment)
+      const { data, error: rpcErr } = await supabase.rpc("public_campaign_ranking", {
+        p_tenant_slug: tenant,
+        p_campaign_id: campaign,
+        p_limit: 10,
+      });
+
+      if (rpcErr) throw rpcErr;
+
+      if (!data?.ok) {
+        const msg = String(data?.error ?? "Erro");
+        throw Object.assign(new Error(msg), { detail: null });
+      }
+
+      setItems((data.items ?? []) as Row[]);
+      setUpdatedAt(String(data.updated_at ?? new Date().toISOString()));
+      setTenantName((data.tenant_name as string | null | undefined) ?? null);
+      setCampaignName((data.campaign_name as string | null | undefined) ?? null);
+      setPrimaryHex((data.palette_primary_hex as string | null | undefined) ?? null);
+
+      // logo (best effort): works only if bucket is public
+      const bucket = (data.logo_bucket as string | null | undefined) ?? null;
+      const path = (data.logo_path as string | null | undefined) ?? null;
+      if (bucket && path) {
+        try {
+          const publicUrl = supabase.storage.from(bucket).getPublicUrl(path).data.publicUrl;
+          setLogoUrl(publicUrl);
+        } catch {
+          // ignore
+        }
+      }
+    } catch (e: any) {
+      setError(String(e?.message ?? "Erro"));
+      setErrorDetail(e?.detail ?? null);
+      setItems([]);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
     const title = ["Ranking", tenantName ?? tenant, campaignName ?? campaign].filter(Boolean).join(" • ");
@@ -150,102 +239,14 @@ export default function PublicCampaignRanking() {
   }, [primaryHex]);
 
   useEffect(() => {
-    let cancelled = false;
+    // initial
+    loadRanking();
 
-    async function load() {
-      if (!tenant || !campaign) return;
+    // refresh every 30 minutes
+    const id = setInterval(loadRanking, 30 * 60 * 1000);
 
-      try {
-        setError(null);
-        setErrorDetail(null);
-
-        // reset meta
-        setTenantName(null);
-        setCampaignName(null);
-        setLogoUrl(null);
-        setPrimaryHex(null);
-
-        // 1) Try Edge Function first (supports signed URLs for private photos + logo)
-        const url = new URL(RANKING_URL);
-        url.searchParams.set("tenant_slug", tenant);
-        url.searchParams.set("campaign_id", campaign);
-
-        const res = await fetch(url.toString(), { method: "GET" });
-        const json = await res.json().catch(() => null);
-
-        // If the function is not deployed in this Supabase project, Supabase often returns 404
-        // with a body that is either non-JSON or JSON that does NOT match our { ok, error } shape.
-        const looksLikeOurResponse =
-          Boolean(json) && typeof (json as any).ok === "boolean" && typeof (json as any).error === "string";
-        const shouldFallbackToRpc = res.status === 404 && !looksLikeOurResponse;
-
-        if (!shouldFallbackToRpc) {
-          if (!res.ok || !json?.ok) {
-            const msg = String(json?.error ?? `HTTP ${res.status}`);
-            const detail = json?.detail ?? null;
-            // eslint-disable-next-line no-console
-            console.error("public ranking failed", { status: res.status, msg, detail, url: url.toString() });
-            throw Object.assign(new Error(msg), { detail });
-          }
-
-          if (cancelled) return;
-          setItems((json.items ?? []) as Row[]);
-          setUpdatedAt(String(json.updated_at ?? new Date().toISOString()));
-          setTenantName((json.tenant_name as string | null | undefined) ?? null);
-          setCampaignName((json.campaign_name as string | null | undefined) ?? null);
-          setPrimaryHex((json.palette_primary_hex as string | null | undefined) ?? null);
-          setLogoUrl((json.logo_url as string | null | undefined) ?? null);
-          return;
-        }
-
-        // 2) Fallback: SQL RPC (does not require Edge Function deployment)
-        const { data, error: rpcErr } = await supabase.rpc("public_campaign_ranking", {
-          p_tenant_slug: tenant,
-          p_campaign_id: campaign,
-          p_limit: 10,
-        });
-
-        if (rpcErr) throw rpcErr;
-
-        if (!data?.ok) {
-          const msg = String(data?.error ?? "Erro");
-          throw Object.assign(new Error(msg), { detail: null });
-        }
-
-        if (cancelled) return;
-        setItems((data.items ?? []) as Row[]);
-        setUpdatedAt(String(data.updated_at ?? new Date().toISOString()));
-        setTenantName((data.tenant_name as string | null | undefined) ?? null);
-        setCampaignName((data.campaign_name as string | null | undefined) ?? null);
-        setPrimaryHex((data.palette_primary_hex as string | null | undefined) ?? null);
-
-        // logo (best effort): works only if bucket is public
-        const bucket = (data.logo_bucket as string | null | undefined) ?? null;
-        const path = (data.logo_path as string | null | undefined) ?? null;
-        if (bucket && path) {
-          try {
-            const publicUrl = supabase.storage.from(bucket).getPublicUrl(path).data.publicUrl;
-            setLogoUrl(publicUrl);
-          } catch {
-            // ignore
-          }
-        }
-      } catch (e: any) {
-        if (cancelled) return;
-        setError(String(e?.message ?? "Erro"));
-        setErrorDetail(e?.detail ?? null);
-        setItems([]);
-      }
-    }
-
-    load();
-
-    const id = setInterval(load, 10_000);
-
-    return () => {
-      cancelled = true;
-      clearInterval(id);
-    };
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tenant, campaign]);
 
   const helpText = useMemo(() => {
@@ -306,12 +307,25 @@ export default function PublicCampaignRanking() {
               <div className="mt-1 text-xs text-slate-500">
                 {campaignName ?? campaign}
                 {updatedAtFmt ? ` • atualizado ${updatedAtFmt}` : ""}
+                <span className="text-slate-400"> • atualização automática a cada 30 min</span>
               </div>
             </div>
           </div>
 
-          <div className="hidden sm:block rounded-2xl border border-[hsl(var(--tenant-accent)/0.25)] bg-[hsl(var(--tenant-accent)/0.08)] px-3 py-2 text-xs font-semibold text-[hsl(var(--tenant-accent))]">
-            público
+          <div className="flex items-center gap-2">
+            <Button
+              variant="secondary"
+              className="h-9 rounded-2xl"
+              onClick={loadRanking}
+              disabled={loading}
+              title="Atualizar ranking"
+            >
+              <RefreshCw className={"mr-2 h-4 w-4" + (loading ? " animate-spin" : "")} />
+              {loading ? "Atualizando…" : "Atualizar"}
+            </Button>
+            <div className="hidden sm:block rounded-2xl border border-[hsl(var(--tenant-accent)/0.25)] bg-[hsl(var(--tenant-accent)/0.08)] px-3 py-2 text-xs font-semibold text-[hsl(var(--tenant-accent))]">
+              público
+            </div>
           </div>
         </div>
 

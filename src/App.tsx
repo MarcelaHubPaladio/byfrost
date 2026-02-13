@@ -35,6 +35,7 @@ import Screen from "@/pages/Screen";
 import PublicCampaignRanking from "@/pages/PublicCampaignRanking";
 import IncentivesEventsManage from "@/pages/IncentivesEventsManage";
 import FinanceIngestion from "@/pages/FinanceIngestion";
+import FinancePlanning from "@/pages/FinancePlanning";
 
 const queryClient = new QueryClient();
 
@@ -76,6 +77,14 @@ const App = () => (
                   element={
                     <RequireRouteAccess routeKey="app.settings">
                       <FinanceIngestion />
+                    </RequireRouteAccess>
+                  }
+                />
+                <Route
+                  path="/app/finance/planning"
+                  element={
+                    <RequireRouteAccess routeKey="app.settings">
+                      <FinancePlanning />
                     </RequireRouteAccess>
                   }
                 />

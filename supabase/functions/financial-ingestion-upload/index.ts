@@ -116,8 +116,10 @@ function parseCsvWithPreamble(text: string) {
   if (lines.length < 2) return { headers: [] as string[], rows: [] as Record<string, string>[] };
 
   const splitLine = (line: string) => {
-    // supports commas/semicolons, minimal quote support
-    const sep = line.includes(";") && !line.includes(",") ? ";" : ",";
+    // Supports commas/semicolons, minimal quote support.
+    // IMPORTANT: Brazilian bank exports commonly use ';' as delimiter and ',' as decimal separator.
+    // So if ';' is present, prefer it even if the line also contains ','.
+    const sep = line.includes(";") ? ";" : ",";
     const out: string[] = [];
     let cur = "";
     let inQ = false;

@@ -17,11 +17,29 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { showError, showSuccess } from "@/utils/toast";
-import { Download, Pencil, Upload } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { showError, showSuccess } from "@/utils/toast";
+import { Download, Landmark, Pencil, Plus, Upload } from "lucide-react";
 
-type BankAccountRow = { id: string; bank_name: string; account_name: string; currency: string };
+type BankAccountRow = {
+  id: string;
+  bank_name: string;
+  account_name: string;
+  account_type: string;
+  currency: string;
+};
 
 type CategoryType = "revenue" | "cost" | "fixed" | "variable" | "other";
 
@@ -103,7 +121,7 @@ function parseCategoryType(s: string | undefined | null): CategoryType | null {
   if (["revenue", "receita", "receitas"].includes(t)) return "revenue";
   if (["cost", "custo", "custos"].includes(t)) return "cost";
   if (["fixed", "fixo", "fixos"].includes(t)) return "fixed";
-  if (["variable", "variavel", "variavel", "variaveis", "variaveis"].includes(t)) return "variable";
+  if (["variable", "variavel", "variaveis"].includes(t)) return "variable";
   if (["other", "outro", "outros"].includes(t)) return "other";
 
   return null;
@@ -209,6 +227,15 @@ function parseMoneyInput(v: string) {
   return Number.isFinite(n) ? n : NaN;
 }
 
+function prettyAccountType(s: string) {
+  const t = String(s ?? "").trim().toLowerCase();
+  if (t === "checking") return "Conta corrente";
+  if (t === "savings") return "Poupança";
+  if (t === "credit") return "Cartão";
+  if (t === "cash") return "Caixa";
+  return s;
+}
+
 export function FinancialLedgerPanel() {
   const { activeTenantId } = useTenant();
   const qc = useQueryClient();
@@ -219,7 +246,7 @@ export function FinancialLedgerPanel() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("bank_accounts")
-        .select("id,bank_name,account_name,currency")
+        .select("id,bank_name,account_name,account_type,currency")
         .eq("tenant_id", activeTenantId!)
         .order("created_at", { ascending: true });
       if (error) throw error;
@@ -270,6 +297,85 @@ export function FinancialLedgerPanel() {
     for (const a of accountsQ.data ?? []) m.set(a.id, a);
     return m;
   }, [accountsQ.data]);
+
+  // --------------------------
+  // Banks CRUD
+  // --------------------------
+  const [bankDialogOpen, setBankDialogOpen] = useState(false);
+  const [editingBank, setEditingBank] = useState<BankAccountRow | null>(null);
+  const [bankName, setBankName] = useState("");
+  const [bankAccountName, setBankAccountName] = useState("");
+  const [bankAccountType, setBankAccountType] = useState("checking");
+  const [bankCurrency, setBankCurrency] = useState("BRL");
+
+  useEffect(() => {
+    if (!bankDialogOpen) {
+      setEditingBank(null);
+      setBankName("");
+      setBankAccountName("");
+      setBankAccountType("checking");
+      setBankCurrency("BRL");
+    }
+  }, [bankDialogOpen]);
+
+  const saveBankM = useMutation({
+    mutationFn: async () => {
+      if (!activeTenantId) throw new Error("Tenant inválido");
+      const bn = bankName.trim();
+      const an = bankAccountName.trim();
+      const at = bankAccountType.trim();
+      const cur = bankCurrency.trim().toUpperCase();
+      if (!bn) throw new Error("Informe o banco");
+      if (!an) throw new Error("Informe o nome da conta");
+      if (!at) throw new Error("Informe o tipo");
+      if (!cur) throw new Error("Informe a moeda");
+
+      if (editingBank) {
+        const { error } = await supabase
+          .from("bank_accounts")
+          .update({ bank_name: bn, account_name: an, account_type: at, currency: cur })
+          .eq("tenant_id", activeTenantId)
+          .eq("id", editingBank.id);
+        if (error) throw error;
+        return;
+      }
+
+      const { error } = await supabase.from("bank_accounts").insert({
+        tenant_id: activeTenantId,
+        bank_name: bn,
+        account_name: an,
+        account_type: at,
+        currency: cur,
+      });
+      if (error) throw error;
+    },
+    onSuccess: async () => {
+      showSuccess(editingBank ? "Conta atualizada." : "Conta criada.");
+      setBankDialogOpen(false);
+      await qc.invalidateQueries({ queryKey: ["bank_accounts", activeTenantId] });
+    },
+    onError: (e: any) => showError(e?.message ?? "Falha ao salvar conta"),
+  });
+
+  const deleteBankM = useMutation({
+    mutationFn: async (id: string) => {
+      if (!activeTenantId) throw new Error("Tenant inválido");
+      const { error } = await supabase.from("bank_accounts").delete().eq("tenant_id", activeTenantId).eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: async () => {
+      showSuccess("Conta removida.");
+      await qc.invalidateQueries({ queryKey: ["bank_accounts", activeTenantId] });
+    },
+    onError: (e: any) => {
+      const msg = String(e?.message ?? "Falha ao remover conta");
+      if (msg.toLowerCase().includes("restrict") || msg.toLowerCase().includes("foreign key")) {
+        showError("Não foi possível remover: existem transações vinculadas a essa conta.");
+      } else {
+        showError(msg);
+      }
+    },
+  });
 
   // --------------------------
   // Category creation
@@ -386,8 +492,9 @@ export function FinancialLedgerPanel() {
   });
 
   // --------------------------
-  // Manual transaction form
+  // Manual transaction (modal)
   // --------------------------
+  const [txDialogOpen, setTxDialogOpen] = useState(false);
   const [accountId, setAccountId] = useState<string>("");
   const [txDate, setTxDate] = useState<string>(() => new Date().toISOString().slice(0, 10));
   const [txType, setTxType] = useState<"credit" | "debit">("debit");
@@ -491,6 +598,7 @@ export function FinancialLedgerPanel() {
       setDescription("");
       setCategoryId("");
       setCategoryTouched(false);
+      setTxDialogOpen(false);
       await qc.invalidateQueries({ queryKey: ["financial_transactions", activeTenantId] });
     },
     onError: (e: any) => showError(e?.message ?? "Falha ao lançar transação"),
@@ -525,425 +633,114 @@ export function FinancialLedgerPanel() {
   });
 
   return (
-    <div className="grid gap-4">
-      <Card className="rounded-[22px] border-slate-200 bg-white/70 p-4 shadow-sm backdrop-blur dark:border-slate-800 dark:bg-slate-950/40">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">Categorias</div>
-            <div className="mt-1 text-xs text-slate-600 dark:text-slate-400">
-              Crie categorias para classificar lançamentos e treinar regras automáticas.
+    <Tabs defaultValue="transactions" className="grid gap-4">
+      <TabsList className="w-fit rounded-2xl">
+        <TabsTrigger value="transactions" className="rounded-2xl">
+          Lançamentos
+        </TabsTrigger>
+        <TabsTrigger value="categories" className="rounded-2xl">
+          Categorias
+        </TabsTrigger>
+        <TabsTrigger value="banks" className="rounded-2xl">
+          Bancos
+        </TabsTrigger>
+      </TabsList>
+
+      <TabsContent value="transactions" className="grid gap-4">
+        <Card className="rounded-[22px] border-slate-200 bg-white/70 p-4 shadow-sm backdrop-blur dark:border-slate-800 dark:bg-slate-950/40">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">Lançamentos</div>
+              <div className="mt-1 text-xs text-slate-600 dark:text-slate-400">
+                Lançamentos manuais com sugestão automática de categoria e aprendizado por correções.
+              </div>
             </div>
-          </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            <Button asChild variant="secondary" className="h-9 rounded-2xl">
-              <a href="/templates/categorias_com_tipo.csv" download>
-                <Download className="mr-2 h-4 w-4" />
-                Modelo CSV
-              </a>
-            </Button>
-
-            <Dialog open={editTypesOpen} onOpenChange={setEditTypesOpen}>
-              <DialogTrigger asChild>
-                <Button variant="secondary" className="h-9 rounded-2xl" disabled={!activeTenantId}>
-                  <Pencil className="mr-2 h-4 w-4" />
-                  Editar tipos
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="sm:max-w-[760px] max-h-[85vh] overflow-hidden">
-                <DialogHeader>
-                  <DialogTitle>Editar tipo das categorias</DialogTitle>
-                  <DialogDescription>
-                    Depois da importação, ajuste o tipo (revenue/cost/fixed/variable/other). As alterações são salvas na hora.
-                  </DialogDescription>
-                </DialogHeader>
-
-                <div className="grid gap-3">
-                  <div>
-                    <Label className="text-xs">Buscar</Label>
-                    <Input
-                      className="mt-1 rounded-2xl"
-                      value={editTypesFilter}
-                      onChange={(e) => setEditTypesFilter(e.target.value)}
-                      placeholder="Ex: impostos, marketing, salários…"
-                    />
-                  </div>
-
-                  <ScrollArea className="h-[55vh] rounded-2xl border border-slate-200 dark:border-slate-800">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Categoria</TableHead>
-                          <TableHead className="w-[220px]">Tipo</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {(filteredCategories ?? []).slice(0, 200).map((c) => (
-                          <TableRow key={c.id}>
-                            <TableCell className="font-medium text-slate-900 dark:text-slate-100">{c.name}</TableCell>
-                            <TableCell>
-                              <Select
-                                value={c.type}
-                                onValueChange={(v) =>
-                                  updateCategoryTypeM.mutate({ id: c.id, type: v as CategoryType })
-                                }
-                              >
-                                <SelectTrigger className="h-9 rounded-2xl">
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="revenue">revenue</SelectItem>
-                                  <SelectItem value="cost">cost</SelectItem>
-                                  <SelectItem value="fixed">fixed</SelectItem>
-                                  <SelectItem value="variable">variable</SelectItem>
-                                  <SelectItem value="other">other</SelectItem>
-                                </SelectContent>
-                              </Select>
-                            </TableCell>
-                          </TableRow>
-                        ))}
-
-                        {!categoriesQ.isLoading && !(categoriesQ.data ?? []).length ? (
-                          <TableRow>
-                            <TableCell colSpan={2} className="text-slate-600 dark:text-slate-400">
-                              Nenhuma categoria ainda.
-                            </TableCell>
-                          </TableRow>
-                        ) : null}
-                      </TableBody>
-                    </Table>
-                  </ScrollArea>
-
-                  {(filteredCategories ?? []).length > 200 ? (
-                    <div className="text-xs text-slate-500 dark:text-slate-400">
-                      Mostrando 200 de {(filteredCategories ?? []).length}. Use a busca para refinar.
-                    </div>
-                  ) : null}
-                </div>
-
-                <DialogFooter>
-                  <Button variant="secondary" className="h-10 rounded-2xl" onClick={() => setEditTypesOpen(false)}>
-                    Fechar
-                  </Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
-
-            <Dialog
-              open={importDialogOpen}
-              onOpenChange={(v) => {
-                setImportDialogOpen(v);
-                if (!v) {
-                  setImportFile(null);
-                  setImportPreview([]);
-                  setImportDefaultType("variable");
-                }
-              }}
-            >
-              <DialogTrigger asChild>
-                <Button variant="secondary" className="h-9 rounded-2xl" disabled={!activeTenantId}>
-                  <Upload className="mr-2 h-4 w-4" />
-                  Importar CSV
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="sm:max-w-[560px]">
-                <DialogHeader>
-                  <DialogTitle>Importar categorias (CSV)</DialogTitle>
-                  <DialogDescription>
-                    Você pode usar 1 coluna (Categoria) ou 2 colunas (Categoria;Tipo). Se o Tipo estiver vazio, usamos o tipo padrão.
-                  </DialogDescription>
-                </DialogHeader>
-
-                <div className="grid gap-3">
-                  <div>
-                    <Label className="text-xs">Tipo padrão (fallback)</Label>
-                    <Select value={importDefaultType} onValueChange={(v) => setImportDefaultType(v as CategoryType)}>
-                      <SelectTrigger className="mt-1 rounded-2xl">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="revenue">revenue (receita)</SelectItem>
-                        <SelectItem value="cost">cost (custo)</SelectItem>
-                        <SelectItem value="fixed">fixed (fixo)</SelectItem>
-                        <SelectItem value="variable">variable (variável)</SelectItem>
-                        <SelectItem value="other">other (outro)</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
-                      Valores aceitos em "Tipo": revenue/cost/fixed/variable/other (ou receita/custo/fixo/variável/outro).
-                    </div>
-                  </div>
-
-                  <div>
-                    <Label className="text-xs">Arquivo CSV</Label>
-                    <Input
-                      className="mt-1 rounded-2xl"
-                      type="file"
-                      accept=".csv,text/csv"
-                      onChange={async (e) => {
-                        const f = e.target.files?.[0] ?? null;
-                        setImportFile(f);
-                        if (!f) {
-                          setImportPreview([]);
-                          return;
-                        }
-                        try {
-                          const text = await f.text();
-                          const parsed = parseCategoryCsv(text);
-                          setImportPreview(parsed);
-                        } catch {
-                          setImportPreview([]);
-                        }
-                      }}
-                    />
-                    {importPreview.length ? (
-                      <div className="mt-2 text-xs text-slate-600 dark:text-slate-400">
-                        {importPreview.length} categorias detectadas. Ex.:{" "}
-                        {importPreview
-                          .slice(0, 3)
-                          .map((r) => `${r.name}${r.type ? ` (${r.type})` : ""}`)
-                          .join(", ")}
-                        {importPreview.length > 3 ? "…" : ""}
-                      </div>
-                    ) : null}
-                  </div>
-                </div>
-
-                <DialogFooter>
-                  <Button variant="secondary" className="h-10 rounded-2xl" onClick={() => setImportDialogOpen(false)}>
-                    Cancelar
-                  </Button>
-                  <Button
-                    className="h-10 rounded-2xl"
-                    disabled={!activeTenantId || importCategoriesM.isPending || !importFile}
-                    onClick={() => importCategoriesM.mutate()}
-                  >
-                    {importCategoriesM.isPending ? "Importando…" : "Importar"}
-                  </Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
-
-            <Dialog open={catDialogOpen} onOpenChange={setCatDialogOpen}>
+            <Dialog open={txDialogOpen} onOpenChange={setTxDialogOpen}>
               <DialogTrigger asChild>
                 <Button className="h-9 rounded-2xl" disabled={!activeTenantId}>
-                  Nova categoria
+                  <Plus className="mr-2 h-4 w-4" />
+                  Novo lançamento
                 </Button>
               </DialogTrigger>
-              <DialogContent className="sm:max-w-[520px]">
+              <DialogContent className="sm:max-w-[720px] max-h-[85vh] overflow-hidden">
                 <DialogHeader>
-                  <DialogTitle>Nova categoria</DialogTitle>
+                  <DialogTitle>Novo lançamento</DialogTitle>
                   <DialogDescription>
-                    Dica: use nomes curtos (ex.: "Marketing", "Combustível", "Recebíveis").
+                    Se uma regra bater com a descrição, sugerimos automaticamente uma categoria. Ao corrigir, o sistema aprende.
                   </DialogDescription>
                 </DialogHeader>
 
-                <div className="grid gap-3">
-                  <div>
-                    <Label className="text-xs">Nome</Label>
-                    <Input
-                      className="mt-1 rounded-2xl"
-                      value={newCatName}
-                      onChange={(e) => setNewCatName(e.target.value)}
-                      placeholder="Ex: Marketing"
-                    />
-                  </div>
+                <ScrollArea className="h-[65vh] pr-2">
+                  <div className="grid gap-3 md:grid-cols-6">
+                    <div className="md:col-span-2">
+                      <Label className="text-xs">Conta</Label>
+                      <Select value={accountId} onValueChange={setAccountId}>
+                        <SelectTrigger className="mt-1 rounded-2xl">
+                          <SelectValue
+                            placeholder={
+                              accountsQ.isLoading
+                                ? "Carregando…"
+                                : !(accountsQ.data ?? []).length
+                                  ? "Cadastre uma conta (aba Bancos)"
+                                  : "Selecione"
+                            }
+                          />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {(accountsQ.data ?? []).map((a) => (
+                            <SelectItem key={a.id} value={a.id}>
+                              {a.account_name} • {a.bank_name} ({a.currency})
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
 
-                  <div>
-                    <Label className="text-xs">Tipo</Label>
-                    <Select value={newCatType} onValueChange={(v) => setNewCatType(v as CategoryType)}>
-                      <SelectTrigger className="mt-1 rounded-2xl">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="revenue">revenue (receita)</SelectItem>
-                        <SelectItem value="cost">cost (custo)</SelectItem>
-                        <SelectItem value="fixed">fixed (fixo)</SelectItem>
-                        <SelectItem value="variable">variable (variável)</SelectItem>
-                        <SelectItem value="other">other (outro)</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
+                    <div>
+                      <Label className="text-xs">Data</Label>
+                      <Input
+                        className="mt-1 rounded-2xl"
+                        type="date"
+                        value={txDate}
+                        onChange={(e) => setTxDate(e.target.value)}
+                      />
+                    </div>
 
-                <DialogFooter>
-                  <Button variant="secondary" className="h-10 rounded-2xl" onClick={() => setCatDialogOpen(false)}>
-                    Cancelar
-                  </Button>
-                  <Button
-                    className="h-10 rounded-2xl"
-                    onClick={() => createCategoryM.mutate()}
-                    disabled={createCategoryM.isPending || !activeTenantId}
-                  >
-                    {createCategoryM.isPending ? "Salvando…" : "Criar"}
-                  </Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
-          </div>
-        </div>
+                    <div>
+                      <Label className="text-xs">Tipo</Label>
+                      <Select value={txType} onValueChange={(v) => setTxType(v as any)}>
+                        <SelectTrigger className="mt-1 rounded-2xl">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="debit">debit</SelectItem>
+                          <SelectItem value="credit">credit</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
 
-        <div className="mt-3 flex flex-wrap gap-2">
-          {(categoriesQ.data ?? []).slice(0, 24).map((c) => (
-            <div
-              key={c.id}
-              className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-700 dark:border-slate-800 dark:bg-slate-950/30 dark:text-slate-200"
-              title={c.id}
-            >
-              {c.name} <span className="text-slate-400">•</span> {c.type}
-            </div>
-          ))}
-          {!categoriesQ.isLoading && !(categoriesQ.data ?? []).length ? (
-            <div className="text-xs text-slate-500 dark:text-slate-400">Nenhuma categoria ainda.</div>
-          ) : null}
-        </div>
-      </Card>
+                    <div>
+                      <Label className="text-xs">Valor</Label>
+                      <Input
+                        className="mt-1 rounded-2xl"
+                        placeholder="Ex: 120,50"
+                        value={amount}
+                        onChange={(e) => setAmount(e.target.value)}
+                      />
+                    </div>
 
-      <Card className="rounded-[22px] border-slate-200 bg-white/70 p-4 shadow-sm backdrop-blur dark:border-slate-800 dark:bg-slate-950/40">
-        <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">Novo lançamento</div>
-        <div className="mt-1 text-xs text-slate-600 dark:text-slate-400">
-          Se uma regra bater com a descrição, sugerimos automaticamente uma categoria. Ao corrigir, o sistema aprende.
-        </div>
-
-        <div className="mt-4 grid gap-3 md:grid-cols-6">
-          <div className="md:col-span-2">
-            <Label className="text-xs">Conta</Label>
-            <Select value={accountId} onValueChange={setAccountId}>
-              <SelectTrigger className="mt-1 rounded-2xl">
-                <SelectValue placeholder={accountsQ.isLoading ? "Carregando…" : "Selecione"} />
-              </SelectTrigger>
-              <SelectContent>
-                {(accountsQ.data ?? []).map((a) => (
-                  <SelectItem key={a.id} value={a.id}>
-                    {a.account_name} • {a.bank_name} ({a.currency})
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div>
-            <Label className="text-xs">Data</Label>
-            <Input className="mt-1 rounded-2xl" type="date" value={txDate} onChange={(e) => setTxDate(e.target.value)} />
-          </div>
-
-          <div>
-            <Label className="text-xs">Tipo</Label>
-            <Select value={txType} onValueChange={(v) => setTxType(v as any)}>
-              <SelectTrigger className="mt-1 rounded-2xl">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="debit">debit</SelectItem>
-                <SelectItem value="credit">credit</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div>
-            <Label className="text-xs">Valor</Label>
-            <Input
-              className="mt-1 rounded-2xl"
-              placeholder="Ex: 120,50"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-            />
-          </div>
-
-          <div className="md:col-span-2">
-            <Label className="text-xs">Categoria {suggested?.category_id ? "(sugerida)" : ""}</Label>
-            <Select
-              value={categoryId}
-              onValueChange={(v) => {
-                setCategoryTouched(true);
-                setCategoryId(v);
-              }}
-            >
-              <SelectTrigger className="mt-1 rounded-2xl">
-                <SelectValue placeholder={categoriesQ.isLoading ? "Carregando…" : "(sem categoria)"} />
-              </SelectTrigger>
-              <SelectContent>
-                {(categoriesQ.data ?? []).map((c) => (
-                  <SelectItem key={c.id} value={c.id}>
-                    {c.name} ({c.type})
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {suggested?.pattern ? (
-              <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
-                Regra: "{suggested.pattern}" • conf: {Number(suggested.confidence ?? 0).toFixed(2)}
-              </div>
-            ) : null}
-          </div>
-
-          <div className="md:col-span-4">
-            <Label className="text-xs">Descrição</Label>
-            <Input className="mt-1 rounded-2xl" value={description} onChange={(e) => setDescription(e.target.value)} />
-          </div>
-
-          <div className="md:col-span-2 flex items-end">
-            <Button
-              className="h-10 w-full rounded-2xl"
-              onClick={() => createTxM.mutate()}
-              disabled={!activeTenantId || createTxM.isPending}
-            >
-              {createTxM.isPending ? "Salvando…" : "Lançar"}
-            </Button>
-          </div>
-        </div>
-      </Card>
-
-      <Card className="rounded-[22px] border-slate-200 bg-white/70 p-4 shadow-sm backdrop-blur dark:border-slate-800 dark:bg-slate-950/40">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">Transações recentes</div>
-            <div className="mt-1 text-xs text-slate-600 dark:text-slate-400">
-              Ajuste a categoria para ensinar a regra (pattern = descrição normalizada).
-            </div>
-          </div>
-          <Button variant="secondary" className="h-9 rounded-2xl" onClick={() => transactionsQ.refetch()}>
-            Atualizar
-          </Button>
-        </div>
-
-        <div className="mt-3 overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Data</TableHead>
-                <TableHead>Descrição</TableHead>
-                <TableHead>Conta</TableHead>
-                <TableHead>Tipo</TableHead>
-                <TableHead className="text-right">Valor</TableHead>
-                <TableHead>Categoria</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {(transactionsQ.data ?? []).map((t) => {
-                const acc = accountById.get(t.account_id);
-                const cat = t.category_id ? categoryById.get(t.category_id) : null;
-                return (
-                  <TableRow key={t.id}>
-                    <TableCell className="whitespace-nowrap">{t.transaction_date}</TableCell>
-                    <TableCell className="min-w-[260px]">
-                      <div className="font-medium text-slate-900 dark:text-slate-100">{t.description ?? "—"}</div>
-                      <div className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">
-                        {t.source} • {t.status}
-                      </div>
-                    </TableCell>
-                    <TableCell className="whitespace-nowrap">
-                      {acc ? `${acc.account_name}` : String(t.account_id).slice(0, 8)}
-                    </TableCell>
-                    <TableCell className="whitespace-nowrap">{t.type}</TableCell>
-                    <TableCell className="whitespace-nowrap text-right">{formatMoneyBRL(Number(t.amount ?? 0))}</TableCell>
-                    <TableCell className="min-w-[220px]">
+                    <div className="md:col-span-2">
+                      <Label className="text-xs">Categoria {suggested?.category_id ? "(sugerida)" : ""}</Label>
                       <Select
-                        value={t.category_id ?? ""}
-                        onValueChange={(v) => updateTxCategoryM.mutate({ id: t.id, description: t.description, categoryId: v })}
+                        value={categoryId}
+                        onValueChange={(v) => {
+                          setCategoryTouched(true);
+                          setCategoryId(v);
+                        }}
                       >
-                        <SelectTrigger className="h-9 rounded-2xl">
-                          <SelectValue placeholder="(sem categoria)" />
+                        <SelectTrigger className="mt-1 rounded-2xl">
+                          <SelectValue placeholder={categoriesQ.isLoading ? "Carregando…" : "(sem categoria)"} />
                         </SelectTrigger>
                         <SelectContent>
                           {(categoriesQ.data ?? []).map((c) => (
@@ -953,25 +750,572 @@ export function FinancialLedgerPanel() {
                           ))}
                         </SelectContent>
                       </Select>
-                      {cat ? (
-                        <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">{cat.type}</div>
+                      {suggested?.pattern ? (
+                        <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                          Regra: "{suggested.pattern}" • conf: {Number(suggested.confidence ?? 0).toFixed(2)}
+                        </div>
                       ) : null}
+                    </div>
+
+                    <div className="md:col-span-6">
+                      <Label className="text-xs">Descrição</Label>
+                      <Input className="mt-1 rounded-2xl" value={description} onChange={(e) => setDescription(e.target.value)} />
+                    </div>
+                  </div>
+                </ScrollArea>
+
+                <DialogFooter>
+                  <Button variant="secondary" className="h-10 rounded-2xl" onClick={() => setTxDialogOpen(false)}>
+                    Cancelar
+                  </Button>
+                  <Button
+                    className="h-10 rounded-2xl"
+                    onClick={() => createTxM.mutate()}
+                    disabled={!activeTenantId || createTxM.isPending || !accountId}
+                  >
+                    {createTxM.isPending ? "Salvando…" : "Lançar"}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          </div>
+
+          {!(accountsQ.data ?? []).length && !accountsQ.isLoading ? (
+            <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-800/40 dark:bg-amber-950/30 dark:text-amber-200">
+              Você ainda não tem contas bancárias cadastradas. Vá na aba <b>Bancos</b> para criar uma conta (isso é necessário
+              para importação de extratos e lançamentos manuais).
+            </div>
+          ) : null}
+        </Card>
+
+        <Card className="rounded-[22px] border-slate-200 bg-white/70 p-4 shadow-sm backdrop-blur dark:border-slate-800 dark:bg-slate-950/40">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">Transações recentes</div>
+              <div className="mt-1 text-xs text-slate-600 dark:text-slate-400">
+                Ajuste a categoria para ensinar a regra (pattern = descrição normalizada).
+              </div>
+            </div>
+            <Button variant="secondary" className="h-9 rounded-2xl" onClick={() => transactionsQ.refetch()}>
+              Atualizar
+            </Button>
+          </div>
+
+          <div className="mt-3 overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Data</TableHead>
+                  <TableHead>Descrição</TableHead>
+                  <TableHead>Conta</TableHead>
+                  <TableHead>Tipo</TableHead>
+                  <TableHead className="text-right">Valor</TableHead>
+                  <TableHead>Categoria</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {(transactionsQ.data ?? []).map((t) => {
+                  const acc = accountById.get(t.account_id);
+                  const cat = t.category_id ? categoryById.get(t.category_id) : null;
+                  return (
+                    <TableRow key={t.id}>
+                      <TableCell className="whitespace-nowrap">{t.transaction_date}</TableCell>
+                      <TableCell className="min-w-[260px]">
+                        <div className="font-medium text-slate-900 dark:text-slate-100">{t.description ?? "—"}</div>
+                        <div className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">
+                          {t.source} • {t.status}
+                        </div>
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap">
+                        {acc ? `${acc.account_name}` : String(t.account_id).slice(0, 8)}
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap">{t.type}</TableCell>
+                      <TableCell className="whitespace-nowrap text-right">{formatMoneyBRL(Number(t.amount ?? 0))}</TableCell>
+                      <TableCell className="min-w-[220px]">
+                        <Select
+                          value={t.category_id ?? ""}
+                          onValueChange={(v) =>
+                            updateTxCategoryM.mutate({ id: t.id, description: t.description, categoryId: v })
+                          }
+                        >
+                          <SelectTrigger className="h-9 rounded-2xl">
+                            <SelectValue placeholder="(sem categoria)" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {(categoriesQ.data ?? []).map((c) => (
+                              <SelectItem key={c.id} value={c.id}>
+                                {c.name} ({c.type})
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        {cat ? (
+                          <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">{cat.type}</div>
+                        ) : null}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+
+                {!transactionsQ.isLoading && !(transactionsQ.data ?? []).length ? (
+                  <TableRow>
+                    <TableCell colSpan={6} className="text-slate-600 dark:text-slate-400">
+                      Nenhuma transação ainda.
                     </TableCell>
                   </TableRow>
-                );
-              })}
+                ) : null}
+              </TableBody>
+            </Table>
+          </div>
+        </Card>
+      </TabsContent>
 
-              {!transactionsQ.isLoading && !(transactionsQ.data ?? []).length ? (
+      <TabsContent value="categories" className="grid gap-4">
+        <Card className="rounded-[22px] border-slate-200 bg-white/70 p-4 shadow-sm backdrop-blur dark:border-slate-800 dark:bg-slate-950/40">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">Categorias</div>
+              <div className="mt-1 text-xs text-slate-600 dark:text-slate-400">
+                Crie/importa categorias para classificar lançamentos e treinar regras automáticas.
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <Button asChild variant="secondary" className="h-9 rounded-2xl">
+                <a href="/templates/categorias_com_tipo.csv" download>
+                  <Download className="mr-2 h-4 w-4" />
+                  Modelo CSV
+                </a>
+              </Button>
+
+              <Dialog open={editTypesOpen} onOpenChange={setEditTypesOpen}>
+                <DialogTrigger asChild>
+                  <Button variant="secondary" className="h-9 rounded-2xl" disabled={!activeTenantId}>
+                    <Pencil className="mr-2 h-4 w-4" />
+                    Editar tipos
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="sm:max-w-[760px] max-h-[85vh] overflow-hidden">
+                  <DialogHeader>
+                    <DialogTitle>Editar tipo das categorias</DialogTitle>
+                    <DialogDescription>
+                      Depois da importação, ajuste o tipo (revenue/cost/fixed/variable/other). As alterações são salvas na
+                      hora.
+                    </DialogDescription>
+                  </DialogHeader>
+
+                  <div className="grid gap-3">
+                    <div>
+                      <Label className="text-xs">Buscar</Label>
+                      <Input
+                        className="mt-1 rounded-2xl"
+                        value={editTypesFilter}
+                        onChange={(e) => setEditTypesFilter(e.target.value)}
+                        placeholder="Ex: impostos, marketing, salários…"
+                      />
+                    </div>
+
+                    <ScrollArea className="h-[55vh] rounded-2xl border border-slate-200 dark:border-slate-800">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Categoria</TableHead>
+                            <TableHead className="w-[220px]">Tipo</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {(filteredCategories ?? []).slice(0, 200).map((c) => (
+                            <TableRow key={c.id}>
+                              <TableCell className="font-medium text-slate-900 dark:text-slate-100">{c.name}</TableCell>
+                              <TableCell>
+                                <Select
+                                  value={c.type}
+                                  onValueChange={(v) =>
+                                    updateCategoryTypeM.mutate({ id: c.id, type: v as CategoryType })
+                                  }
+                                >
+                                  <SelectTrigger className="h-9 rounded-2xl">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="revenue">revenue</SelectItem>
+                                    <SelectItem value="cost">cost</SelectItem>
+                                    <SelectItem value="fixed">fixed</SelectItem>
+                                    <SelectItem value="variable">variable</SelectItem>
+                                    <SelectItem value="other">other</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+
+                          {!categoriesQ.isLoading && !(categoriesQ.data ?? []).length ? (
+                            <TableRow>
+                              <TableCell colSpan={2} className="text-slate-600 dark:text-slate-400">
+                                Nenhuma categoria ainda.
+                              </TableCell>
+                            </TableRow>
+                          ) : null}
+                        </TableBody>
+                      </Table>
+                    </ScrollArea>
+
+                    {(filteredCategories ?? []).length > 200 ? (
+                      <div className="text-xs text-slate-500 dark:text-slate-400">
+                        Mostrando 200 de {(filteredCategories ?? []).length}. Use a busca para refinar.
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <DialogFooter>
+                    <Button variant="secondary" className="h-10 rounded-2xl" onClick={() => setEditTypesOpen(false)}>
+                      Fechar
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+
+              <Dialog
+                open={importDialogOpen}
+                onOpenChange={(v) => {
+                  setImportDialogOpen(v);
+                  if (!v) {
+                    setImportFile(null);
+                    setImportPreview([]);
+                    setImportDefaultType("variable");
+                  }
+                }}
+              >
+                <DialogTrigger asChild>
+                  <Button variant="secondary" className="h-9 rounded-2xl" disabled={!activeTenantId}>
+                    <Upload className="mr-2 h-4 w-4" />
+                    Importar CSV
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="sm:max-w-[560px]">
+                  <DialogHeader>
+                    <DialogTitle>Importar categorias (CSV)</DialogTitle>
+                    <DialogDescription>
+                      Você pode usar 1 coluna (Categoria) ou 2 colunas (Categoria;Tipo). Se o Tipo estiver vazio, usamos o
+                      tipo padrão.
+                    </DialogDescription>
+                  </DialogHeader>
+
+                  <div className="grid gap-3">
+                    <div>
+                      <Label className="text-xs">Tipo padrão (fallback)</Label>
+                      <Select value={importDefaultType} onValueChange={(v) => setImportDefaultType(v as CategoryType)}>
+                        <SelectTrigger className="mt-1 rounded-2xl">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="revenue">revenue (receita)</SelectItem>
+                          <SelectItem value="cost">cost (custo)</SelectItem>
+                          <SelectItem value="fixed">fixed (fixo)</SelectItem>
+                          <SelectItem value="variable">variable (variável)</SelectItem>
+                          <SelectItem value="other">other (outro)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                        Valores aceitos em "Tipo": revenue/cost/fixed/variable/other (ou receita/custo/fixo/variável/outro).
+                      </div>
+                    </div>
+
+                    <div>
+                      <Label className="text-xs">Arquivo CSV</Label>
+                      <Input
+                        className="mt-1 rounded-2xl"
+                        type="file"
+                        accept=".csv,text/csv"
+                        onChange={async (e) => {
+                          const f = e.target.files?.[0] ?? null;
+                          setImportFile(f);
+                          if (!f) {
+                            setImportPreview([]);
+                            return;
+                          }
+                          try {
+                            const text = await f.text();
+                            const parsed = parseCategoryCsv(text);
+                            setImportPreview(parsed);
+                          } catch {
+                            setImportPreview([]);
+                          }
+                        }}
+                      />
+                      {importPreview.length ? (
+                        <div className="mt-2 text-xs text-slate-600 dark:text-slate-400">
+                          {importPreview.length} categorias detectadas. Ex.:{" "}
+                          {importPreview
+                            .slice(0, 3)
+                            .map((r) => `${r.name}${r.type ? ` (${r.type})` : ""}`)
+                            .join(", ")}
+                          {importPreview.length > 3 ? "…" : ""}
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+
+                  <DialogFooter>
+                    <Button variant="secondary" className="h-10 rounded-2xl" onClick={() => setImportDialogOpen(false)}>
+                      Cancelar
+                    </Button>
+                    <Button
+                      className="h-10 rounded-2xl"
+                      disabled={!activeTenantId || importCategoriesM.isPending || !importFile}
+                      onClick={() => importCategoriesM.mutate()}
+                    >
+                      {importCategoriesM.isPending ? "Importando…" : "Importar"}
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+
+              <Dialog open={catDialogOpen} onOpenChange={setCatDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button className="h-9 rounded-2xl" disabled={!activeTenantId}>
+                    Nova categoria
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="sm:max-w-[520px]">
+                  <DialogHeader>
+                    <DialogTitle>Nova categoria</DialogTitle>
+                    <DialogDescription>
+                      Dica: use nomes curtos (ex.: "Marketing", "Combustível", "Recebíveis").
+                    </DialogDescription>
+                  </DialogHeader>
+
+                  <div className="grid gap-3">
+                    <div>
+                      <Label className="text-xs">Nome</Label>
+                      <Input
+                        className="mt-1 rounded-2xl"
+                        value={newCatName}
+                        onChange={(e) => setNewCatName(e.target.value)}
+                        placeholder="Ex: Marketing"
+                      />
+                    </div>
+
+                    <div>
+                      <Label className="text-xs">Tipo</Label>
+                      <Select value={newCatType} onValueChange={(v) => setNewCatType(v as CategoryType)}>
+                        <SelectTrigger className="mt-1 rounded-2xl">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="revenue">revenue (receita)</SelectItem>
+                          <SelectItem value="cost">cost (custo)</SelectItem>
+                          <SelectItem value="fixed">fixed (fixo)</SelectItem>
+                          <SelectItem value="variable">variable (variável)</SelectItem>
+                          <SelectItem value="other">other (outro)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+
+                  <DialogFooter>
+                    <Button
+                      variant="secondary"
+                      className="h-10 rounded-2xl"
+                      onClick={() => setCatDialogOpen(false)}
+                    >
+                      Cancelar
+                    </Button>
+                    <Button
+                      className="h-10 rounded-2xl"
+                      onClick={() => createCategoryM.mutate()}
+                      disabled={createCategoryM.isPending || !activeTenantId}
+                    >
+                      {createCategoryM.isPending ? "Salvando…" : "Criar"}
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+            </div>
+          </div>
+
+          <div className="mt-3 flex flex-wrap gap-2">
+            {(categoriesQ.data ?? []).slice(0, 48).map((c) => (
+              <div
+                key={c.id}
+                className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-700 dark:border-slate-800 dark:bg-slate-950/30 dark:text-slate-200"
+                title={c.id}
+              >
+                {c.name} <span className="text-slate-400">•</span> {c.type}
+              </div>
+            ))}
+            {!categoriesQ.isLoading && !(categoriesQ.data ?? []).length ? (
+              <div className="text-xs text-slate-500 dark:text-slate-400">Nenhuma categoria ainda.</div>
+            ) : null}
+          </div>
+        </Card>
+      </TabsContent>
+
+      <TabsContent value="banks" className="grid gap-4">
+        <Card className="rounded-[22px] border-slate-200 bg-white/70 p-4 shadow-sm backdrop-blur dark:border-slate-800 dark:bg-slate-950/40">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <div className="flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
+                <Landmark className="h-4 w-4" />
+                Bancos / Contas
+              </div>
+              <div className="mt-1 text-xs text-slate-600 dark:text-slate-400">
+                Cadastre contas para importar extratos e vincular lançamentos.
+              </div>
+            </div>
+
+            <Dialog
+              open={bankDialogOpen}
+              onOpenChange={(v) => {
+                setBankDialogOpen(v);
+                if (v) return;
+              }}
+            >
+              <DialogTrigger asChild>
+                <Button className="h-9 rounded-2xl" disabled={!activeTenantId}>
+                  <Plus className="mr-2 h-4 w-4" />
+                  Nova conta
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-[560px]">
+                <DialogHeader>
+                  <DialogTitle>{editingBank ? "Editar conta" : "Nova conta"}</DialogTitle>
+                  <DialogDescription>Use nomes claros (ex.: “Itaú PJ”, “Santander CC”, “Cartão Nubank”).</DialogDescription>
+                </DialogHeader>
+
+                <div className="grid gap-3">
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div>
+                      <Label className="text-xs">Banco</Label>
+                      <Input className="mt-1 rounded-2xl" value={bankName} onChange={(e) => setBankName(e.target.value)} />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Moeda</Label>
+                      <Input
+                        className="mt-1 rounded-2xl"
+                        value={bankCurrency}
+                        onChange={(e) => setBankCurrency(e.target.value)}
+                        placeholder="BRL"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <Label className="text-xs">Nome da conta</Label>
+                    <Input
+                      className="mt-1 rounded-2xl"
+                      value={bankAccountName}
+                      onChange={(e) => setBankAccountName(e.target.value)}
+                      placeholder="Ex: Conta PJ"
+                    />
+                  </div>
+
+                  <div>
+                    <Label className="text-xs">Tipo</Label>
+                    <Select value={bankAccountType} onValueChange={setBankAccountType}>
+                      <SelectTrigger className="mt-1 rounded-2xl">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="checking">Conta corrente</SelectItem>
+                        <SelectItem value="savings">Poupança</SelectItem>
+                        <SelectItem value="credit">Cartão</SelectItem>
+                        <SelectItem value="cash">Caixa</SelectItem>
+                        <SelectItem value="other">Outro</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                <DialogFooter>
+                  <Button variant="secondary" className="h-10 rounded-2xl" onClick={() => setBankDialogOpen(false)}>
+                    Cancelar
+                  </Button>
+                  <Button
+                    className="h-10 rounded-2xl"
+                    onClick={() => saveBankM.mutate()}
+                    disabled={saveBankM.isPending || !activeTenantId}
+                  >
+                    {saveBankM.isPending ? "Salvando…" : "Salvar"}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          </div>
+
+          <div className="mt-3 overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800">
+            <Table>
+              <TableHeader>
                 <TableRow>
-                  <TableCell colSpan={6} className="text-slate-600 dark:text-slate-400">
-                    Nenhuma transação ainda.
-                  </TableCell>
+                  <TableHead>Conta</TableHead>
+                  <TableHead>Banco</TableHead>
+                  <TableHead>Tipo</TableHead>
+                  <TableHead>Moeda</TableHead>
+                  <TableHead className="text-right">Ações</TableHead>
                 </TableRow>
-              ) : null}
-            </TableBody>
-          </Table>
-        </div>
-      </Card>
-    </div>
+              </TableHeader>
+              <TableBody>
+                {(accountsQ.data ?? []).map((a) => (
+                  <TableRow key={a.id}>
+                    <TableCell className="font-medium text-slate-900 dark:text-slate-100">{a.account_name}</TableCell>
+                    <TableCell>{a.bank_name}</TableCell>
+                    <TableCell>{prettyAccountType(a.account_type)}</TableCell>
+                    <TableCell>{a.currency}</TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex justify-end gap-2">
+                        <Button
+                          variant="secondary"
+                          className="h-8 rounded-2xl"
+                          onClick={() => {
+                            setEditingBank(a);
+                            setBankName(a.bank_name);
+                            setBankAccountName(a.account_name);
+                            setBankAccountType(a.account_type || "checking");
+                            setBankCurrency(a.currency || "BRL");
+                            setBankDialogOpen(true);
+                          }}
+                        >
+                          Editar
+                        </Button>
+
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button variant="destructive" className="h-8 rounded-2xl">
+                              Remover
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Remover conta?</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                Isso remove a conta do cadastro. Se houver transações vinculadas, a remoção será bloqueada.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                              <AlertDialogAction onClick={() => deleteBankM.mutate(a.id)} disabled={deleteBankM.isPending}>
+                                Remover
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+
+                {!accountsQ.isLoading && !(accountsQ.data ?? []).length ? (
+                  <TableRow>
+                    <TableCell colSpan={5} className="text-slate-600 dark:text-slate-400">
+                      Nenhuma conta ainda.
+                    </TableCell>
+                  </TableRow>
+                ) : null}
+              </TableBody>
+            </Table>
+          </div>
+        </Card>
+      </TabsContent>
+    </Tabs>
   );
 }

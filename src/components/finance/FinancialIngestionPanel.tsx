@@ -7,7 +7,10 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { showError, showSuccess } from "@/utils/toast";
+
+type BankAccountRow = { id: string; bank_name: string; account_name: string; currency: string };
 
 async function fileToBase64(file: File) {
   const buf = await file.arrayBuffer();
@@ -108,6 +111,21 @@ export function FinancialIngestionPanel() {
   const { activeTenantId } = useTenant();
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [accountId, setAccountId] = useState<string>("");
+
+  const accountsQ = useQuery({
+    queryKey: ["bank_accounts", activeTenantId],
+    enabled: Boolean(activeTenantId),
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("bank_accounts")
+        .select("id,bank_name,account_name,currency")
+        .eq("tenant_id", activeTenantId!)
+        .order("created_at", { ascending: true });
+      if (error) throw error;
+      return (data ?? []) as BankAccountRow[];
+    },
+  });
 
   const jobsQ = useQuery({
     queryKey: ["financial_ingestion_jobs", activeTenantId],
@@ -130,6 +148,10 @@ export function FinancialIngestionPanel() {
   const onUpload = async () => {
     if (!activeTenantId) return;
     if (!file) return;
+    if (!accountId) {
+      showError("Selecione uma conta para vincular as transações importadas.");
+      return;
+    }
 
     setUploading(true);
     try {
@@ -137,6 +159,7 @@ export function FinancialIngestionPanel() {
 
       const body = {
         tenantId: activeTenantId,
+        accountId,
         fileName: file.name,
         contentType: file.type || "application/octet-stream",
         fileBase64: b64,
@@ -147,6 +170,7 @@ export function FinancialIngestionPanel() {
         baseUrl,
         endpoint: `${SUPABASE_URL_IN_USE}/functions/v1/financial-ingestion-upload`,
         tenantId: activeTenantId,
+        accountId,
         fileName: file.name,
         sizeKb: Math.round(file.size / 1024),
       });
@@ -222,17 +246,51 @@ export function FinancialIngestionPanel() {
         Supabase: <span className="font-mono">{SUPABASE_URL_IN_USE}</span>
       </div>
 
-      <div className="mt-4 grid gap-2">
-        <Label htmlFor="file" className="text-xs text-slate-700 dark:text-slate-300">
-          Arquivo (.csv ou .ofx)
-        </Label>
-        <Input id="file" type="file" accept={accept} onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
-        <div className="flex items-center gap-2">
-          <Button onClick={onUpload} disabled={!file || uploading || !activeTenantId} className="h-10 rounded-2xl">
-            {uploading ? "Enviando…" : "Enviar e processar"}
-          </Button>
-          <div className="text-xs text-slate-500 dark:text-slate-400">
-            {file ? `${file.name} (${Math.round(file.size / 1024)} KB)` : "Selecione um arquivo"}
+      <div className="mt-4 grid gap-3">
+        <div>
+          <Label className="text-xs text-slate-700 dark:text-slate-300">Conta de destino</Label>
+          <Select
+            value={accountId}
+            onValueChange={setAccountId}
+            disabled={!activeTenantId || accountsQ.isLoading || !(accountsQ.data ?? []).length}
+          >
+            <SelectTrigger className="mt-1 rounded-2xl">
+              <SelectValue
+                placeholder={
+                  accountsQ.isLoading
+                    ? "Carregando…"
+                    : !(accountsQ.data ?? []).length
+                      ? "Cadastre uma conta primeiro (menu Lançamentos → Bancos)"
+                      : "Selecione"
+                }
+              />
+            </SelectTrigger>
+            <SelectContent>
+              {(accountsQ.data ?? []).map((a) => (
+                <SelectItem key={a.id} value={a.id}>
+                  {a.account_name} • {a.bank_name} ({a.currency})
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div>
+          <Label htmlFor="file" className="text-xs text-slate-700 dark:text-slate-300">
+            Arquivo (.csv ou .ofx)
+          </Label>
+          <Input id="file" type="file" accept={accept} onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+          <div className="mt-2 flex items-center gap-2">
+            <Button
+              onClick={onUpload}
+              disabled={!file || uploading || !activeTenantId || !accountId}
+              className="h-10 rounded-2xl"
+            >
+              {uploading ? "Enviando…" : "Enviar e processar"}
+            </Button>
+            <div className="text-xs text-slate-500 dark:text-slate-400">
+              {file ? `${file.name} (${Math.round(file.size / 1024)} KB)` : "Selecione um arquivo"}
+            </div>
           </div>
         </div>
       </div>
@@ -259,9 +317,8 @@ export function FinancialIngestionPanel() {
               ) : null}
             </div>
           ))}
-
           {!jobsQ.isLoading && !(jobsQ.data ?? []).length ? (
-            <div className="rounded-2xl border border-dashed border-slate-200 bg-white/40 px-3 py-3 text-xs text-slate-600 dark:border-slate-800 dark:bg-slate-950/20 dark:text-slate-400">
+            <div className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600 dark:border-slate-800 dark:bg-slate-950/30 dark:text-slate-400">
               Nenhum job ainda.
             </div>
           ) : null}

@@ -190,6 +190,7 @@ async function processCsvIntoLedger(opts: {
   ingestionJobId: string;
   bucket: string;
   path: string;
+  accountId?: string | null;
 }) {
   const { supabase, tenantId, ingestionJobId, bucket, path } = opts;
 
@@ -203,9 +204,11 @@ async function processCsvIntoLedger(opts: {
 
   const parsed = parseCsvWithPreamble(text);
 
+  // Determine bank account to attach transactions.
+  let accountId: string | null = String(opts.accountId ?? "").trim() || null;
+
   // Ensure we have at least one bank account to attach transactions.
-  let accountId: string | null = null;
-  {
+  if (!accountId) {
     const { data: acc } = await supabase
       .from("bank_accounts")
       .select("id")
@@ -329,6 +332,7 @@ serve(async (req) => {
 
     const body = await req.json().catch(() => null);
     const tenantId = String(body?.tenantId ?? "").trim();
+    const accountIdRaw = String(body?.accountId ?? "").trim();
     const fileName = String(body?.fileName ?? "").trim();
     const contentType = String(body?.contentType ?? "application/octet-stream").trim();
     const fileBase64 = String(body?.fileBase64 ?? "").trim();
@@ -356,6 +360,18 @@ serve(async (req) => {
     );
 
     if (memErr || (!membership && !isSuperAdmin)) return err("forbidden", 403);
+
+    // Validate accountId (if provided) belongs to tenant.
+    if (accountIdRaw) {
+      const { data: acc, error: accErr } = await supabase
+        .from("bank_accounts")
+        .select("id")
+        .eq("tenant_id", tenantId)
+        .eq("id", accountIdRaw)
+        .maybeSingle();
+      if (accErr) return err("invalid_account", 400, { message: accErr.message });
+      if (!acc?.id) return err("invalid_account", 400, { message: "account_not_found" });
+    }
 
     const safeName = fileName.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 120) || "file.bin";
     const uid = crypto.randomUUID();
@@ -399,6 +415,7 @@ serve(async (req) => {
       ingestionJobId: job.id,
       bucket: BUCKET,
       path,
+      accountId: accountIdRaw || null,
     });
 
     console.log(`[${fn}] uploaded + processed`, { tenantId, jobId: job.id, path, by: userId, out });

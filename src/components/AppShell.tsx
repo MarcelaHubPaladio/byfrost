@@ -182,7 +182,7 @@ function NavTile({
   label: string;
   disabled?: boolean;
 }) {
-  const base = "flex w-full flex-col items-center gap-1 rounded-2xl border px-2 py-2 text-center";
+  const base = "mx-auto flex w-[78px] flex-col items-center gap-1 rounded-2xl border px-2 py-2 text-center";
 
   if (disabled) {
     return (
@@ -577,7 +577,7 @@ export function AppShell({
       <div className="w-full px-3 py-3 md:px-5 md:py-4">
         <div className="grid gap-3 md:grid-cols-[96px_1fr] md:gap-5">
           {/* Sidebar (desktop) */}
-          <aside className="relative z-20 hidden overflow-visible rounded-[28px] border border-slate-200 bg-white/65 shadow-sm backdrop-blur md:sticky md:top-4 md:block md:h-[calc(100vh-32px)] dark:border-slate-800 dark:bg-slate-950/40">
+          <aside className="relative z-20 hidden flex-col overflow-hidden rounded-[28px] border border-slate-200 bg-white/65 shadow-sm backdrop-blur md:sticky md:top-4 md:flex md:h-[calc(100vh-32px)] dark:border-slate-800 dark:bg-slate-950/40">
             {/* Top brand block */}
             <div className="bg-[hsl(var(--byfrost-accent))] px-2 pb-2 pt-1.5">
               <Link
@@ -604,8 +604,8 @@ export function AppShell({
               </Link>
             </div>
 
-            <div className="p-3">
-              <div className="grid gap-2">
+            <div className="flex-1 overflow-y-auto p-3">
+              <div className="grid justify-items-center gap-2">
                 <NavTile to="/app" icon={LayoutGrid} label="Dashboard" disabled={!can("app.dashboard")} />
                 {showChatInNav && <NavTile to="/app/chat" icon={MessagesSquare} label="Chat" disabled={!can("app.chat")} />}
                 {hasCrm && <NavTile to="/app/crm" icon={LayoutDashboard} label="CRM" disabled={!can("app.crm")} />}
@@ -618,7 +618,7 @@ export function AppShell({
 
                 {/* Presença (desktop): Ponto principal + submenu no hover */}
                 {hasPresence && (
-                  <div className="group relative">
+                  <div className="group relative w-full">
                     <NavTile to="/app/presence" icon={Clock3} label="Ponto" disabled={!can("app.presence")} />
 
                     <div
@@ -668,7 +668,7 @@ export function AppShell({
 
                 {/* Financeiro (desktop): Cockpit principal + submenu no hover */}
                 {financeHasAnyAccess && (
-                  <div className="group relative">
+                  <div className="group relative w-full">
                     <NavTile
                       to="/app/finance"
                       icon={Gauge}

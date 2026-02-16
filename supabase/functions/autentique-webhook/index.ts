@@ -260,6 +260,7 @@ serve(async (req) => {
 
     // Find proposal by document_id stored in party_proposals.autentique_json.document_id
     let proposal: any = null;
+    let matchedBy: string | null = null;
 
     if (documentId) {
       const { data } = await supabase
@@ -269,6 +270,7 @@ serve(async (req) => {
         .eq("autentique_json->>document_id", String(documentId))
         .maybeSingle();
       proposal = data ?? null;
+      if (proposal) matchedBy = "document_id";
     }
 
     // Fallback: find by signer_public_id
@@ -280,6 +282,23 @@ serve(async (req) => {
         .eq("autentique_json->>signer_public_id", String(signerPublicId))
         .maybeSingle();
       proposal = data ?? null;
+      if (proposal) matchedBy = "signer_public_id";
+    }
+
+    const signed = isSignedEvent(payload);
+
+    const debug = url.searchParams.get("debug") === "1";
+    if (debug) {
+      console.log(`[${fn}] debug`, {
+        keys: Object.keys(payload ?? {}),
+        documentId,
+        signerPublicId,
+        status,
+        eventType,
+        signed,
+        matchedBy,
+        proposalId: proposal?.id ?? null,
+      });
     }
 
     // Audit insert (idempotent on payload_sha256)
@@ -301,8 +320,6 @@ serve(async (req) => {
 
     // Best-effort proposal update even if not signed (helps UI and debugging)
     if (proposal) {
-      const signed = isSignedEvent(payload);
-
       const nextAut = {
         ...(proposal.autentique_json ?? {}),
         last_webhook_event: eventType,
@@ -322,6 +339,10 @@ serve(async (req) => {
         .eq("tenant_id", proposal.tenant_id)
         .eq("id", proposal.id)
         .is("deleted_at", null);
+    }
+
+    if (debug) {
+      return json({ ok: true, debug: { documentId, signerPublicId, status, eventType, signed, matchedBy, hasProposal: !!proposal } });
     }
 
     return json({ ok: true });

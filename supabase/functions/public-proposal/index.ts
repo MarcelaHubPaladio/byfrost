@@ -255,11 +255,15 @@ async function autentiqueGetDocumentStatus(params: { apiToken: string; documentI
   if (!res.ok) return null;
 
   const doc = json?.data?.document ?? null;
-  const sig = doc?.signatures?.[0] ?? null;
-  if (!sig) return null;
+  const sigs = (doc?.signatures ?? []) as any[];
+  if (!Array.isArray(sigs) || sigs.length === 0) return null;
 
-  if (sig?.rejected?.created_at) return "rejected";
-  if (sig?.signed?.created_at) return "signed";
+  // If any signature has a rejection, treat as rejected.
+  if (sigs.some((s) => Boolean(s?.rejected?.created_at))) return "rejected";
+
+  // If any signature has been signed, treat as signed (we create documents with one signer).
+  if (sigs.some((s) => Boolean(s?.signed?.created_at))) return "signed";
+
   return "pending";
 }
 
@@ -393,6 +397,10 @@ serve(async (req) => {
 
     const pr = proposal as ProposalRow;
 
+    // Track effective status in this request (since we may update DB during GET).
+    let effectiveProposalStatus: string = String(pr.status ?? "");
+    let effectiveAutentiqueStatus: string | null = pr.autentique_json?.status ?? null;
+
     // Load party entity
     const { data: party, error: eErr } = await supabase
       .from("core_entities")
@@ -489,7 +497,10 @@ serve(async (req) => {
         };
 
         // If Autentique reports signed, reflect it in the proposal status as well.
-        const nextStatus = autentiqueStatus === "signed" ? "signed" : pr.status;
+        const nextStatus = autentiqueStatus === "signed" ? "signed" : effectiveProposalStatus;
+
+        effectiveProposalStatus = nextStatus;
+        effectiveAutentiqueStatus = autentiqueStatus;
 
         await supabase
           .from("party_proposals")
@@ -521,11 +532,11 @@ serve(async (req) => {
         },
         proposal: {
           id: pr.id,
-          status: pr.status,
+          status: effectiveProposalStatus,
           approved_at: pr.approved_at,
           selected_commitment_ids: pr.selected_commitment_ids,
           signing_link: pr.autentique_json?.signing_link ?? null,
-          autentique_status: autentiqueStatus ?? pr.autentique_json?.status ?? null,
+          autentique_status: effectiveAutentiqueStatus ?? autentiqueStatus ?? null,
         },
         scope: {
           commitments,

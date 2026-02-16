@@ -482,10 +482,20 @@ serve(async (req) => {
       autentiqueStatus = await autentiqueGetDocumentStatus({ apiToken, documentId: String(docId) });
       if (autentiqueStatus) {
         // Best effort: mirror into proposal
+        const nextAut = {
+          ...(pr.autentique_json ?? {}),
+          status: autentiqueStatus,
+          checked_at: new Date().toISOString(),
+        };
+
+        // If Autentique reports signed, reflect it in the proposal status as well.
+        const nextStatus = autentiqueStatus === "signed" ? "signed" : pr.status;
+
         await supabase
           .from("party_proposals")
           .update({
-            autentique_json: { ...(pr.autentique_json ?? {}), status: autentiqueStatus, checked_at: new Date().toISOString() },
+            status: nextStatus,
+            autentique_json: nextAut,
           })
           .eq("tenant_id", tenant.id)
           .eq("id", pr.id);

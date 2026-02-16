@@ -128,27 +128,80 @@ function pickDocumentId(payload: any): string | null {
     payload?.document_id ??
     payload?.documentId ??
     payload?.data?.document?.id ??
+    payload?.event?.resource?.id ??
+    payload?.event?.document?.id ??
+    payload?.resource?.id ??
+    null;
+  return v ? String(v) : null;
+}
+
+function pickSignerPublicId(payload: any): string | null {
+  const v =
+    payload?.signature?.public_id ??
+    payload?.signature_public_id ??
+    payload?.signaturePublicId ??
+    payload?.data?.signature?.public_id ??
+    payload?.document?.signatures?.[0]?.public_id ??
+    payload?.signatures?.[0]?.public_id ??
     null;
   return v ? String(v) : null;
 }
 
 function pickStatus(payload: any): string | null {
-  const v = payload?.document?.status ?? payload?.status ?? payload?.data?.document?.status ?? null;
+  const v =
+    payload?.document?.status ??
+    payload?.status ??
+    payload?.data?.document?.status ??
+    payload?.event?.type ??
+    null;
   return v ? String(v) : null;
 }
 
 function pickEventType(payload: any): string | null {
-  const v = payload?.event ?? payload?.type ?? payload?.action ?? payload?.name ?? null;
+  const v = payload?.event ?? payload?.type ?? payload?.action ?? payload?.name ?? payload?.event?.type ?? null;
   return v ? String(v) : null;
+}
+
+function hasAnySignedMarker(payload: any): boolean {
+  // Newer JSON payloads
+  const sigs = payload?.document?.signatures ?? payload?.signatures ?? payload?.data?.document?.signatures ?? null;
+  if (Array.isArray(sigs)) {
+    for (const s of sigs) {
+      if (s?.signed_at) return true;
+      if (s?.signed?.created_at) return true;
+      if (s?.signed?.created) return true;
+      if (String(s?.status ?? "").toLowerCase() === "signed") return true;
+    }
+  }
+
+  // Legacy PT-BR payloads sometimes include "partes" and "assinado"
+  const partes = payload?.partes ?? payload?.document?.partes ?? payload?.data?.document?.partes ?? null;
+  if (Array.isArray(partes)) {
+    for (const p of partes) {
+      if (p?.assinado?.created || p?.assinado?.created_at) return true;
+      if (String(p?.status ?? "").toLowerCase() === "signed") return true;
+    }
+  }
+
+  return false;
 }
 
 function isSignedEvent(payload: any): boolean {
   const status = String(pickStatus(payload) ?? "").toLowerCase();
   const ev = String(pickEventType(payload) ?? "").toLowerCase();
 
+  // explicit status
   if (["signed", "completed", "closed", "finalized"].includes(status)) return true;
+
+  // common event names
   if (ev.includes("signed")) return true;
   if (ev.includes("completed")) return true;
+  if (ev.includes("signature_accepted")) return true;
+  if (ev.includes("accepted")) return true;
+
+  // payload inspection
+  if (hasAnySignedMarker(payload)) return true;
+
   return false;
 }
 
@@ -199,6 +252,7 @@ serve(async (req) => {
     const payloadSha = await sha256Hex(raw);
 
     const documentId = pickDocumentId(payload);
+    const signerPublicId = pickSignerPublicId(payload);
     const status = pickStatus(payload);
     const eventType = pickEventType(payload);
 
@@ -206,12 +260,24 @@ serve(async (req) => {
 
     // Find proposal by document_id stored in party_proposals.autentique_json.document_id
     let proposal: any = null;
+
     if (documentId) {
       const { data } = await supabase
         .from("party_proposals")
         .select("id,tenant_id,status,autentique_json")
         .is("deleted_at", null)
         .eq("autentique_json->>document_id", String(documentId))
+        .maybeSingle();
+      proposal = data ?? null;
+    }
+
+    // Fallback: find by signer_public_id
+    if (!proposal && signerPublicId) {
+      const { data } = await supabase
+        .from("party_proposals")
+        .select("id,tenant_id,status,autentique_json")
+        .is("deleted_at", null)
+        .eq("autentique_json->>signer_public_id", String(signerPublicId))
         .maybeSingle();
       proposal = data ?? null;
     }
@@ -233,19 +299,26 @@ serve(async (req) => {
       return err("insert_failed", 500, { message: insErr.message });
     }
 
-    // Best-effort status update
-    if (proposal && isSignedEvent(payload)) {
+    // Best-effort proposal update even if not signed (helps UI and debugging)
+    if (proposal) {
+      const signed = isSignedEvent(payload);
+
       const nextAut = {
         ...(proposal.autentique_json ?? {}),
-        status: "signed",
-        signed_at: new Date().toISOString(),
         last_webhook_event: eventType,
+        last_webhook_status: status,
         last_webhook_received_at: new Date().toISOString(),
+        // keep a mirror status for the UI
+        status: signed ? "signed" : (proposal.autentique_json?.status ?? status ?? eventType ?? null),
+        ...(signed ? { signed_at: new Date().toISOString() } : {}),
       };
 
       await supabase
         .from("party_proposals")
-        .update({ status: "signed", autentique_json: nextAut })
+        .update({
+          status: signed ? "signed" : proposal.status,
+          autentique_json: nextAut,
+        })
         .eq("tenant_id", proposal.tenant_id)
         .eq("id", proposal.id)
         .is("deleted_at", null);

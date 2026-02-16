@@ -22,8 +22,13 @@ type ProposalRow = {
   status: string;
   approved_at: string | null;
   selected_commitment_ids: string[];
+  autentique_json: any;
   created_at: string;
 };
+
+function safe(v: any) {
+  return String(v ?? "").trim();
+}
 
 export function PartyProposalCard({
   tenantId,
@@ -44,7 +49,7 @@ export function PartyProposalCard({
     queryFn: async () => {
       const { data, error } = await supabase
         .from("party_proposals")
-        .select("id,token,status,approved_at,selected_commitment_ids,created_at")
+        .select("id,token,status,approved_at,selected_commitment_ids,autentique_json,created_at")
         .eq("tenant_id", tenantId)
         .eq("party_entity_id", partyId)
         .is("deleted_at", null)
@@ -127,7 +132,7 @@ export function PartyProposalCard({
           selected_commitment_ids: selectedIds,
           status: "draft",
         })
-        .select("id,token,status,approved_at,selected_commitment_ids,created_at")
+        .select("id,token,status,approved_at,selected_commitment_ids,autentique_json,created_at")
         .single();
 
       if (error) throw error;
@@ -201,6 +206,10 @@ export function PartyProposalCard({
             ) : (
               proposals.map((p) => {
                 const isActive = p.id === activeProposalId;
+                const autStatus = safe(p.autentique_json?.status);
+                const lastEvent = safe(p.autentique_json?.last_webhook_event);
+                const lastAt = safe(p.autentique_json?.last_webhook_received_at);
+
                 return (
                   <button
                     key={p.id}
@@ -216,9 +225,15 @@ export function PartyProposalCard({
                         {String(p.token).slice(0, 6)}…
                       </Badge>
                     </div>
-                    <div className="mt-1 text-xs text-slate-600">
-                      {new Date(p.created_at).toLocaleString("pt-BR")} {p.approved_at ? "• aprovado" : ""}
+                    <div className="mt-1 text-[11px] text-slate-600">
+                      {new Date(p.created_at).toLocaleString("pt-BR")}
+                      {autStatus ? ` • ass.: ${autStatus}` : ""}
                     </div>
+                    {lastEvent || lastAt ? (
+                      <div className="mt-0.5 text-[11px] text-slate-500">
+                        webhook: {lastEvent || "—"}{lastAt ? ` • ${new Date(lastAt).toLocaleString("pt-BR")}` : ""}
+                      </div>
+                    ) : null}
                   </button>
                 );
               })
@@ -233,6 +248,11 @@ export function PartyProposalCard({
               <div className="mt-0.5 text-sm font-semibold text-slate-900">
                 {activeProposal ? `${activeProposal.status} • ${String(activeProposal.id).slice(0, 8)}…` : "—"}
               </div>
+              {activeProposal?.autentique_json?.status ? (
+                <div className="mt-1 text-xs text-slate-600">
+                  Assinatura: {String(activeProposal.autentique_json.status)}
+                </div>
+              ) : null}
             </div>
             <div className="flex items-center gap-2">
               <Button

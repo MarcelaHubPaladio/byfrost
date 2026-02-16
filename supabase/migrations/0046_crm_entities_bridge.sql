@@ -12,7 +12,7 @@
 -- - This migration backfills and adds triggers so new/updated CRM data stays in sync.
 --
 -- Compatibility:
--- - Some older installs may have case_items without tenant_id. We normalize that first.
+-- - Some older installs may have case_items without tenant_id and/or deleted_at. We normalize that first.
 
 -- -----------------------------------------------------------------------------
 -- 0) Helpers
@@ -370,69 +370,90 @@ select public.byfrost_ensure_tenant_policies('public.crm_offering_map'::regclass
 select public.byfrost_ensure_updated_at_trigger('public.crm_offering_map'::regclass, 'trg_crm_offering_map_set_updated_at');
 
 -- Backfill map from existing case items (by description)
-with src as (
-  select distinct
-    ci.tenant_id,
-    public.crm_normalize_name(ci.description) as norm,
-    trim(ci.description) as display
-  from public.case_items ci
-  where ci.deleted_at is null
-    and ci.description is not null
-    and trim(ci.description) <> ''
-),
-todo as (
-  select s.*
-  from src s
-  where s.norm <> ''
-    and not exists (
-      select 1
-      from public.crm_offering_map m
-      where m.tenant_id = s.tenant_id
-        and m.normalized_name = s.norm
-        and m.deleted_at is null
-    )
-),
-new_entities as (
-  insert into public.core_entities(
-    id,
-    tenant_id,
-    entity_type,
-    subtype,
-    display_name,
-    status,
-    metadata
-  )
-  select
-    gen_random_uuid(),
-    t.tenant_id,
-    'offering',
-    'servico',
-    t.display,
-    'active',
-    jsonb_build_object(
-      'source', 'crm_case_items',
-      'normalized_name', t.norm
-    )
-  from todo t
-  returning id, tenant_id, metadata
-)
-insert into public.crm_offering_map(tenant_id, normalized_name, offering_entity_id)
-select
-  ne.tenant_id,
-  (ne.metadata->>'normalized_name')::text,
-  ne.id
-from new_entities ne
-on conflict (tenant_id, normalized_name) do nothing;
+DO $do$
+declare
+  v_has_deleted_at boolean;
+  v_where text;
+begin
+  select exists(
+    select 1
+      from information_schema.columns
+     where table_schema='public'
+       and table_name='case_items'
+       and column_name='deleted_at'
+  ) into v_has_deleted_at;
 
--- Backfill offering_entity_id on items
-update public.case_items ci
-   set offering_entity_id = m.offering_entity_id
-  from public.crm_offering_map m
- where ci.tenant_id = m.tenant_id
-   and ci.deleted_at is null
-   and ci.offering_entity_id is null
-   and public.crm_normalize_name(ci.description) = m.normalized_name
-   and m.deleted_at is null;
+  v_where := case when v_has_deleted_at then 'ci.deleted_at is null' else 'true' end;
+
+  execute format($sql$
+    with src as (
+      select distinct
+        ci.tenant_id,
+        public.crm_normalize_name(ci.description) as norm,
+        trim(ci.description) as display
+      from public.case_items ci
+      where %s
+        and ci.description is not null
+        and trim(ci.description) <> ''
+    ),
+    todo as (
+      select s.*
+      from src s
+      where s.norm <> ''
+        and not exists (
+          select 1
+          from public.crm_offering_map m
+          where m.tenant_id = s.tenant_id
+            and m.normalized_name = s.norm
+            and m.deleted_at is null
+        )
+    ),
+    new_entities as (
+      insert into public.core_entities(
+        id,
+        tenant_id,
+        entity_type,
+        subtype,
+        display_name,
+        status,
+        metadata
+      )
+      select
+        gen_random_uuid(),
+        t.tenant_id,
+        'offering',
+        'servico',
+        t.display,
+        'active',
+        jsonb_build_object(
+          'source', 'crm_case_items',
+          'normalized_name', t.norm
+        )
+      from todo t
+      returning id, tenant_id, (metadata->>'normalized_name')::text as norm
+    )
+    insert into public.crm_offering_map(tenant_id, normalized_name, offering_entity_id)
+    select
+      ne.tenant_id,
+      ne.norm,
+      ne.id
+    from new_entities ne
+    on conflict (tenant_id, normalized_name) do nothing;
+  $sql$, v_where);
+
+  -- Backfill offering_entity_id on items
+  execute format($sql$
+    update public.case_items ci
+       set offering_entity_id = m.offering_entity_id
+      from public.crm_offering_map m
+     where ci.tenant_id = m.tenant_id
+       and %s
+       and ci.offering_entity_id is null
+       and public.crm_normalize_name(ci.description) = m.normalized_name
+       and m.deleted_at is null;
+  $sql$, v_where);
+end
+$do$;
 
 create or replace function public.crm_case_items_ensure_offering_entity()
 returns trigger

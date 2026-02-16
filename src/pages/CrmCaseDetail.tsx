@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AppShell } from "@/components/AppShell";
 import { RequireAuth } from "@/components/RequireAuth";
@@ -36,7 +36,7 @@ import { CaseProductsCard } from "@/components/crm/CaseProductsCard";
 import { CaseTasksCard } from "@/components/crm/CaseTasksCard";
 import { CaseNotesCard } from "@/components/crm/CaseNotesCard";
 import { CaseTechnicalReportDialog } from "@/components/case/CaseTechnicalReportDialog";
-import { ArrowLeft, ClipboardList, Image as ImageIcon, MessagesSquare, Trash2, UsersRound } from "lucide-react";
+import { ArrowLeft, ClipboardList, Image as ImageIcon, MessagesSquare, Trash2, UsersRound, ExternalLink } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { showError, showSuccess } from "@/utils/toast";
 import { getStateLabel } from "@/lib/journeyLabels";
@@ -51,6 +51,7 @@ type CaseRow = {
   updated_at: string;
   assigned_vendor_id: string | null;
   customer_id: string | null;
+  customer_entity_id: string | null;
   meta_json?: any;
   is_chat?: boolean;
   vendors?: { display_name: string | null; phone_e164: string | null } | null;
@@ -104,7 +105,7 @@ export default function CrmCaseDetail() {
       const { data, error } = await supabase
         .from("cases")
         .select(
-          "id,tenant_id,customer_id,title,status,state,created_at,updated_at,assigned_vendor_id,meta_json,is_chat,vendors:vendors!cases_assigned_vendor_id_fkey(display_name,phone_e164),journeys:journeys!cases_journey_id_fkey(key,name,is_crm,default_state_machine_json)"
+          "id,tenant_id,customer_id,customer_entity_id,title,status,state,created_at,updated_at,assigned_vendor_id,meta_json,is_chat,vendors:vendors!cases_assigned_vendor_id_fkey(display_name,phone_e164),journeys:journeys!cases_journey_id_fkey(key,name,is_crm,default_state_machine_json)"
         )
         .eq("tenant_id", activeTenantId!)
         .eq("id", id!)
@@ -241,6 +242,8 @@ export default function CrmCaseDetail() {
     }
   };
 
+  const entityLink = caseQ.data?.customer_entity_id ? `/app/entities/${caseQ.data.customer_entity_id}` : null;
+
   // Se foi marcado como chat, abre no inbox de chat.
   useEffect(() => {
     if (!caseQ.data?.id) return;
@@ -339,57 +342,34 @@ export default function CrmCaseDetail() {
 
   return (
     <RequireAuth>
-      <AppShell hideTopBar>
-        <div className="rounded-[28px] border border-slate-200 bg-white/65 p-4 shadow-sm backdrop-blur md:p-5">
-          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-            <div className="min-w-0">
-              <button
-                onClick={() => nav(-1)}
-                className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white/70 px-3 py-2 text-xs font-medium text-slate-700 shadow-sm transition hover:bg-white"
+      <AppShell>
+        <div className="space-y-4">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                className="h-10 rounded-2xl"
+                onClick={() => nav("/app/crm")}
               >
-                <ArrowLeft className="h-4 w-4" /> Voltar
-              </button>
-
-              <h2 className="mt-3 truncate text-xl font-semibold tracking-tight text-slate-900">
-                {displayTitle}
-              </h2>
-
-              <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-600">
-                <Badge className="rounded-full border-0 bg-indigo-100 text-indigo-900 hover:bg-indigo-100">
-                  CRM
-                </Badge>
-
-                {c?.meta_json?.lead_source === "csv_import" ? (
-                  <Badge className="rounded-full border-0 bg-[hsl(var(--byfrost-accent)/0.12)] text-[hsl(var(--byfrost-accent))] hover:bg-[hsl(var(--byfrost-accent)/0.12)]">
-                    Lead importado
-                  </Badge>
-                ) : null}
-
-                <div className="flex items-center gap-2 rounded-full border border-slate-200 bg-white/70 px-2 py-1 shadow-sm">
-                  <span className="text-[11px] font-semibold text-slate-700">Estado</span>
-                  <Select value={c?.state ?? ""} onValueChange={updateState} disabled={!c || updatingState}>
-                    <SelectTrigger className="h-7 w-[180px] rounded-full border-slate-200 bg-white px-3 text-xs">
-                      <SelectValue placeholder="Selecionar…" />
-                    </SelectTrigger>
-                    <SelectContent className="rounded-2xl">
-                      {states.map((s) => (
-                        <SelectItem key={s} value={s} className="rounded-xl">
-                          {getStateLabel(c?.journeys as any, s)}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                <ArrowLeft className="mr-2 h-4 w-4" /> Voltar
+              </Button>
+              <div className="min-w-0">
+                <div className="truncate text-lg font-semibold text-slate-900">{caseQ.data?.title ?? "CRM"}</div>
+                <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[11px] text-slate-600">
+                  <Badge variant="secondary">{caseQ.data?.journeys?.key ?? "crm"}</Badge>
+                  <span>id: {String(id ?? "").slice(0, 8)}…</span>
+                  {entityLink ? (
+                    <Link
+                      to={entityLink}
+                      className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2 py-0.5 font-semibold text-slate-700 hover:bg-slate-50"
+                      title="Abrir entidade"
+                    >
+                      entidade <ExternalLink className="h-3.5 w-3.5" />
+                    </Link>
+                  ) : (
+                    <span className="rounded-full bg-amber-100 px-2 py-0.5 font-semibold text-amber-900">sem entidade</span>
+                  )}
                 </div>
-
-                <Badge className="rounded-full border-0 bg-[hsl(var(--byfrost-accent)/0.10)] text-[hsl(var(--byfrost-accent))] hover:bg-[hsl(var(--byfrost-accent)/0.10)]">
-                  {c?.status}
-                </Badge>
-
-                <span className="truncate inline-flex items-center gap-1">
-                  <UsersRound className="h-3.5 w-3.5 text-slate-400" />
-                  {(c?.vendors?.display_name ?? "Vendedor") +
-                    (c?.vendors?.phone_e164 ? ` • ${c?.vendors?.phone_e164}` : "")}
-                </span>
               </div>
             </div>
 

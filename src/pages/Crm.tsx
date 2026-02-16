@@ -29,6 +29,7 @@ type CaseRow = {
   id: string;
   journey_id: string | null;
   customer_id?: string | null;
+  customer_entity_id?: string | null;
   title: string | null;
   status: string;
   state: string;
@@ -58,6 +59,14 @@ type WaMsgLite = { case_id: string | null; occurred_at: string; from_phone: stri
 type WaInstanceRow = { id: string; phone_number: string | null };
 
 type VendorOpt = { vendor_id: string; phone_e164: string | null; display_name: string | null };
+
+type CustomerLite = {
+  id: string;
+  phone_e164: string;
+  name: string | null;
+  email: string | null;
+  entity_id?: string | null;
+};
 
 function minutesAgo(iso: string) {
   const diff = Date.now() - new Date(iso).getTime();
@@ -182,8 +191,6 @@ export default function Crm() {
   });
 
   const showVendorFilter = useMemo(() => {
-    // Regra simples: só faz sentido mostrar quando há mais de 1 vendedor possível.
-    // (vendor vê só ele mesmo; gestores/roles acima normalmente verão mais.)
     return (vendorsQ.data?.length ?? 0) > 1;
   }, [vendorsQ.data?.length]);
 
@@ -197,13 +204,11 @@ export default function Crm() {
     });
   }, [vendorsQ.data, vendorQuery]);
 
-  // If the allowed vendor list changes, drop selections that are no longer allowed.
   useEffect(() => {
     const allowed = new Set((vendorsQ.data ?? []).map((v) => v.vendor_id));
     setSelectedVendorIds((prev) => prev.filter((id) => allowed.has(id)));
   }, [vendorsQ.data]);
 
-  // Sem seletor: pegamos o primeiro fluxo CRM habilitado.
   const selectedJourney = useMemo(() => {
     const list = crmJourneysQ.data ?? [];
     if (!list.length) return null;
@@ -232,7 +237,7 @@ export default function Crm() {
       const { data, error } = await supabase
         .from("cases")
         .select(
-          "id,journey_id,customer_id,title,status,state,created_at,updated_at,assigned_vendor_id,is_chat,vendors:vendors!cases_assigned_vendor_id_fkey(display_name,phone_e164),journeys:journeys!cases_journey_id_fkey(key,name,is_crm,default_state_machine_json),meta_json"
+          "id,journey_id,customer_id,customer_entity_id,title,status,state,created_at,updated_at,assigned_vendor_id,is_chat,vendors:vendors!cases_assigned_vendor_id_fkey(display_name,phone_e164),journeys:journeys!cases_journey_id_fkey(key,name,is_crm,default_state_machine_json),meta_json"
         )
         .eq("tenant_id", activeTenantId!)
         .is("deleted_at", null)

@@ -134,12 +134,13 @@ async function autentiqueCreateDocument(params: {
 }) {
   const url = getAutentiqueGraphqlUrl();
 
+  // Autentique v2: Document does NOT expose public_id; the signature does.
+  // We keep only fields we actually need.
   const query = `mutation CreateDocumentMutation($document: DocumentInput!, $signers: [SignerInput!]!, $file: Upload!) {
     createDocument(document: $document, signers: $signers, file: $file) {
       id
-      public_id
-      status
-      signers { public_id name email }
+      name
+      signatures { public_id name email }
     }
   }`;
 
@@ -176,14 +177,13 @@ async function autentiqueCreateDocument(params: {
   if (!res.ok || !json?.data?.createDocument) {
     const gqlErr = String(json?.errors?.[0]?.message ?? "").trim();
     const hint = res.status === 404 ? " (verifique AUTENTIQUE_GQL_URL: v2/graphql vs v2/graphql/corporate)" : "";
-    throw new Error(gqlErr || `autentique_http_${res.status}${hint}`);
+    throw new Error(gqlErr ? `autentique_${gqlErr}` : `autentique_http_${res.status}${hint}`);
   }
 
   return json.data.createDocument as {
     id: string;
-    public_id: string;
-    status: string;
-    signers: Array<{ public_id: string; name: string; email: string }>;
+    name?: string;
+    signatures?: Array<{ public_id: string; name: string; email: string }>;
   };
 }
 
@@ -212,15 +212,16 @@ async function autentiqueCreateSignatureLink(params: { apiToken: string; signerP
   if (!res.ok || !link) {
     const gqlErr = String(json?.errors?.[0]?.message ?? "").trim();
     const hint = res.status === 404 ? " (verifique AUTENTIQUE_GQL_URL: v2/graphql vs v2/graphql/corporate)" : "";
-    throw new Error(gqlErr || `autentique_http_${res.status}${hint}`);
+    throw new Error(gqlErr ? `autentique_${gqlErr}` : `autentique_http_${res.status}${hint}`);
   }
 
   return String(link);
 }
 
-async function autentiqueGetDocumentStatus(params: { apiToken: string; documentPublicId: string }) {
+async function autentiqueGetDocumentStatus(params: { apiToken: string; documentId: string }) {
+  // Best-effort status check. Autentique recommends webhooks; keep this minimal.
   const url = getAutentiqueGraphqlUrl();
-  const query = `query { document(public_id: \\\"${params.documentPublicId}\\\") { public_id status } }`;
+  const query = `query { document(id: \\\"${params.documentId}\\\") { id signatures { public_id signed { created_at } rejected { created_at } } } }`;
 
   const res = await fetch(url, {
     method: "POST",
@@ -239,9 +240,15 @@ async function autentiqueGetDocumentStatus(params: { apiToken: string; documentP
     // ignore
   }
 
-  const status = json?.data?.document?.status ?? null;
-  if (!res.ok || !status) return null;
-  return String(status);
+  if (!res.ok) return null;
+
+  const doc = json?.data?.document ?? null;
+  const sig = doc?.signatures?.[0] ?? null;
+  if (!sig) return null;
+
+  if (sig?.rejected?.created_at) return "rejected";
+  if (sig?.signed?.created_at) return "signed";
+  return "pending";
 }
 
 function onlyDigits(s: string) {
@@ -458,9 +465,9 @@ serve(async (req) => {
     // Autentique status best-effort
     let autentiqueStatus: string | null = null;
     const apiToken = Deno.env.get("AUTENTIQUE_API_TOKEN") ?? "";
-    const docPublicId = pr.autentique_json?.document_public_id ?? null;
-    if (apiToken && docPublicId) {
-      autentiqueStatus = await autentiqueGetDocumentStatus({ apiToken, documentPublicId: String(docPublicId) });
+    const docId = pr.autentique_json?.document_id ?? null;
+    if (apiToken && docId) {
+      autentiqueStatus = await autentiqueGetDocumentStatus({ apiToken, documentId: String(docId) });
       if (autentiqueStatus) {
         // Best effort: mirror into proposal
         await supabase
@@ -610,7 +617,7 @@ serve(async (req) => {
         signerEmail,
       });
 
-      const signerPublicId = String(created.signers?.[0]?.public_id ?? "");
+      const signerPublicId = String(created.signatures?.[0]?.public_id ?? "");
       if (!signerPublicId) return err("autentique_signer_missing", 500);
 
       const signingLink = await autentiqueCreateSignatureLink({ apiToken: apiToken2, signerPublicId });
@@ -618,10 +625,10 @@ serve(async (req) => {
       const nextAut = {
         ...(pr.autentique_json ?? {}),
         document_id: created.id,
-        document_public_id: created.public_id,
+        document_public_id: null,
         signer_public_id: signerPublicId,
         signing_link: signingLink,
-        status: created.status,
+        status: null,
         created_at: new Date().toISOString(),
         file_b64_sha256: crypto.subtle
           ? await crypto.subtle
@@ -640,7 +647,8 @@ serve(async (req) => {
 
       if (upErr) return err("proposal_update_failed", 500, { message: upErr.message });
 
-      return json({ ok: true, signing_link: signingLink, document_public_id: created.public_id });
+      return json({ ok: true, signing_link: signingLink, document_id: created.id });
+
     }
 
     return err("invalid_action", 400);
@@ -648,8 +656,7 @@ serve(async (req) => {
     const msg = String(e?.message ?? String(e) ?? "internal_error").trim();
 
     // Prefer returning the real message for known integration failures (helps UX and debugging).
-    const isAutentique = msg.startsWith("autentique_") || msg.startsWith("autentique-http") || msg.includes("autentique_");
-    if (isAutentique) {
+    if (msg.startsWith("autentique_")) {
       console.error(`[public-proposal] autentique_error`, { message: msg });
       return err(msg, 500, { message: msg });
     }

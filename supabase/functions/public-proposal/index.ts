@@ -412,7 +412,7 @@ serve(async (req) => {
 
         const { data: ts, error: tErr2 } = await supabase
           .from("deliverable_templates")
-          .select("id,tenant_id,offering_entity_id,name,minutes,created_at")
+          .select("id,tenant_id,offering_entity_id,name,estimated_minutes,required_resource_type,created_at")
           .eq("tenant_id", tenant.id)
           .in("offering_entity_id", offeringIds)
           .is("deleted_at", null);

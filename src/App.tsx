@@ -48,6 +48,7 @@ import CommitmentDetail from "@/pages/CommitmentDetail";
 import Entities from "@/pages/Entities";
 import EntityDetail from "@/pages/EntityDetail";
 import DeliverableTemplates from "@/pages/DeliverableTemplates";
+import PublicProposal from "@/pages/PublicProposal";
 
 const queryClient = new QueryClient();
 
@@ -66,6 +67,9 @@ const App = () => (
                 <Route path="/tenants" element={<TenantSelect />} />
                 <Route path="/auth/callback" element={<AuthCallback />} />
                 <Route path="/auth/reset" element={<ResetPassword />} />
+
+                {/* Public proposal (no auth) */}
+                <Route path="/p/:tenantSlug/:token" element={<PublicProposal />} />
 
                 {/* Public screen (no protection) */}
                 <Route path="/screen" element={<Screen />} />

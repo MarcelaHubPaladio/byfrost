@@ -15,6 +15,8 @@ import { EntityUpsertDialog } from "@/components/core/EntityUpsertDialog";
 import { ConfirmDeleteDialog } from "@/components/core/ConfirmDeleteDialog";
 import { showError, showSuccess } from "@/utils/toast";
 import { Pencil, Trash2 } from "lucide-react";
+import { PartyCustomerEditorCard } from "@/components/core/PartyCustomerEditorCard";
+import { PartyProposalCard } from "@/components/core/PartyProposalCard";
 
 type EntityRow = {
   id: string;
@@ -33,7 +35,7 @@ export default function EntityDetail() {
   const nav = useNavigate();
   const qc = useQueryClient();
   const entityId = String(id ?? "");
-  const { activeTenantId } = useTenant();
+  const { activeTenantId, activeTenant } = useTenant();
 
   const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -157,6 +159,8 @@ export default function EntityDetail() {
               <Tabs defaultValue="overview" className="w-full">
                 <TabsList>
                   <TabsTrigger value="overview">Visão geral</TabsTrigger>
+                  {entityQ.data?.entity_type === "party" ? <TabsTrigger value="customer">Cliente</TabsTrigger> : null}
+                  {entityQ.data?.entity_type === "party" ? <TabsTrigger value="proposal">Proposta</TabsTrigger> : null}
                   <TabsTrigger value="timeline">Timeline</TabsTrigger>
                 </TabsList>
 
@@ -185,6 +189,33 @@ export default function EntityDetail() {
                     </Card>
                   </div>
                 </TabsContent>
+
+                {entityQ.data?.entity_type === "party" ? (
+                  <TabsContent value="customer">
+                    {activeTenantId && entityQ.data ? (
+                      <PartyCustomerEditorCard
+                        tenantId={activeTenantId}
+                        partyId={entityId}
+                        initialMetadata={entityQ.data.metadata ?? {}}
+                        onUpdated={() => {
+                          qc.invalidateQueries({ queryKey: ["entity", activeTenantId, entityId] });
+                        }}
+                      />
+                    ) : null}
+                  </TabsContent>
+                ) : null}
+
+                {entityQ.data?.entity_type === "party" ? (
+                  <TabsContent value="proposal">
+                    {activeTenantId && entityQ.data ? (
+                      <PartyProposalCard
+                        tenantId={activeTenantId}
+                        partyId={entityId}
+                        tenantSlug={String(activeTenant?.slug ?? "tenant")}
+                      />
+                    ) : null}
+                  </TabsContent>
+                ) : null}
 
                 <TabsContent value="timeline">
                   {activeTenantId ? <EntityTimeline tenantId={activeTenantId} entityId={entityId} /> : null}

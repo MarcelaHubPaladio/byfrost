@@ -611,7 +611,7 @@ export function AppShell({
       <div className="w-full px-3 py-3 md:px-5 md:py-4">
         <div className="grid gap-3 md:grid-cols-[96px_1fr] md:gap-5">
           {/* Sidebar (desktop) */}
-          <aside className="relative z-20 hidden flex-col overflow-hidden rounded-[28px] border border-slate-200 bg-white/65 shadow-sm backdrop-blur md:sticky md:top-4 md:flex md:h-[calc(100vh-32px)] dark:border-slate-800 dark:bg-slate-950/40">
+          <aside className="relative z-20 hidden flex-col overflow-visible rounded-[28px] border border-slate-200 bg-white/65 shadow-sm backdrop-blur md:sticky md:top-4 md:flex md:h-[calc(100vh-32px)] dark:border-slate-800 dark:bg-slate-950/40">
             {/* Top brand block */}
             <div className="bg-[hsl(var(--byfrost-accent))] px-2 pb-2 pt-1.5">
               <Link

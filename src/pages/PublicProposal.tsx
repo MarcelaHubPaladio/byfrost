@@ -65,6 +65,12 @@ export default function PublicProposal() {
 
       if (!res.ok || !json?.ok) {
         const detail = safe(json?.error) || (text ? safe(text) : "");
+        if (res.status === 401 && detail.toLowerCase().includes("missing authorization header")) {
+          throw new Error(
+            `401: Missing authorization header. Essa Edge Function provavelmente está com "Verify JWT" ligado no Supabase. ` +
+              `Desative o Verify JWT para a função public-proposal (ela é pública). Endpoint: ${FN_URL}`
+          );
+        }
         throw new Error(detail || `HTTP ${res.status}`);
       }
 

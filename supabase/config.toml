@@ -1,0 +1,14 @@
+# Supabase local/dev config
+#
+# IMPORTANT:
+# - public-proposal is a PUBLIC endpoint (no login); it must NOT require JWT verification.
+# - party-upload-logo performs manual auth (Authorization Bearer access_token + membership check);
+#   keeping verify_jwt=false avoids the gateway rejecting tokens before our checks.
+#
+# If you deploy via Supabase Dashboard, ensure "Verify JWT" is turned OFF for these functions.
+
+[functions.public-proposal]
+verify_jwt = false
+
+[functions.party-upload-logo]
+verify_jwt = false

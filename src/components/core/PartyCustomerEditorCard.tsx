@@ -288,7 +288,10 @@ export function PartyCustomerEditorCard({
         const msg = String(json?.error ?? text ?? `HTTP ${res.status}`);
         if (res.status === 401) {
           throw new Error(
-            `401 (unauthorized). Se você acabou de trocar de projeto Supabase, faça logout/login para renovar a sessão. Detalhe: ${msg}`
+            `401 (unauthorized). Detalhe: ${msg}.\n` +
+              `Checklist:\n` +
+              `• Confirme que a função party-upload-logo está com "Verify JWT" DESLIGADO (ela valida o token manualmente).\n` +
+              `• Confirme que o app e a função estão no MESMO projeto Supabase. URL em uso: ${SUPABASE_URL_IN_USE}`
           );
         }
         throw new Error(msg);

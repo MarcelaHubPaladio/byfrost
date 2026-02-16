@@ -52,6 +52,67 @@ function subtypeToEntityType(subtype: UiSubtype): CoreEntityType {
   return subtype === "servico" || subtype === "produto" ? "offering" : "party";
 }
 
+function formatCpfCnpj(digitsRaw: string) {
+  const d = onlyDigits(digitsRaw).slice(0, 14);
+
+  // CPF: 000.000.000-00
+  if (d.length <= 11) {
+    const p1 = d.slice(0, 3);
+    const p2 = d.slice(3, 6);
+    const p3 = d.slice(6, 9);
+    const p4 = d.slice(9, 11);
+    let out = p1;
+    if (p2) out += "." + p2;
+    if (p3) out += "." + p3;
+    if (p4) out += "-" + p4;
+    return out;
+  }
+
+  // CNPJ: 00.000.000/0000-00
+  const p1 = d.slice(0, 2);
+  const p2 = d.slice(2, 5);
+  const p3 = d.slice(5, 8);
+  const p4 = d.slice(8, 12);
+  const p5 = d.slice(12, 14);
+  let out = p1;
+  if (p2) out += "." + p2;
+  if (p3) out += "." + p3;
+  if (p4) out += "/" + p4;
+  if (p5) out += "-" + p5;
+  return out;
+}
+
+function normalizeWhatsappDigits(digitsRaw: string) {
+  const d = onlyDigits(digitsRaw);
+  // Allow either:
+  // - 10/11 digits (DDD + number)
+  // - 13 digits with 55 prefix
+  if (d.startsWith("55") && d.length > 13) return d.slice(0, 13);
+  if (d.startsWith("55") && d.length <= 13) return d;
+  return d.slice(0, 11);
+}
+
+function formatWhatsappBr(digitsRaw: string) {
+  const d0 = normalizeWhatsappDigits(digitsRaw);
+
+  const has55 = d0.startsWith("55") && d0.length > 11;
+  const d = has55 ? d0.slice(2) : d0;
+
+  const dd = d.slice(0, 2);
+  const rest = d.slice(2);
+
+  const isMobile = rest.length >= 9;
+  const a = isMobile ? rest.slice(0, 5) : rest.slice(0, 4);
+  const b = isMobile ? rest.slice(5, 9) : rest.slice(4, 8);
+
+  let out = "";
+  if (has55) out += "+55 ";
+  if (dd) out += `(${dd}) `;
+  out += a;
+  if (b) out += "-" + b;
+  return out.trim();
+}
+
 async function lookupCnpj(cnpjDigits: string) {
   const cnpj = onlyDigits(cnpjDigits);
   if (cnpj.length !== 14) throw new Error("CNPJ inválido (use 14 dígitos)");
@@ -96,8 +157,8 @@ export function EntityUpsertDialog({
 
   const [subtype, setSubtype] = useState<UiSubtype>("cliente");
   const [displayName, setDisplayName] = useState<string>("");
-  const [doc, setDoc] = useState<string>("");
-  const [whatsapp, setWhatsapp] = useState<string>("");
+  const [docDigitsState, setDocDigitsState] = useState<string>("");
+  const [whatsappDigitsState, setWhatsappDigitsState] = useState<string>("");
   const [email, setEmail] = useState<string>("");
 
   useEffect(() => {
@@ -117,8 +178,8 @@ export function EntityUpsertDialog({
     setDisplayName(String(initial?.display_name ?? ""));
 
     const md = (initial?.metadata ?? {}) as any;
-    setDoc(String(md?.cpf_cnpj ?? md?.cpfCnpj ?? md?.document ?? ""));
-    setWhatsapp(String(md?.whatsapp ?? md?.phone ?? md?.phone_e164 ?? ""));
+    setDocDigitsState(onlyDigits(String(md?.cpf_cnpj ?? md?.cpfCnpj ?? md?.document ?? "")).slice(0, 14));
+    setWhatsappDigitsState(normalizeWhatsappDigits(String(md?.whatsapp ?? md?.phone ?? md?.phone_e164 ?? "")));
     setEmail(String(md?.email ?? ""));
   }, [open, initial?.id]);
 
@@ -127,12 +188,25 @@ export function EntityUpsertDialog({
     return subtypeToEntityType(subtype);
   }, [lockedEntityType, subtype]);
 
-  const docDigits = useMemo(() => onlyDigits(doc), [doc]);
-  const whatsappDigits = useMemo(() => onlyDigits(whatsapp), [whatsapp]);
+  const docDigits = useMemo(() => onlyDigits(docDigitsState).slice(0, 14), [docDigitsState]);
+  const whatsappDigits = useMemo(() => normalizeWhatsappDigits(whatsappDigitsState), [whatsappDigitsState]);
+
+  const docDisplay = useMemo(() => formatCpfCnpj(docDigits), [docDigits]);
+  const whatsappDisplay = useMemo(() => formatWhatsappBr(whatsappDigits), [whatsappDigits]);
 
   const requiresDocAndContacts = entityType === "party";
 
-  const canLookupCnpj = entityType === "party" && docDigits.length === 14 && !fetchingDoc;
+  const isCpf = docDigits.length === 11;
+  const isCnpj = docDigits.length === 14;
+  const docOk = !requiresDocAndContacts || isCpf || isCnpj;
+
+  const whatsappOk =
+    !requiresDocAndContacts ||
+    whatsappDigits.length === 10 ||
+    whatsappDigits.length === 11 ||
+    (whatsappDigits.startsWith("55") && whatsappDigits.length === 13);
+
+  const canLookupCnpj = entityType === "party" && isCnpj && !fetchingDoc;
 
   const emailOk = email.trim().length > 0 ? isValidEmail(email) : true;
 
@@ -140,7 +214,7 @@ export function EntityUpsertDialog({
     Boolean(tenantId) &&
     displayName.trim().length >= 2 &&
     // Party: require doc + whatsapp + email
-    (!requiresDocAndContacts || (docDigits.length >= 11 && whatsappDigits.length >= 10 && Boolean(email.trim()))) &&
+    (!requiresDocAndContacts || (docOk && whatsappOk && Boolean(email.trim()))) &&
     emailOk &&
     !saving;
 
@@ -268,27 +342,18 @@ export function EntityUpsertDialog({
             ) : null}
           </div>
 
-          <div className="grid gap-2">
-            <Label>Nome</Label>
-            <Input
-              value={displayName}
-              onChange={(e) => setDisplayName(e.target.value)}
-              placeholder="Nome da entidade"
-              className="rounded-xl"
-            />
-          </div>
-
           {entityType === "party" ? (
             <div className="grid gap-3 md:grid-cols-2">
               <div className="grid gap-2">
                 <Label>CPF ou CNPJ</Label>
                 <Input
-                  value={doc}
-                  onChange={(e) => setDoc(e.target.value)}
-                  placeholder="Somente números"
+                  value={docDisplay}
+                  onChange={(e) => setDocDigitsState(onlyDigits(e.target.value).slice(0, 14))}
+                  placeholder="000.000.000-00"
                   className="rounded-xl"
+                  inputMode="numeric"
                 />
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-2">
                   <div className="text-[11px] text-slate-500">CPF (11) • CNPJ (14)</div>
                   <Button
                     type="button"
@@ -302,20 +367,39 @@ export function EntityUpsertDialog({
                     {fetchingDoc ? "Buscando…" : "Buscar CNPJ"}
                   </Button>
                 </div>
+                {!docOk ? (
+                  <div className="text-[11px] font-semibold text-red-600">Informe um CPF (11 dígitos) ou CNPJ (14 dígitos).</div>
+                ) : null}
               </div>
 
               <div className="grid gap-2">
                 <Label>WhatsApp</Label>
                 <Input
-                  value={whatsapp}
-                  onChange={(e) => setWhatsapp(e.target.value)}
-                  placeholder="ex: 11999998888"
+                  value={whatsappDisplay}
+                  onChange={(e) => setWhatsappDigitsState(normalizeWhatsappDigits(e.target.value))}
+                  placeholder="(11) 99999-8888"
                   className="rounded-xl"
+                  inputMode="tel"
                 />
-                <div className="text-[11px] text-slate-500">Somente números (DDD + número).</div>
+                {!whatsappOk ? (
+                  <div className="text-[11px] font-semibold text-red-600">Informe um número válido com DDD.</div>
+                ) : (
+                  <div className="text-[11px] text-slate-500">Padrão BR: (DD) 9XXXX-XXXX</div>
+                )}
               </div>
             </div>
           ) : null}
+
+          {/* Nome vem depois do documento para permitir lookup preencher automaticamente */}
+          <div className="grid gap-2">
+            <Label>Nome</Label>
+            <Input
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+              placeholder="Nome da entidade"
+              className="rounded-xl"
+            />
+          </div>
 
           {entityType === "party" ? (
             <div className="grid gap-2">
@@ -325,6 +409,7 @@ export function EntityUpsertDialog({
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="email@exemplo.com"
                 className="rounded-xl"
+                inputMode="email"
               />
               {!emailOk ? <div className="text-[11px] font-semibold text-red-600">E-mail inválido.</div> : null}
             </div>

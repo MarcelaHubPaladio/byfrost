@@ -574,10 +574,10 @@ export function AppShell({
 
   return (
     <div className="min-h-screen bg-[hsl(var(--byfrost-bg))]">
-      <div className="mx-auto w-full max-w-[1440px] px-3 py-3 md:px-5 md:py-5">
+      <div className="w-full px-3 py-3 md:px-5 md:py-4">
         <div className="grid gap-3 md:grid-cols-[96px_1fr] md:gap-5">
           {/* Sidebar (desktop) */}
-          <aside className="relative z-20 hidden overflow-visible rounded-[28px] border border-slate-200 bg-white/65 shadow-sm backdrop-blur md:sticky md:top-5 md:block md:h-[calc(100vh-40px)] dark:border-slate-800 dark:bg-slate-950/40">
+          <aside className="relative z-20 hidden overflow-visible rounded-[28px] border border-slate-200 bg-white/65 shadow-sm backdrop-blur md:sticky md:top-4 md:block md:h-[calc(100vh-32px)] dark:border-slate-800 dark:bg-slate-950/40">
             {/* Top brand block */}
             <div className="bg-[hsl(var(--byfrost-accent))] px-2 pb-2 pt-1.5">
               <Link
@@ -585,11 +585,15 @@ export function AppShell({
                 className="mx-auto flex w-fit flex-col items-center"
                 title={activeTenant?.name ?? "Byfrost"}
               >
-                <div className="flex h-[74px] w-[74px] items-center justify-center overflow-hidden rounded-[22px] bg-white p-1.5 shadow-sm ring-1 ring-white/40">
+                <div className="flex h-[74px] w-[74px] items-center justify-center overflow-hidden rounded-full bg-white p-1.5 shadow-sm ring-1 ring-white/40">
                   {logoUrl ? (
-                    <img src={logoUrl} alt="Logo do tenant" className="h-full w-full object-contain" />
+                    <img
+                      src={logoUrl}
+                      alt="Logo do tenant"
+                      className="h-full w-full rounded-full object-contain"
+                    />
                   ) : (
-                    <div className="flex h-full w-full items-center justify-center rounded-[18px] bg-[hsl(var(--byfrost-accent))] text-2xl font-semibold text-white">
+                    <div className="flex h-full w-full items-center justify-center rounded-full bg-[hsl(var(--byfrost-accent))] text-2xl font-semibold text-white">
                       {(activeTenant?.name?.slice(0, 1) ?? "B").toUpperCase()}
                     </div>
                   )}
@@ -761,11 +765,15 @@ export function AppShell({
                               onClick={() => setMobileNavOpen(false)}
                               className="flex items-center gap-3"
                             >
-                              <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-2xl bg-white/95 p-1 shadow-sm ring-1 ring-white/30">
+                              <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-full bg-white/95 p-1 shadow-sm ring-1 ring-white/30">
                                 {logoUrl ? (
-                                  <img src={logoUrl} alt="Logo do tenant" className="h-full w-full object-contain" />
+                                  <img
+                                    src={logoUrl}
+                                    alt="Logo do tenant"
+                                    className="h-full w-full rounded-full object-contain"
+                                  />
                                 ) : (
-                                  <div className="flex h-full w-full items-center justify-center rounded-xl bg-white/15 text-lg font-semibold text-white">
+                                  <div className="flex h-full w-full items-center justify-center rounded-full bg-white/15 text-lg font-semibold text-white">
                                     {(activeTenant?.name?.slice(0, 1) ?? "B").toUpperCase()}
                                   </div>
                                 )}

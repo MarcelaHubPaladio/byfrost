@@ -176,6 +176,11 @@ create table if not exists public.core_custom_field_defs (
   deleted_at timestamptz
 );
 
+-- IMPORTANT: core_custom_field_values uses a composite FK (tenant_id, field_def_id)
+-- that references core_custom_field_defs(tenant_id, id).
+create unique index if not exists core_custom_field_defs_tenant_id_id_uq
+  on public.core_custom_field_defs(tenant_id, id);
+
 create index if not exists core_custom_field_defs_tenant_entity_idx
   on public.core_custom_field_defs(tenant_id, entity_type, subtype);
 

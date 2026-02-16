@@ -36,11 +36,13 @@ export default function PublicProposal() {
   const [data, setData] = useState<ApiData | null>(null);
   const [loading, setLoading] = useState(false);
   const [acting, setActing] = useState<"approve" | "sign" | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const load = async () => {
     if (!tenantSlug || !token) return;
 
     setLoading(true);
+    setLoadError(null);
     try {
       const url = new URL(FN_URL);
       url.searchParams.set("tenant_slug", tenantSlug);
@@ -53,7 +55,9 @@ export default function PublicProposal() {
       }
       setData(json);
     } catch (e: any) {
-      showError(e?.message ?? "Erro ao carregar proposta");
+      const msg = e?.message ?? "Erro ao carregar proposta";
+      showError(msg);
+      setLoadError(msg);
       setData(null);
     } finally {
       setLoading(false);
@@ -157,6 +161,29 @@ export default function PublicProposal() {
             </div>
           </div>
         </Card>
+
+        {loadError ? (
+          <Card className="rounded-3xl border-red-200 bg-white/80 p-5 shadow-sm backdrop-blur">
+            <div className="text-sm font-semibold text-red-800">Não foi possível carregar a proposta</div>
+            <div className="mt-2 text-sm text-red-800">{loadError}</div>
+            <div className="mt-4 grid gap-2 text-xs text-slate-700">
+              <div>
+                <span className="font-semibold">Endpoint:</span> {FN_URL}
+              </div>
+              <div>
+                <span className="font-semibold">tenantSlug:</span> {tenantSlug}
+              </div>
+              <div>
+                <span className="font-semibold">token:</span> {token}
+              </div>
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
+              <Button variant="outline" className="rounded-xl" onClick={load}>
+                Tentar novamente
+              </Button>
+            </div>
+          </Card>
+        ) : null}
 
         <div className="grid gap-4 lg:grid-cols-2">
           <Card className="rounded-3xl border-slate-200 bg-white/75 p-5 shadow-sm backdrop-blur">

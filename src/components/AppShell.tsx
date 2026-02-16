@@ -118,7 +118,7 @@ function hslFromHexOrFallback(hex: string | null) {
 function setFaviconSvg(svg: string) {
   const encoded = encodeURIComponent(svg)
     .replace(/'/g, "%27")
-    .replace(/"/g, "%22");
+    .replace(/\"/g, "%22");
   const href = `data:image/svg+xml,${encoded}`;
 
   let link = document.querySelector<HTMLLinkElement>('link[rel~="icon"]');
@@ -180,11 +180,14 @@ function NavTile({
   label: string;
   disabled?: boolean;
 }) {
+  const base =
+    "flex w-full min-h-[74px] flex-col items-center justify-center gap-1.5 rounded-2xl border px-2 py-3 text-center";
+
   if (disabled) {
     return (
       <div
         className={cn(
-          "flex w-full flex-col items-center gap-1 rounded-2xl border px-2 py-2 text-center",
+          base,
           "border-slate-200 bg-white/40 text-slate-400",
           "dark:border-slate-800 dark:bg-slate-950/30 dark:text-slate-500"
         )}
@@ -207,7 +210,8 @@ function NavTile({
       end={to === "/app"}
       className={({ isActive }) =>
         cn(
-          "group flex w-full flex-col items-center gap-1 rounded-2xl border px-2 py-2 text-center transition",
+          base,
+          "transition",
           isActive
             ? "border-[hsl(var(--byfrost-accent)/0.35)] bg-[hsl(var(--byfrost-accent)/0.10)] text-[hsl(var(--byfrost-accent))]"
             : "border-slate-200 bg-white/70 text-slate-700 hover:border-slate-300 hover:bg-white"
@@ -564,23 +568,8 @@ export function AppShell({
 
   return (
     <div className="min-h-screen bg-[hsl(var(--byfrost-bg))]">
-      {/* Super-admin: floating tenant switch (top-right) */}
-      {isSuperAdmin && (
-        <Link
-          to="/tenants"
-          className={cn(
-            "fixed right-3 top-3 z-50 hidden items-center gap-2 rounded-2xl px-3 py-2 text-xs font-semibold text-white shadow-md md:inline-flex",
-            "bg-[hsl(var(--byfrost-accent))] hover:bg-[hsl(var(--byfrost-accent)/0.92)]"
-          )}
-          title="Trocar tenant"
-        >
-          <ArrowLeftRight className="h-4 w-4" />
-          <span>Trocar tenant</span>
-        </Link>
-      )}
-
-      <div className="w-full px-3 py-3 md:px-5 md:py-5">
-        <div className="grid gap-3 md:grid-cols-[96px_1fr] md:gap-5">
+      <div className="mx-auto w-full max-w-[1440px] px-3 py-3 md:px-5 md:py-5">
+        <div className="grid gap-3 md:grid-cols-[260px_1fr] md:gap-5">
           {/* Sidebar (desktop) */}
           <aside className="relative z-20 hidden overflow-visible rounded-[28px] border border-slate-200 bg-white/65 shadow-sm backdrop-blur md:sticky md:top-5 md:block md:h-[calc(100vh-40px)] dark:border-slate-800 dark:bg-slate-950/40">
             {/* Top brand block */}
@@ -599,14 +588,14 @@ export function AppShell({
                     </div>
                   )}
                 </div>
-                <div className="mt-2 max-w-[84px] truncate text-center text-[11px] font-semibold tracking-tight text-white/95">
+                <div className="mt-2 max-w-[220px] truncate text-center text-[11px] font-semibold tracking-tight text-white/95">
                   {activeTenant?.name ?? "Byfrost"}
                 </div>
               </Link>
             </div>
 
             <div className="p-3">
-              <div className="grid gap-2">
+              <div className="grid grid-cols-2 gap-2">
                 <NavTile to="/app" icon={LayoutGrid} label="Dashboard" disabled={!can("app.dashboard")} />
                 {showChatInNav && <NavTile to="/app/chat" icon={MessagesSquare} label="Chat" disabled={!can("app.chat")} />}
                 {hasCrm && <NavTile to="/app/crm" icon={LayoutDashboard} label="CRM" disabled={!can("app.crm")} />}
@@ -616,7 +605,7 @@ export function AppShell({
 
                 {/* Presença (desktop): Ponto principal + submenu no hover */}
                 {hasPresence && (
-                  <div className="group relative">
+                  <div className="group relative col-span-2">
                     <NavTile to="/app/presence" icon={Clock3} label="Ponto" disabled={!can("app.presence")} />
 
                     <div
@@ -666,7 +655,7 @@ export function AppShell({
 
                 {/* Financeiro (desktop): Cockpit principal + submenu no hover */}
                 {financeHasAnyAccess && (
-                  <div className="group relative">
+                  <div className="group relative col-span-2">
                     <NavTile
                       to="/app/finance"
                       icon={Gauge}
@@ -993,84 +982,90 @@ export function AppShell({
                     )}
                   </div>
 
-                  <DropdownMenu open={userMenuOpen} onOpenChange={setUserMenuOpen}>
-                    <DropdownMenuTrigger asChild>
-                      <button
+                  <div className="flex items-center gap-2">
+                    {isSuperAdmin && (
+                      <Button
                         type="button"
-                        className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white/75 px-2.5 py-2 text-left text-slate-900 shadow-sm transition hover:bg-white dark:border-slate-800 dark:bg-slate-950/40 dark:text-slate-100 dark:hover:bg-slate-950/60"
+                        className={cn(
+                          "h-10 rounded-2xl px-3 text-xs font-semibold text-white shadow-sm",
+                          "bg-[hsl(var(--byfrost-accent))] hover:bg-[hsl(var(--byfrost-accent)/0.92)]"
+                        )}
+                        onClick={() => nav("/tenants")}
+                        title="Trocar tenant"
+                      >
+                        <ArrowLeftRight className="mr-2 h-4 w-4" />
+                        Trocar tenant
+                      </Button>
+                    )}
+
+                    <DropdownMenu open={userMenuOpen} onOpenChange={setUserMenuOpen}>
+                      <DropdownMenuTrigger asChild>
+                        <button
+                          type="button"
+                          className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white/75 px-2.5 py-2 text-left text-slate-900 shadow-sm transition hover:bg-white dark:border-slate-800 dark:bg-slate-950/40 dark:text-slate-100 dark:hover:bg-slate-950/60"
+                          onMouseEnter={() => setUserMenuOpen(true)}
+                          onMouseLeave={() => setUserMenuOpen(false)}
+                          title={userEmail}
+                        >
+                          <Avatar className="h-8 w-8 rounded-2xl">
+                            <AvatarImage src={avatarUrl ?? undefined} alt={userName} />
+                            <AvatarFallback className="rounded-2xl bg-[hsl(var(--byfrost-accent)/0.12)] text-[hsl(var(--byfrost-accent))]">
+                              {(userName?.slice(0, 1) ?? "U").toUpperCase()}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div className="hidden sm:block">
+                            <div className="max-w-[180px] truncate text-xs font-semibold text-slate-900 dark:text-slate-100">
+                              {userName}
+                            </div>
+                            <div className="max-w-[180px] truncate text-[11px] text-slate-500 dark:text-slate-400">{activeTenant?.slug}</div>
+                          </div>
+                          <User2 className="hidden h-4 w-4 text-slate-400 sm:block" />
+                        </button>
+                      </DropdownMenuTrigger>
+
+                      <DropdownMenuContent
+                        align="end"
+                        className="w-64 rounded-2xl border-slate-200 bg-white p-2 dark:border-slate-800 dark:bg-slate-950"
                         onMouseEnter={() => setUserMenuOpen(true)}
                         onMouseLeave={() => setUserMenuOpen(false)}
-                        title={userEmail}
                       >
-                        <Avatar className="h-8 w-8 rounded-2xl">
-                          <AvatarImage src={avatarUrl ?? undefined} alt={userName} />
-                          <AvatarFallback className="rounded-2xl bg-[hsl(var(--byfrost-accent)/0.12)] text-[hsl(var(--byfrost-accent))]">
-                            {(userName?.slice(0, 1) ?? "U").toUpperCase()}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div className="hidden sm:block">
-                          <div className="max-w-[180px] truncate text-xs font-semibold text-slate-900 dark:text-slate-100">
-                            {userName}
-                          </div>
-                          <div className="max-w-[180px] truncate text-[11px] text-slate-500 dark:text-slate-400">{activeTenant?.slug}</div>
-                        </div>
-                        <User2 className="hidden h-4 w-4 text-slate-400 sm:block" />
-                      </button>
-                    </DropdownMenuTrigger>
-
-                    <DropdownMenuContent
-                      align="end"
-                      className="w-64 rounded-2xl border-slate-200 bg-white p-2 dark:border-slate-800 dark:bg-slate-950"
-                      onMouseEnter={() => setUserMenuOpen(true)}
-                      onMouseLeave={() => setUserMenuOpen(false)}
-                    >
-                      <DropdownMenuLabel className="px-2 py-2">
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="min-w-0">
-                            <div className="truncate text-xs font-semibold text-slate-900 dark:text-slate-100">{userName}</div>
-                            <div className="mt-0.5 truncate text-[11px] font-normal text-slate-600 dark:text-slate-400">{userEmail}</div>
-                          </div>
-                          {isSuperAdmin && (
-                            <div className="shrink-0 rounded-full bg-amber-100 px-2 py-1 text-[10px] font-semibold text-amber-900">
-                              super-admin
+                        <DropdownMenuLabel className="px-2 py-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="min-w-0">
+                              <div className="truncate text-xs font-semibold text-slate-900 dark:text-slate-100">{userName}</div>
+                              <div className="mt-0.5 truncate text-[11px] font-normal text-slate-600 dark:text-slate-400">{userEmail}</div>
                             </div>
-                          )}
-                        </div>
-                      </DropdownMenuLabel>
-                      <DropdownMenuSeparator className="bg-slate-200 dark:bg-slate-800" />
+                            {isSuperAdmin && (
+                              <div className="shrink-0 rounded-full bg-amber-100 px-2 py-1 text-[10px] font-semibold text-amber-900">
+                                super-admin
+                              </div>
+                            )}
+                          </div>
+                        </DropdownMenuLabel>
+                        <DropdownMenuSeparator className="bg-slate-200 dark:bg-slate-800" />
 
-                      <DropdownMenuItem
-                        className="cursor-pointer rounded-xl px-2 py-2 text-slate-700 focus:bg-slate-100 focus:text-slate-900 dark:text-slate-200 dark:focus:bg-slate-800"
-                        onSelect={(e) => {
-                          e.preventDefault();
-                          setUserMenuOpen(false);
-                          nav("/app/me");
-                        }}
-                      >
-                        <User2 className="mr-2 h-4 w-4" />
-                        Meu usuário
-                      </DropdownMenuItem>
-
-                      <DropdownMenuSeparator className="bg-slate-200 dark:bg-slate-800" />
-
-                      <DropdownMenuItem
-                        className="cursor-pointer rounded-xl px-2 py-2 text-rose-700 focus:bg-rose-50 focus:text-rose-800 dark:text-rose-300 dark:focus:bg-rose-950/30 dark:focus:text-rose-200"
-                        onSelect={(e) => {
-                          e.preventDefault();
-                          setUserMenuOpen(false);
-                          signOut();
-                        }}
-                      >
-                        <LogOut className="mr-2 h-4 w-4" />
-                        Sair
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                        <DropdownMenuItem
+                          className="cursor-pointer rounded-xl px-2 py-2 text-sm"
+                          onClick={() => nav("/app/me")}
+                        >
+                          <User2 className="mr-2 h-4 w-4" />
+                          Meu usuário
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          className="cursor-pointer rounded-xl px-2 py-2 text-sm"
+                          onClick={signOut}
+                        >
+                          <LogOut className="mr-2 h-4 w-4" />
+                          Sair
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
                 </div>
               </div>
             )}
 
-            <div className={cn(hideTopBar ? "" : "mt-3 md:mt-5")}>{children}</div>
+            <div className={cn("mt-3 md:mt-5", hideTopBar && "mt-0")}>{children}</div>
           </div>
         </div>
       </div>

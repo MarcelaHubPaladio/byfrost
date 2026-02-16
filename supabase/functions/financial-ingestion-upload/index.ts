@@ -415,7 +415,7 @@ serve(async (req) => {
       ingestionJobId: job.id,
       bucket: BUCKET,
       path,
-      accountId: accountIdRaw || null,
+      accountId: accountIdRaw || null, 
     });
 
     console.log(`[${fn}] uploaded + processed`, { tenantId, jobId: job.id, path, by: userId, out });

@@ -35,6 +35,85 @@ async function sha256Hex(text: string) {
     .join("");
 }
 
+function constantTimeEqual(a: Uint8Array, b: Uint8Array) {
+  if (a.length !== b.length) return false;
+  let out = 0;
+  for (let i = 0; i < a.length; i++) out |= a[i] ^ b[i];
+  return out === 0;
+}
+
+function encodeUtf8(s: string) {
+  return new TextEncoder().encode(s);
+}
+
+function base64Encode(bytes: Uint8Array) {
+  let bin = "";
+  for (const b of bytes) bin += String.fromCharCode(b);
+  return btoa(bin);
+}
+
+async function hmacSha256(secret: string, messageBytes: Uint8Array) {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    encodeUtf8(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const sig = await crypto.subtle.sign("HMAC", key, messageBytes);
+  return new Uint8Array(sig);
+}
+
+function parseTimestampToMs(tsRaw: string) {
+  const n = Number(tsRaw);
+  if (!Number.isFinite(n)) return null;
+  // 13 digits => ms; 10 digits => seconds
+  const ms = n > 1e12 ? n : n * 1000;
+  return ms;
+}
+
+async function verifyAutentiqueWebhookSignature(params: {
+  secret: string;
+  rawBody: string;
+  signatureHeader: string;
+  timestampHeader: string;
+  toleranceMs?: number;
+}) {
+  const toleranceMs = params.toleranceMs ?? 5 * 60 * 1000;
+
+  const tsMs = parseTimestampToMs(params.timestampHeader);
+  if (tsMs === null) return false;
+  if (Math.abs(Date.now() - tsMs) > toleranceMs) return false;
+
+  const sigHeader = String(params.signatureHeader ?? "").trim();
+  if (!sigHeader) return false;
+
+  const bodyBytes = encodeUtf8(params.rawBody);
+  const tsStr = String(params.timestampHeader);
+
+  // Autentique provides x-autentique-signature + x-autentique-timestamp.
+  // Keep verification tolerant to the most common message formats.
+  const candidateMessages: Uint8Array[] = [
+    encodeUtf8(`${tsStr}.${params.rawBody}`),
+    encodeUtf8(`${tsStr}${params.rawBody}`),
+    bodyBytes,
+  ];
+
+  for (const msg of candidateMessages) {
+    const mac = await hmacSha256(params.secret, msg);
+
+    const b64 = base64Encode(mac);
+    if (constantTimeEqual(encodeUtf8(b64), encodeUtf8(sigHeader))) return true;
+
+    const hex = Array.from(mac)
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+    if (constantTimeEqual(encodeUtf8(hex), encodeUtf8(sigHeader))) return true;
+  }
+
+  return false;
+}
+
 function pickDocumentId(payload: any): string | null {
   const v =
     payload?.document?.id ??
@@ -72,16 +151,36 @@ serve(async (req) => {
   try {
     if (req.method !== "POST") return err("method_not_allowed", 405);
 
-    // Optional shared-secret guard.
+    // Webhook signature validation (no custom headers required).
     // Configure AUTENTIQUE_WEBHOOK_SECRET in Supabase Edge Function secrets.
+    // Autentique will send: x-autentique-signature + x-autentique-timestamp
     const secret = (Deno.env.get("AUTENTIQUE_WEBHOOK_SECRET") ?? "").trim();
-    if (secret) {
-      const provided = String(req.headers.get("x-webhook-secret") ?? "").trim();
-      if (!provided || provided !== secret) return err("unauthorized", 401);
-    }
+    const signatureHeader = String(req.headers.get("x-autentique-signature") ?? "").trim();
+    const timestampHeader = String(req.headers.get("x-autentique-timestamp") ?? "").trim();
 
     const raw = await req.text();
     if (!raw) return err("empty_body", 400);
+
+    // Backwards compatibility: if your plan supports custom headers, we still accept x-webhook-secret.
+    const legacyHeaderSecret = String(req.headers.get("x-webhook-secret") ?? "").trim();
+
+    if (secret) {
+      const legacyOk = legacyHeaderSecret && legacyHeaderSecret === secret;
+      const signatureOk = await verifyAutentiqueWebhookSignature({
+        secret,
+        rawBody: raw,
+        signatureHeader,
+        timestampHeader,
+      });
+
+      if (!legacyOk && !signatureOk) {
+        return err("unauthorized", 401, {
+          reason: "missing_or_invalid_signature",
+          hasSignature: !!signatureHeader,
+          hasTimestamp: !!timestampHeader,
+        });
+      }
+    }
 
     const payload = JSON.parse(raw);
     const payloadSha = await sha256Hex(raw);

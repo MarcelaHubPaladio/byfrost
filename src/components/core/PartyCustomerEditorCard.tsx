@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { supabase, SUPABASE_URL_IN_USE } from "@/lib/supabase";
+import { supabase, SUPABASE_ANON_KEY_IN_USE, SUPABASE_URL_IN_USE } from "@/lib/supabase";
 import { Card } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -264,6 +264,7 @@ export function PartyCustomerEditorCard({
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          apikey: SUPABASE_ANON_KEY_IN_USE,
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({

@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { showError, showSuccess } from "@/utils/toast";
-import { SUPABASE_URL_IN_USE } from "@/lib/supabase";
+import { SUPABASE_ANON_KEY_IN_USE, SUPABASE_URL_IN_USE } from "@/lib/supabase";
 
 const FN_URL = `${SUPABASE_URL_IN_USE}/functions/v1/public-proposal`;
 
@@ -48,7 +48,14 @@ export default function PublicProposal() {
       url.searchParams.set("tenant_slug", tenantSlug);
       url.searchParams.set("token", token);
 
-      const res = await fetch(url.toString(), { method: "GET" });
+      const res = await fetch(url.toString(), {
+        method: "GET",
+        headers: {
+          apikey: SUPABASE_ANON_KEY_IN_USE,
+          // For public functions, Supabase accepts the anon key as bearer too.
+          Authorization: `Bearer ${SUPABASE_ANON_KEY_IN_USE}`,
+        },
+      });
       const json = (await res.json().catch(() => null)) as ApiData | null;
       if (!res.ok || !json?.ok) {
         throw new Error(safe((json as any)?.error) || `HTTP ${res.status}`);
@@ -102,7 +109,11 @@ export default function PublicProposal() {
 
       const res = await fetch(url.toString(), {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          apikey: SUPABASE_ANON_KEY_IN_USE,
+          Authorization: `Bearer ${SUPABASE_ANON_KEY_IN_USE}`,
+        },
         body: JSON.stringify({ action }),
       });
       const json = await res.json().catch(() => null);

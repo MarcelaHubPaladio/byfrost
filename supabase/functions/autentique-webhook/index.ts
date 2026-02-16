@@ -158,8 +158,21 @@ function pickStatus(payload: any): string | null {
 }
 
 function pickEventType(payload: any): string | null {
-  const v = payload?.event ?? payload?.type ?? payload?.action ?? payload?.name ?? payload?.event?.type ?? null;
-  return v ? String(v) : null;
+  const ev = payload?.event ?? payload?.type ?? payload?.action ?? payload?.name ?? null;
+
+  // Autentique v2 commonly sends: { event: { type: 'signature.accepted', ... } }
+  if (ev && typeof ev === "object") {
+    const t = (ev as any)?.type ?? (ev as any)?.name ?? null;
+    return t ? String(t) : null;
+  }
+
+  return ev ? String(ev) : null;
+}
+
+function normalizeEventToken(s: any) {
+  return String(s ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "");
 }
 
 function hasAnySignedMarker(payload: any): boolean {
@@ -187,17 +200,24 @@ function hasAnySignedMarker(payload: any): boolean {
 }
 
 function isSignedEvent(payload: any): boolean {
-  const status = String(pickStatus(payload) ?? "").toLowerCase();
-  const ev = String(pickEventType(payload) ?? "").toLowerCase();
+  const statusRaw = String(pickStatus(payload) ?? "");
+  const evRaw = String(pickEventType(payload) ?? "");
+
+  const status = normalizeEventToken(statusRaw);
+  const ev = normalizeEventToken(evRaw);
 
   // explicit status
   if (["signed", "completed", "closed", "finalized"].includes(status)) return true;
 
-  // common event names
+  // common event/status names (support dot/underscore/etc)
   if (ev.includes("signed")) return true;
   if (ev.includes("completed")) return true;
-  if (ev.includes("signature_accepted")) return true;
+  if (ev.includes("signatureaccepted")) return true;
   if (ev.includes("accepted")) return true;
+
+  // Some payloads put the event name into "status"
+  if (status.includes("signatureaccepted")) return true;
+  if (status.includes("accepted")) return true;
 
   // payload inspection
   if (hasAnySignedMarker(payload)) return true;

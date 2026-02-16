@@ -227,29 +227,47 @@ async function autentiqueGetDocumentStatus(params: { apiToken: string; documentI
   // Best-effort status check. Autentique recommends webhooks; keep this minimal.
   const url = getAutentiqueGraphqlUrl();
 
-  // Use variables to avoid escaping issues.
-  const query = `query DocumentStatus($id: UUID!) {
+  async function runQuery(query: string) {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${params.apiToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ query, variables: { id: params.documentId } }),
+    });
+
+    const text = await res.text();
+    let json: any = null;
+    try {
+      json = JSON.parse(text);
+    } catch {
+      // ignore
+    }
+    return { res, json };
+  }
+
+  // Query variant A (current)
+  const queryA = `query DocumentStatus($id: UUID!) {
     document(id: $id) {
       id
       signatures { public_id signed { created_at } rejected { created_at } }
     }
   }`;
 
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${params.apiToken}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ query, variables: { id: params.documentId } }),
-  });
+  let { res, json } = await runQuery(queryA);
 
-  const text = await res.text();
-  let json: any = null;
-  try {
-    json = JSON.parse(text);
-  } catch {
-    // ignore
+  // If schema differs, retry with accepted instead of signed.
+  const errMsg = String(json?.errors?.[0]?.message ?? "");
+  const needFallback = errMsg.toLowerCase().includes("cannot query field") && errMsg.includes("signed");
+  if ((!res.ok || json?.errors?.length) && needFallback) {
+    const queryB = `query DocumentStatus($id: UUID!) {
+      document(id: $id) {
+        id
+        signatures { public_id accepted { created_at } rejected { created_at } }
+      }
+    }`;
+    ({ res, json } = await runQuery(queryB));
   }
 
   if (!res.ok) return null;
@@ -261,8 +279,11 @@ async function autentiqueGetDocumentStatus(params: { apiToken: string; documentI
   // If any signature has a rejection, treat as rejected.
   if (sigs.some((s) => Boolean(s?.rejected?.created_at))) return "rejected";
 
-  // If any signature has been signed, treat as signed (we create documents with one signer).
+  // If any signature has been signed, treat as signed.
   if (sigs.some((s) => Boolean(s?.signed?.created_at))) return "signed";
+
+  // Fallback field name: accepted
+  if (sigs.some((s) => Boolean(s?.accepted?.created_at))) return "signed";
 
   return "pending";
 }

@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
+
 import { AppShell } from "@/components/AppShell";
 import { RequireAuth } from "@/components/RequireAuth";
 import { RequireRouteAccess } from "@/components/RequireRouteAccess";
@@ -9,6 +10,9 @@ import { supabase } from "@/lib/supabase";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Plus } from "lucide-react";
+import { EntityUpsertDialog } from "@/components/core/EntityUpsertDialog";
 
 type EntityRow = {
   id: string;
@@ -17,11 +21,14 @@ type EntityRow = {
   display_name: string;
   status: string | null;
   updated_at: string;
+  metadata?: any;
 };
 
 export default function Entities() {
   const { activeTenantId } = useTenant();
+  const nav = useNavigate();
   const [q, setQ] = useState("");
+  const [createOpen, setCreateOpen] = useState(false);
 
   const listQ = useQuery({
     queryKey: ["entities", activeTenantId, q],
@@ -29,7 +36,7 @@ export default function Entities() {
     queryFn: async () => {
       const base = supabase
         .from("core_entities")
-        .select("id,entity_type,subtype,display_name,status,updated_at")
+        .select("id,entity_type,subtype,display_name,status,updated_at,metadata")
         .eq("tenant_id", activeTenantId!)
         .is("deleted_at", null)
         .order("updated_at", { ascending: false })
@@ -60,12 +67,19 @@ export default function Entities() {
                 <div className="text-xl font-bold text-slate-900">{header}</div>
                 <div className="text-sm text-slate-600">Busca simples de party/offering.</div>
               </div>
-              <Input
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-                placeholder="Buscar por nome… (min 2)"
-                className="md:w-[360px]"
-              />
+
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <Input
+                  value={q}
+                  onChange={(e) => setQ(e.target.value)}
+                  placeholder="Buscar por nome… (min 2)"
+                  className="sm:w-[320px]"
+                />
+                <Button className="rounded-xl" onClick={() => setCreateOpen(true)} disabled={!activeTenantId}>
+                  <Plus className="mr-2 h-4 w-4" />
+                  Nova
+                </Button>
+              </div>
             </div>
 
             <Card className="rounded-2xl border-slate-200 p-0">
@@ -76,7 +90,12 @@ export default function Entities() {
                   <div className="p-4 text-sm text-slate-600">Nenhuma entidade encontrada.</div>
                 ) : (
                   rows.map((e) => (
-                    <Link key={e.id} to={`/app/entities/${e.id}`} className="block px-4 py-3 hover:bg-slate-50">
+                    <button
+                      key={e.id}
+                      type="button"
+                      onClick={() => nav(`/app/entities/${e.id}`)}
+                      className="block w-full px-4 py-3 text-left hover:bg-slate-50"
+                    >
                       <div className="flex items-center justify-between gap-3">
                         <div className="min-w-0">
                           <div className="truncate font-semibold text-slate-900">{e.display_name}</div>
@@ -88,11 +107,21 @@ export default function Entities() {
                         </div>
                         <Badge variant="secondary">{e.entity_type}</Badge>
                       </div>
-                    </Link>
+                    </button>
                   ))
                 )}
               </div>
             </Card>
+
+            {activeTenantId ? (
+              <EntityUpsertDialog
+                open={createOpen}
+                onOpenChange={setCreateOpen}
+                tenantId={activeTenantId}
+                initial={null}
+                onSaved={(id) => nav(`/app/entities/${id}`)}
+              />
+            ) : null}
           </div>
         </AppShell>
       </RequireRouteAccess>

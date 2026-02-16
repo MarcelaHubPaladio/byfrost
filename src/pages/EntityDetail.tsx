@@ -1,6 +1,6 @@
-import { useMemo } from "react";
-import { Link, useParams } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useMemo, useState } from "react";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AppShell } from "@/components/AppShell";
 import { RequireAuth } from "@/components/RequireAuth";
 import { RequireRouteAccess } from "@/components/RequireRouteAccess";
@@ -10,11 +10,16 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { EntityTimeline } from "@/components/core/EntityTimeline";
+import { Button } from "@/components/ui/button";
+import { EntityUpsertDialog } from "@/components/core/EntityUpsertDialog";
+import { ConfirmDeleteDialog } from "@/components/core/ConfirmDeleteDialog";
+import { showError, showSuccess } from "@/utils/toast";
+import { Pencil, Trash2 } from "lucide-react";
 
 type EntityRow = {
   id: string;
   tenant_id: string;
-  entity_type: string;
+  entity_type: "party" | "offering";
   subtype: string | null;
   display_name: string;
   status: string | null;
@@ -25,8 +30,14 @@ type EntityRow = {
 
 export default function EntityDetail() {
   const { id } = useParams();
+  const nav = useNavigate();
+  const qc = useQueryClient();
   const entityId = String(id ?? "");
   const { activeTenantId } = useTenant();
+
+  const [editOpen, setEditOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const entityQ = useQuery({
     queryKey: ["entity", activeTenantId, entityId],
@@ -67,12 +78,38 @@ export default function EntityDetail() {
     return entityQ.data?.display_name ?? "Entidade";
   }, [entityQ.isLoading, entityQ.data?.display_name]);
 
+  const onDelete = async () => {
+    if (!activeTenantId) return;
+    if (!entityId) return;
+
+    setDeleting(true);
+    try {
+      const { error } = await supabase
+        .from("core_entities")
+        .update({ deleted_at: new Date().toISOString() })
+        .eq("tenant_id", activeTenantId)
+        .eq("id", entityId)
+        .is("deleted_at", null);
+      if (error) throw error;
+
+      showSuccess("Entidade excluída.");
+      await qc.invalidateQueries({ queryKey: ["entities"] });
+      await qc.invalidateQueries({ queryKey: ["entity"] });
+      nav("/app/entities");
+    } catch (e: any) {
+      showError(e?.message ?? "Erro ao excluir entidade");
+    } finally {
+      setDeleting(false);
+      setDeleteOpen(false);
+    }
+  };
+
   return (
     <RequireAuth>
       <RequireRouteAccess routeKey="app.entities">
         <AppShell>
           <div className="space-y-4">
-            <div className="flex items-start justify-between gap-3">
+            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
               <div>
                 <div className="text-xl font-bold text-slate-900">{title}</div>
                 <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-slate-600">
@@ -82,13 +119,29 @@ export default function EntityDetail() {
                   <span className="text-xs text-slate-500">id: {entityId}</span>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
-                <Link
-                  to="/app/entities"
-                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-                >
+              <div className="flex flex-wrap items-center gap-2">
+                <Button variant="outline" className="rounded-xl" onClick={() => nav("/app/entities")}
+                  >
                   Voltar
-                </Link>
+                </Button>
+                <Button
+                  variant="outline"
+                  className="rounded-xl"
+                  onClick={() => setEditOpen(true)}
+                  disabled={entityQ.isLoading || entityQ.isError}
+                >
+                  <Pencil className="mr-2 h-4 w-4" />
+                  Editar
+                </Button>
+                <Button
+                  variant="outline"
+                  className="rounded-xl border-red-200 text-red-700 hover:bg-red-50"
+                  onClick={() => setDeleteOpen(true)}
+                  disabled={entityQ.isLoading || entityQ.isError}
+                >
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  Excluir
+                </Button>
                 <Link
                   to={`/app/commitments?customer=${encodeURIComponent(entityId)}`}
                   className="rounded-xl bg-slate-900 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800"
@@ -138,6 +191,28 @@ export default function EntityDetail() {
                 </TabsContent>
               </Tabs>
             )}
+
+            {activeTenantId && entityQ.data ? (
+              <EntityUpsertDialog
+                open={editOpen}
+                onOpenChange={setEditOpen}
+                tenantId={activeTenantId}
+                initial={entityQ.data}
+                onSaved={() => {
+                  qc.invalidateQueries({ queryKey: ["entity", activeTenantId, entityId] });
+                }}
+              />
+            ) : null}
+
+            <ConfirmDeleteDialog
+              open={deleteOpen}
+              onOpenChange={setDeleteOpen}
+              title="Excluir entidade?"
+              description="Isso fará soft delete (deleted_at). Você pode perder vínculos e rastreabilidade em telas futuras."
+              confirmLabel={deleting ? "Excluindo…" : "Excluir"}
+              onConfirm={onDelete}
+              disabled={deleting}
+            />
           </div>
         </AppShell>
       </RequireRouteAccess>

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { Card } from "@/components/ui/card";
@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Separator } from "@/components/ui/separator";
 import { showError, showSuccess } from "@/utils/toast";
 
 function randomToken() {
@@ -14,6 +15,15 @@ function randomToken() {
   const a = crypto.getRandomValues(new Uint8Array(16));
   return btoa(String.fromCharCode(...a)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
 }
+
+type ProposalRow = {
+  id: string;
+  token: string;
+  status: string;
+  approved_at: string | null;
+  selected_commitment_ids: string[];
+  created_at: string;
+};
 
 export function PartyProposalCard({
   tenantId,
@@ -26,6 +36,7 @@ export function PartyProposalCard({
 }) {
   const qc = useQueryClient();
   const [saving, setSaving] = useState(false);
+  const [activeProposalId, setActiveProposalId] = useState<string | null>(null);
 
   const proposalsQ = useQuery({
     queryKey: ["party_proposals", tenantId, partyId],
@@ -38,14 +49,26 @@ export function PartyProposalCard({
         .eq("party_entity_id", partyId)
         .is("deleted_at", null)
         .order("created_at", { ascending: false })
-        .limit(1);
+        .limit(25);
       if (error) throw error;
-      return (data ?? []) as any[];
+      return (data ?? []) as ProposalRow[];
     },
     staleTime: 3_000,
   });
 
-  const proposal = (proposalsQ.data ?? [])[0] ?? null;
+  const proposals = proposalsQ.data ?? [];
+
+  // Default to the most recent proposal
+  useEffect(() => {
+    if (activeProposalId) return;
+    const first = proposals[0]?.id ?? null;
+    if (first) setActiveProposalId(first);
+  }, [activeProposalId, proposals]);
+
+  const activeProposal = useMemo(() => {
+    if (!activeProposalId) return null;
+    return proposals.find((p) => p.id === activeProposalId) ?? null;
+  }, [activeProposalId, proposals]);
 
   const commitmentsQ = useQuery({
     queryKey: ["party_commitments", tenantId, partyId],
@@ -67,14 +90,17 @@ export function PartyProposalCard({
 
   const [selected, setSelected] = useState<Record<string, boolean>>({});
 
-  // hydrate selection from existing proposal
-  useMemo(() => {
-    if (!proposal?.selected_commitment_ids) return;
+  // Hydrate selection from active proposal
+  useEffect(() => {
+    if (!activeProposal) {
+      setSelected({});
+      return;
+    }
+
     const map: Record<string, boolean> = {};
-    for (const id of proposal.selected_commitment_ids as string[]) map[String(id)] = true;
-    setSelected((prev) => ({ ...map, ...prev }));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [proposal?.id]);
+    for (const id of (activeProposal.selected_commitment_ids ?? []) as string[]) map[String(id)] = true;
+    setSelected(map);
+  }, [activeProposal?.id]);
 
   const selectedIds = useMemo(() => {
     return Object.entries(selected)
@@ -83,35 +109,52 @@ export function PartyProposalCard({
   }, [selected]);
 
   const proposalUrl = useMemo(() => {
-    if (!proposal?.token) return null;
-    return `${window.location.origin}/p/${encodeURIComponent(tenantSlug)}/${encodeURIComponent(proposal.token)}`;
-  }, [proposal?.token, tenantSlug]);
+    if (!activeProposal?.token) return null;
+    return `${window.location.origin}/p/${encodeURIComponent(tenantSlug)}/${encodeURIComponent(activeProposal.token)}`;
+  }, [activeProposal?.token, tenantSlug]);
 
-  const saveProposal = async () => {
+  const createNewProposal = async () => {
     if (!tenantId || !partyId) return;
 
     setSaving(true);
     try {
-      if (proposal) {
-        const { error } = await supabase
-          .from("party_proposals")
-          .update({ selected_commitment_ids: selectedIds })
-          .eq("tenant_id", tenantId)
-          .eq("id", proposal.id)
-          .is("deleted_at", null);
-        if (error) throw error;
-        showSuccess("Proposta atualizada.");
-      } else {
-        const { error } = await supabase.from("party_proposals").insert({
+      const { data, error } = await supabase
+        .from("party_proposals")
+        .insert({
           tenant_id: tenantId,
           party_entity_id: partyId,
           token: randomToken(),
           selected_commitment_ids: selectedIds,
           status: "draft",
-        });
-        if (error) throw error;
-        showSuccess("Proposta criada.");
-      }
+        })
+        .select("id,token,status,approved_at,selected_commitment_ids,created_at")
+        .single();
+
+      if (error) throw error;
+
+      showSuccess("Nova proposta criada.");
+      await qc.invalidateQueries({ queryKey: ["party_proposals", tenantId, partyId] });
+      if (data?.id) setActiveProposalId(String(data.id));
+    } catch (e: any) {
+      showError(e?.message ?? "Erro ao criar proposta");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const saveActiveProposal = async () => {
+    if (!tenantId || !partyId || !activeProposal) return;
+
+    setSaving(true);
+    try {
+      const { error } = await supabase
+        .from("party_proposals")
+        .update({ selected_commitment_ids: selectedIds })
+        .eq("tenant_id", tenantId)
+        .eq("id", activeProposal.id)
+        .is("deleted_at", null);
+      if (error) throw error;
+      showSuccess("Proposta atualizada.");
 
       await qc.invalidateQueries({ queryKey: ["party_proposals", tenantId, partyId] });
     } catch (e: any) {
@@ -135,64 +178,119 @@ export function PartyProposalCard({
     <Card className="rounded-2xl border-slate-200 p-4">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <div className="text-sm font-semibold text-slate-900">Proposta pública</div>
+          <div className="text-sm font-semibold text-slate-900">Propostas públicas</div>
           <div className="mt-1 text-xs text-slate-600">
-            Selecione compromissos para compor o escopo. Um link público permitirá aprovar e assinar.
+            Você pode criar múltiplas propostas para o mesmo cliente (party) e gerenciar o escopo de cada uma.
           </div>
         </div>
-        <Badge variant="secondary">{proposal?.status ?? "sem proposta"}</Badge>
+        <Button className="rounded-xl" onClick={createNewProposal} disabled={saving}>
+          {saving ? "Criando…" : "Nova proposta"}
+        </Button>
       </div>
 
-      <div className="mt-4 grid gap-3">
+      <div className="mt-4 grid gap-4 md:grid-cols-[240px,1fr]">
         <div className="rounded-2xl border bg-white p-3">
-          <div className="text-xs font-semibold text-slate-700">Compromissos do cliente</div>
-          <div className="mt-2 grid gap-2">
-            {(commitmentsQ.data ?? []).length === 0 ? (
-              <div className="text-sm text-slate-600">Nenhum compromisso encontrado para este cliente.</div>
-            ) : (
-              (commitmentsQ.data ?? []).map((c: any) => (
-                <label key={c.id} className="flex items-center justify-between gap-3 rounded-xl border bg-white px-3 py-2">
-                  <div className="flex items-center gap-3">
-                    <Checkbox
-                      checked={Boolean(selected[c.id])}
-                      onCheckedChange={(v) => setSelected((prev) => ({ ...prev, [c.id]: Boolean(v) }))}
-                    />
-                    <div className="min-w-0">
-                      <div className="truncate text-sm font-semibold text-slate-900">
-                        {String(c.commitment_type)} • {String(c.id).slice(0, 8)}
-                      </div>
-                      <div className="text-xs text-slate-600">status: {c.status ?? "—"}</div>
-                    </div>
-                  </div>
-                  <Badge variant="outline">{new Date(c.created_at).toLocaleDateString("pt-BR")}</Badge>
-                </label>
-              ))
-            )}
+          <div className="flex items-center justify-between">
+            <div className="text-xs font-semibold text-slate-700">Propostas</div>
+            <Badge variant="secondary">{proposals.length}</Badge>
           </div>
 
-          <div className="mt-3 flex justify-end">
-            <Button className="rounded-xl" onClick={saveProposal} disabled={saving}>
-              {saving ? "Salvando…" : proposal ? "Atualizar proposta" : "Criar proposta"}
-            </Button>
+          <div className="mt-2 grid gap-2">
+            {proposals.length === 0 ? (
+              <div className="text-sm text-slate-600">Nenhuma proposta ainda.</div>
+            ) : (
+              proposals.map((p) => {
+                const isActive = p.id === activeProposalId;
+                return (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => setActiveProposalId(p.id)}
+                    className={`w-full rounded-xl border px-3 py-2 text-left transition ${
+                      isActive ? "border-slate-900 bg-slate-50" : "border-slate-200 bg-white hover:bg-slate-50"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="truncate text-sm font-semibold text-slate-900">{p.status}</div>
+                      <Badge variant={isActive ? "default" : "outline"} className="shrink-0">
+                        {String(p.token).slice(0, 6)}…
+                      </Badge>
+                    </div>
+                    <div className="mt-1 text-xs text-slate-600">
+                      {new Date(p.created_at).toLocaleString("pt-BR")} {p.approved_at ? "• aprovado" : ""}
+                    </div>
+                  </button>
+                );
+              })
+            )}
           </div>
         </div>
 
         <div className="rounded-2xl border bg-white p-3">
-          <Label className="text-xs">Link público</Label>
-          <Input value={proposalUrl ?? "Crie a proposta para gerar o link"} readOnly className="mt-1 rounded-xl" />
-          <div className="mt-2 flex items-center justify-end gap-2">
-            <Button variant="outline" className="rounded-xl" onClick={copy} disabled={!proposalUrl}>
-              Copiar link
-            </Button>
-            <Button className="rounded-xl" onClick={() => proposalUrl && window.open(proposalUrl, "_blank")} disabled={!proposalUrl}>
-              Abrir
-            </Button>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <div className="text-xs font-semibold text-slate-700">Proposta selecionada</div>
+              <div className="mt-0.5 text-sm font-semibold text-slate-900">
+                {activeProposal ? `${activeProposal.status} • ${String(activeProposal.id).slice(0, 8)}…` : "—"}
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                className="rounded-xl"
+                onClick={saveActiveProposal}
+                disabled={saving || !activeProposal}
+              >
+                {saving ? "Salvando…" : "Salvar escopo"}
+              </Button>
+            </div>
           </div>
-          {proposal?.approved_at ? (
-            <div className="mt-2 text-xs text-slate-600">Aprovado em: {new Date(proposal.approved_at).toLocaleString("pt-BR")}</div>
-          ) : (
-            <div className="mt-2 text-xs text-slate-600">Ainda não aprovado.</div>
-          )}
+
+          <Separator className="my-3" />
+
+          <div className="rounded-2xl border bg-white p-3">
+            <div className="text-xs font-semibold text-slate-700">Compromissos do cliente</div>
+            <div className="mt-2 grid gap-2">
+              {(commitmentsQ.data ?? []).length === 0 ? (
+                <div className="text-sm text-slate-600">Nenhum compromisso encontrado para este cliente.</div>
+              ) : (
+                (commitmentsQ.data ?? []).map((c: any) => (
+                  <label key={c.id} className="flex items-center justify-between gap-3 rounded-xl border bg-white px-3 py-2">
+                    <div className="flex items-center gap-3">
+                      <Checkbox
+                        checked={Boolean(selected[c.id])}
+                        onCheckedChange={(v) => setSelected((prev) => ({ ...prev, [c.id]: Boolean(v) }))}
+                      />
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-semibold text-slate-900">
+                          {String(c.commitment_type)} • {String(c.id).slice(0, 8)}
+                        </div>
+                        <div className="text-xs text-slate-600">status: {c.status ?? "—"}</div>
+                      </div>
+                    </div>
+                    <Badge variant="outline">{new Date(c.created_at).toLocaleDateString("pt-BR")}</Badge>
+                  </label>
+                ))
+              )}
+            </div>
+          </div>
+
+          <div className="mt-4 rounded-2xl border bg-white p-3">
+            <Label className="text-xs">Link público (da proposta selecionada)</Label>
+            <Input value={proposalUrl ?? "Selecione/crie uma proposta"} readOnly className="mt-1 rounded-xl" />
+            <div className="mt-2 flex items-center justify-end gap-2">
+              <Button variant="outline" className="rounded-xl" onClick={copy} disabled={!proposalUrl}>
+                Copiar link
+              </Button>
+              <Button
+                className="rounded-xl"
+                onClick={() => proposalUrl && window.open(proposalUrl, "_blank")}
+                disabled={!proposalUrl}
+              >
+                Abrir
+              </Button>
+            </div>
+          </div>
         </div>
       </div>
     </Card>

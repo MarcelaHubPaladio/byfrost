@@ -32,6 +32,7 @@ import {
   KanbanSquare,
   Building2,
   Handshake,
+  PackageCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -614,6 +615,7 @@ export function AppShell({
                 )}
 
                 <NavTile to="/app/entities" icon={Building2} label="Entidades" disabled={!can("app.entities")} />
+                <NavTile to="/app/catalog/deliverable-templates" icon={PackageCheck} label="Templates" disabled={!can("app.entities")} />
                 <NavTile to="/app/commitments" icon={Handshake} label="Compromissos" disabled={!can("app.commitments")} />
 
                 {/* Presença (desktop): Ponto principal + submenu no hover */}
@@ -846,6 +848,13 @@ export function AppShell({
                               to="/app/entities"
                               icon={Building2}
                               label="Entidades"
+                              disabled={!can("app.entities")}
+                              onNavigate={() => setMobileNavOpen(false)}
+                            />
+                            <MobileNavItem
+                              to="/app/catalog/deliverable-templates"
+                              icon={PackageCheck}
+                              label="Templates"
                               disabled={!can("app.entities")}
                               onNavigate={() => setMobileNavOpen(false)}
                             />

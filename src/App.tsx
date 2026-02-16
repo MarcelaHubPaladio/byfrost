@@ -47,6 +47,7 @@ import Commitments from "@/pages/Commitments";
 import CommitmentDetail from "@/pages/CommitmentDetail";
 import Entities from "@/pages/Entities";
 import EntityDetail from "@/pages/EntityDetail";
+import DeliverableTemplates from "@/pages/DeliverableTemplates";
 
 const queryClient = new QueryClient();
 
@@ -238,6 +239,14 @@ const App = () => (
                   }
                 />
                 <Route
+                  path="/app/catalog/deliverable-templates"
+                  element={
+                    <RequireRouteAccess routeKey="app.entities">
+                      <DeliverableTemplates />
+                    </RequireRouteAccess>
+                  }
+                />
+                <Route
                   path="/app/commitments"
                   element={
                     <RequireRouteAccess routeKey="app.commitments">
@@ -266,37 +275,11 @@ const App = () => (
                 <Route
                   path="/app/presence/manage"
                   element={
-                    <RequireRouteAccess routeKey="app.presence_manage">
-                      <PresenceManage />
-                    </RequireRouteAccess>
-                  }
-                />
-
-                {/* Integrações */}
-                <Route
-                  path="/app/integrations/meta"
-                  element={
-                    <RequireRouteAccess routeKey="app.settings">
-                      <IntegrationsMeta />
-                    </RequireRouteAccess>
-                  }
-                />
-
-                {/* Detalhes */}
-                <Route
-                  path="/app/cases/:id"
-                  element={
-                    <RequireRouteAccess routeKey="app.case_detail">
-                      <CaseDetail />
-                    </RequireRouteAccess>
-                  }
-                />
-                <Route
-                  path="/crm/cases/:id"
-                  element={
-                    <RequireRouteAccess routeKey="crm.case_detail">
-                      <CrmCaseDetail />
-                    </RequireRouteAccess>
+                    <RequireTenantRole roles={["admin", "manager"]}>
+                      <RequireRouteAccess routeKey="app.presence_manage">
+                        <PresenceManage />
+                      </RequireRouteAccess>
+                    </RequireTenantRole>
                   }
                 />
 
@@ -312,15 +295,6 @@ const App = () => (
                 />
 
                 <Route
-                  path="/app/me"
-                  element={
-                    <RequireRouteAccess routeKey="app.me">
-                      <Me />
-                    </RequireRouteAccess>
-                  }
-                />
-
-                <Route
                   path="/app/settings"
                   element={
                     <RequireRouteAccess routeKey="app.settings">
@@ -330,16 +304,35 @@ const App = () => (
                 />
 
                 <Route
+                  path="/app/me"
+                  element={
+                    <RequireRouteAccess routeKey="app.me">
+                      <Me />
+                    </RequireRouteAccess>
+                  }
+                />
+
+                <Route
                   path="/app/admin"
                   element={
                     <RequireTenantRole roles={["admin"]}>
-                      <Admin />
+                      <RequireRouteAccess routeKey="app.admin">
+                        <Admin />
+                      </RequireRouteAccess>
                     </RequireTenantRole>
                   }
                 />
 
+                {/* Legacy routes */}
+                <Route
+                  path="/app/case/:id"
+                  element={
+                    <RequireRouteAccess routeKey="app.crm">
+                      <CaseDetail />
+                    </RequireRouteAccess>
+                  }
+                />
                 <Route path="*" element={<NotFound />} />
-                <Route path="/app/*" element={<Navigate to="/app" replace />} />
               </Routes>
             </BrowserRouter>
           </TenantProvider>

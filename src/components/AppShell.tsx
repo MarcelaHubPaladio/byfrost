@@ -30,6 +30,8 @@ import {
   ArrowDownUp,
   CalendarRange,
   KanbanSquare,
+  Building2,
+  Handshake,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -380,8 +382,13 @@ export function AppShell({
         "app.chat",
         "app.crm",
         "app.content",
+        // Core
+        "app.entities",
+        "app.commitments",
+        // Presença
         "app.presence",
         "app.presence_manage",
+        // Outros
         "app.incentives_events_manage",
         "app.simulator",
         "app.settings",
@@ -601,6 +608,9 @@ export function AppShell({
                 {hasMetaContent && (
                   <NavTile to="/app/content" icon={Clapperboard} label="Conteúdo" disabled={!can("app.content")} />
                 )}
+
+                <NavTile to="/app/entities" icon={Building2} label="Entidades" disabled={!can("app.entities")} />
+                <NavTile to="/app/commitments" icon={Handshake} label="Compromissos" disabled={!can("app.commitments")} />
 
                 {/* Presença (desktop): Ponto principal + submenu no hover */}
                 {hasPresence && (
@@ -823,6 +833,21 @@ export function AppShell({
                                 onNavigate={() => setMobileNavOpen(false)}
                               />
                             )}
+
+                            <MobileNavItem
+                              to="/app/entities"
+                              icon={Building2}
+                              label="Entidades"
+                              disabled={!can("app.entities")}
+                              onNavigate={() => setMobileNavOpen(false)}
+                            />
+                            <MobileNavItem
+                              to="/app/commitments"
+                              icon={Handshake}
+                              label="Compromissos"
+                              disabled={!can("app.commitments")}
+                              onNavigate={() => setMobileNavOpen(false)}
+                            />
 
                             {/* Presença (mobile): Ponto + abrir filhos ao clicar */}
                             {hasPresence && (

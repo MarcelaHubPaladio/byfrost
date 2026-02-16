@@ -191,7 +191,8 @@ async function autentiqueCreateSignatureLink(params: { apiToken: string; signerP
   const url = getAutentiqueGraphqlUrl();
 
   // Use variables to avoid GraphQL parsing/escaping issues.
-  const query = `mutation CreateLink($publicId: String!) {
+  // Autentique expects UUID for public_id.
+  const query = `mutation CreateLink($publicId: UUID!) {
     createLinkToSignature(public_id: $publicId) { short_link }
   }`;
 
@@ -227,7 +228,7 @@ async function autentiqueGetDocumentStatus(params: { apiToken: string; documentI
   const url = getAutentiqueGraphqlUrl();
 
   // Use variables to avoid escaping issues.
-  const query = `query DocumentStatus($id: ID!) {
+  const query = `query DocumentStatus($id: UUID!) {
     document(id: $id) {
       id
       signatures { public_id signed { created_at } rejected { created_at } }

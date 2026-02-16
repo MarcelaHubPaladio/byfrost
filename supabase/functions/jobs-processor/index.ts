@@ -1342,6 +1342,33 @@ serve(async (req) => {
         const tenantId = job.tenant_id;
         const caseId = job.payload_json?.case_id as string | undefined;
 
+        if (job.type === "COMMITMENT_ORCHESTRATE") {
+          const commitmentId = String(job.payload_json?.commitment_id ?? "").trim();
+          if (!commitmentId) throw new Error("Missing payload.commitment_id");
+
+          const url = `${Deno.env.get("SUPABASE_URL")}/functions/v1/commitment-orchestrator`;
+          const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+          if (!serviceKey) throw new Error("Missing SUPABASE_SERVICE_ROLE_KEY");
+
+          const res = await fetch(url, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${serviceKey}`,
+            },
+            body: JSON.stringify({ commitment_id: commitmentId }),
+          });
+
+          const text = await res.text();
+          if (!res.ok) {
+            throw new Error(`commitment-orchestrator failed: ${res.status} ${text}`);
+          }
+
+          await supabase.from("job_queue").update({ status: "done" }).eq("id", job.id);
+          results.push({ id: job.id, ok: true, type: job.type, commitmentId, result: text });
+          continue;
+        }
+
         if (job.type === "FINANCIAL_INGESTION") {
           const ingestionJobId = String(job.payload_json?.ingestion_job_id ?? "").trim();
           const bucket = String(job.payload_json?.storage_bucket ?? "").trim();

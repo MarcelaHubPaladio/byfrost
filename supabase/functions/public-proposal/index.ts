@@ -383,6 +383,47 @@ function getPartyCustomer(meta: any) {
   };
 }
 
+function nowIso() {
+  return new Date().toISOString();
+}
+
+async function insertTimelineEventOnce(admin: any, params: {
+  tenantId: string;
+  eventType: string;
+  actorType: "system" | "ai" | "vendor" | "leader" | "admin" | "customer";
+  message: string;
+  occurredAt?: string;
+  meta?: any;
+}) {
+  const occurred_at = params.occurredAt ?? nowIso();
+  const meta = params.meta ?? {};
+
+  // Best effort: avoid duplicates for proposal lifecycle events.
+  const proposalId = String(meta?.proposal_id ?? meta?.proposalId ?? "").trim();
+  if (proposalId) {
+    const { data: existing } = await admin
+      .from("timeline_events")
+      .select("id")
+      .eq("tenant_id", params.tenantId)
+      .eq("event_type", params.eventType)
+      .eq("meta_json->>proposal_id", proposalId)
+      .limit(1);
+
+    if ((existing ?? []).length) return;
+  }
+
+  await admin.from("timeline_events").insert({
+    tenant_id: params.tenantId,
+    case_id: null,
+    event_type: params.eventType,
+    actor_type: params.actorType,
+    actor_id: null,
+    message: params.message,
+    meta_json: meta,
+    occurred_at,
+  });
+}
+
 serve(async (req) => {
   const fn = "public-proposal";
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -526,6 +567,8 @@ serve(async (req) => {
     if (casesErr) return err("cases_load_failed", 500, { message: casesErr.message });
 
     const caseIds = (cases ?? []).map((c: any) => String(c.id)).filter(Boolean);
+
+    // 1) Case/journey events
     let timelineEvents: any[] = [];
     if (caseIds.length) {
       const q = supabase
@@ -533,8 +576,6 @@ serve(async (req) => {
         .select("id,case_id,event_type,actor_type,message,occurred_at,meta_json")
         .eq("tenant_id", tenant.id)
         .in("case_id", caseIds)
-        // NOTE: some deployments may not have soft-delete on timeline_events.
-        // Avoid referencing timeline_events.deleted_at to prevent runtime errors.
         .order("occurred_at", { ascending: false })
         .limit(400);
 
@@ -542,6 +583,41 @@ serve(async (req) => {
       if (evErr) return err("timeline_load_failed", 500, { message: evErr.message });
       timelineEvents = evs ?? [];
     }
+
+    // 2) Entity events (core_entity_events) mapped into timeline shape
+    const { data: entityEventsRaw } = await supabase
+      .from("core_entity_events")
+      .select("id,event_type,before,after,actor_user_id,created_at")
+      .eq("tenant_id", tenant.id)
+      .eq("entity_id", pr.party_entity_id)
+      .order("created_at", { ascending: false })
+      .limit(200);
+
+    const entityEvents = (entityEventsRaw ?? []).map((r: any) => ({
+      id: `ce:${String(r.id)}`,
+      case_id: null,
+      event_type: `entity:${String(r.event_type)}`,
+      actor_type: r.actor_user_id ? "admin" : "system",
+      message: `Evento da entidade: ${String(r.event_type)}`,
+      occurred_at: String(r.created_at),
+      meta_json: { before: r.before ?? null, after: r.after ?? null, actor_user_id: r.actor_user_id ?? null },
+    }));
+
+    // 3) Proposal lifecycle events stored in timeline_events (case_id null)
+    const { data: proposalEventsRaw } = await supabase
+      .from("timeline_events")
+      .select("id,case_id,event_type,actor_type,message,occurred_at,meta_json")
+      .eq("tenant_id", tenant.id)
+      .is("case_id", null)
+      .eq("meta_json->>proposal_id", String(pr.id))
+      .order("occurred_at", { ascending: false })
+      .limit(200);
+
+    const proposalEvents = proposalEventsRaw ?? [];
+
+    const allHistoryEvents = [...(proposalEvents ?? []), ...(entityEvents ?? []), ...(timelineEvents ?? [])]
+      .sort((a: any, b: any) => new Date(String(b.occurred_at)).getTime() - new Date(String(a.occurred_at)).getTime())
+      .slice(0, 800);
 
     // Publications calendar for this entity: by cases -> content_publications
     let publications: any[] = [];
@@ -561,7 +637,7 @@ serve(async (req) => {
       commitments_selected: commitmentIds.length,
       deliverables_in_scope: (items ?? []).length * (templates ?? []).length,
       cases_related: (cases ?? []).length,
-      timeline_events: (timelineEvents ?? []).length,
+      timeline_events: allHistoryEvents.length,
       publications_scheduled: (publications ?? []).filter((p: any) => String(p?.publish_status ?? "") === "SCHEDULED").length,
       publications_published: (publications ?? []).filter((p: any) => String(p?.publish_status ?? "") === "PUBLISHED").length,
     };
@@ -594,6 +670,17 @@ serve(async (req) => {
           })
           .eq("tenant_id", tenant.id)
           .eq("id", pr.id);
+
+        if (autentiqueStatus === "signed") {
+          await insertTimelineEventOnce(supabase, {
+            tenantId: tenant.id,
+            eventType: "contract_signed",
+            actorType: "system",
+            message: "Contrato assinado.",
+            occurredAt: nowIso(),
+            meta: { proposal_id: pr.id, party_entity_id: pr.party_entity_id, document_id: docId },
+          });
+        }
       }
     }
 
@@ -628,7 +715,7 @@ serve(async (req) => {
         },
         history: {
           cases: cases ?? [],
-          events: timelineEvents ?? [],
+          events: allHistoryEvents,
         },
         scope: {
           commitments,
@@ -659,14 +746,25 @@ serve(async (req) => {
         approved_at: new Date().toISOString(),
       };
 
+      const approvedAtIso = nowIso();
+
       const { error: uErr } = await supabase
         .from("party_proposals")
-        .update({ status: "approved", approved_at: new Date().toISOString(), approval_json: nextApproval })
+        .update({ status: "approved", approved_at: approvedAtIso, approval_json: nextApproval })
         .eq("tenant_id", tenant.id)
         .eq("id", pr.id)
         .is("deleted_at", null);
 
       if (uErr) return err("approve_failed", 500, { message: uErr.message });
+
+      await insertTimelineEventOnce(supabase, {
+        tenantId: tenant.id,
+        eventType: "proposal_approved",
+        actorType: "customer",
+        message: "Cliente aprovou o escopo da proposta.",
+        occurredAt: approvedAtIso,
+        meta: { proposal_id: pr.id, party_entity_id: pr.party_entity_id },
+      });
 
       return json({ ok: true });
     }
@@ -785,6 +883,15 @@ serve(async (req) => {
         .is("deleted_at", null);
 
       if (upErr) return err("proposal_update_failed", 500, { message: upErr.message });
+
+      await insertTimelineEventOnce(supabase, {
+        tenantId: tenant.id,
+        eventType: "contract_sent",
+        actorType: "system",
+        message: "Contrato emitido para assinatura.",
+        occurredAt: nowIso(),
+        meta: { proposal_id: pr.id, party_entity_id: pr.party_entity_id, document_id: created.id, signing_link: signingLink },
+      });
 
       return json({ ok: true, signing_link: signingLink, document_id: created.id });
 

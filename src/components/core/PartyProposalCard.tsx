@@ -137,6 +137,23 @@ export function PartyProposalCard({
 
       if (error) throw error;
 
+      // Best effort: add an entity-level event so public/internal timelines show "proposta gerada".
+      // (ignore errors if timeline_events table differs)
+      try {
+        await supabase.from("timeline_events").insert({
+          tenant_id: tenantId,
+          case_id: null,
+          event_type: "proposal_created",
+          actor_type: "admin",
+          actor_id: null,
+          message: "Proposta gerada.",
+          meta_json: { proposal_id: data.id, party_entity_id: partyId },
+          occurred_at: new Date().toISOString(),
+        });
+      } catch {
+        // ignore
+      }
+
       showSuccess("Nova proposta criada.");
       await qc.invalidateQueries({ queryKey: ["party_proposals", tenantId, partyId] });
       if (data?.id) setActiveProposalId(String(data.id));

@@ -12,6 +12,7 @@ import { PublicPortalShell, type PublicPalette } from "@/components/public/Publi
 import { PublicReport, type PublicReportData } from "@/components/public/PublicReport";
 import { PublicPostsCalendar, type PublicPublication } from "@/components/public/PublicPostsCalendar";
 import { PublicEntityHistory, type PublicCase, type PublicTimelineEvent } from "@/components/public/PublicEntityHistory";
+import { PublicPortalLoading } from "@/components/public/PublicPortalLoading";
 
 const FN_URL = `${SUPABASE_URL_IN_USE}/functions/v1/public-proposal`;
 
@@ -257,201 +258,205 @@ export default function PublicProposal() {
   const proposal = data?.proposal;
 
   return (
-    <PublicPortalShell palette={data?.palette} tenantLogoUrl={tenant?.logo_url}>
-      <div className="mx-auto max-w-5xl space-y-4">
-        <Card className="rounded-[34px] border-black/10 bg-white/85 p-5 shadow-sm backdrop-blur">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="min-w-0">
-              <div className="text-xs font-semibold" style={{ color: "var(--public-card-text)" as any }}>
-                Proposta pública
+    <PublicPortalShell palette={data?.palette}>
+      {loading && !data ? (
+        <PublicPortalLoading label="Carregando proposta…" />
+      ) : (
+        <div className="mx-auto max-w-5xl space-y-4">
+          <Card className="rounded-[34px] border-black/10 bg-white/85 p-5 shadow-sm backdrop-blur">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                <div className="text-xs font-semibold" style={{ color: "var(--public-card-text)" as any }}>
+                  Proposta pública
+                </div>
+                <div className="mt-1 text-lg font-bold text-slate-900 line-clamp-1">
+                  {party?.display_name ?? "Cliente"}
+                </div>
+                <div className="mt-1 text-xs text-slate-600">
+                  {tenant?.name ?? tenantSlug} • token: {String(token ?? "").slice(0, 6)}…
+                </div>
               </div>
-              <div className="mt-1 text-lg font-bold text-slate-900 line-clamp-1">
-                {party?.display_name ?? "Cliente"}
-              </div>
-              <div className="mt-1 text-xs text-slate-600">
-                {tenant?.name ?? tenantSlug} • token: {String(token ?? "").slice(0, 6)}…
-              </div>
-            </div>
 
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge variant="secondary">{proposal?.status ?? (loading ? "carregando" : "—")}</Badge>
-              {proposal?.autentique_status ? (
-                <Badge variant="outline">Assinatura: {proposal.autentique_status}</Badge>
-              ) : null}
-            </div>
-          </div>
-        </Card>
-
-        {loadError ? (
-          <Card className="rounded-[34px] border-red-200 bg-white/85 p-5 shadow-sm backdrop-blur">
-            <div className="text-sm font-semibold text-red-800">Não foi possível carregar a proposta</div>
-            <div className="mt-2 text-sm text-red-800">{loadError}</div>
-            <div className="mt-4 grid gap-2 text-xs text-slate-700">
-              <div>
-                <span className="font-semibold">Endpoint:</span> {FN_URL}
-              </div>
-              <div>
-                <span className="font-semibold">Supabase URL em uso:</span> {SUPABASE_URL_IN_USE}
-                {USING_FALLBACK_SUPABASE ? (
-                  <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-900">
-                    fallback
-                  </span>
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant="secondary">{proposal?.status ?? (loading ? "carregando" : "—")}</Badge>
+                {proposal?.autentique_status ? (
+                  <Badge variant="outline">Assinatura: {proposal.autentique_status}</Badge>
                 ) : null}
               </div>
-              <div>
-                <span className="font-semibold">tenantSlug:</span> {tenantSlug}
-              </div>
-              <div>
-                <span className="font-semibold">token:</span> {token}
-              </div>
-            </div>
-            <div className="mt-4 flex justify-end gap-2">
-              <Button variant="outline" className="rounded-2xl" onClick={load}>
-                Tentar novamente
-              </Button>
             </div>
           </Card>
-        ) : null}
 
-        <Tabs defaultValue="scope" className="w-full">
-          <TabsList className="flex h-auto flex-wrap justify-start gap-2 rounded-[28px] bg-white/65 p-2">
-            <TabsTrigger value="scope" className="rounded-2xl">
-              Proposta / Escopo
-            </TabsTrigger>
-            <TabsTrigger value="report" className="rounded-2xl">
-              Relatório
-            </TabsTrigger>
-            <TabsTrigger value="calendar" className="rounded-2xl">
-              Calendário
-            </TabsTrigger>
-            <TabsTrigger value="history" className="rounded-2xl">
-              Linha do tempo
-            </TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="scope" className="mt-4 space-y-4">
-            <div className="grid gap-4 lg:grid-cols-2">
-              <Card className="rounded-[28px] border-black/10 bg-white/85 p-5 shadow-sm">
-                <div className="text-sm font-semibold text-slate-900">Seu tenant</div>
-                <div className="mt-2 text-sm text-slate-700">
-                  <div>
-                    <span className="font-semibold">Nome:</span> {tenant?.name ?? "—"}
-                  </div>
-                  <div>
-                    <span className="font-semibold">CNPJ:</span> {safe(tenant?.company?.cnpj) || "—"}
-                  </div>
-                  <div>
-                    <span className="font-semibold">Endereço:</span> {safe(tenant?.company?.address_line) || "—"}
-                  </div>
+          {loadError ? (
+            <Card className="rounded-[34px] border-red-200 bg-white/85 p-5 shadow-sm backdrop-blur">
+              <div className="text-sm font-semibold text-red-800">Não foi possível carregar a proposta</div>
+              <div className="mt-2 text-sm text-red-800">{loadError}</div>
+              <div className="mt-4 grid gap-2 text-xs text-slate-700">
+                <div>
+                  <span className="font-semibold">Endpoint:</span> {FN_URL}
                 </div>
-              </Card>
-
-              <Card className="rounded-[28px] border-black/10 bg-white/85 p-5 shadow-sm">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="text-sm font-semibold text-slate-900">Cliente</div>
-                  {party?.logo_url ? (
-                    <img
-                      src={party.logo_url}
-                      alt="Logo cliente"
-                      className="h-9 w-9 rounded-2xl object-contain bg-white p-1"
-                    />
+                <div>
+                  <span className="font-semibold">Supabase URL em uso:</span> {SUPABASE_URL_IN_USE}
+                  {USING_FALLBACK_SUPABASE ? (
+                    <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-900">
+                      fallback
+                    </span>
                   ) : null}
                 </div>
-                <div className="mt-2 text-sm text-slate-700">
-                  <div>
-                    <span className="font-semibold">Nome:</span> {party?.display_name ?? "—"}
-                  </div>
-                  <div>
-                    <span className="font-semibold">CPF/CNPJ:</span> {safe(party?.customer?.document) || "—"}
-                  </div>
-                  <div>
-                    <span className="font-semibold">Endereço:</span> {safe(party?.customer?.address_line) || "—"}
-                  </div>
-                  <div>
-                    <span className="font-semibold">WhatsApp:</span> {safe(party?.customer?.whatsapp) || "—"}
-                  </div>
-                  <div>
-                    <span className="font-semibold">Email:</span> {safe(party?.customer?.email) || "—"}
-                  </div>
-                </div>
-              </Card>
-            </div>
-
-            <Card className="rounded-[28px] border-black/10 bg-white/85 p-5 shadow-sm">
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <div className="text-sm font-semibold text-slate-900">Escopo a ser entregue</div>
-                  <div className="text-xs text-slate-600">
-                    Gerado a partir dos templates dos offerings nos compromissos selecionados.
-                  </div>
+                  <span className="font-semibold">tenantSlug:</span> {tenantSlug}
                 </div>
-                <div className="flex items-center gap-2">
-                  <Button
-                    className="rounded-2xl"
-                    onClick={() => act("approve")}
-                    disabled={loading || acting !== null || Boolean(proposal?.approved_at)}
-                  >
-                    {proposal?.approved_at
-                      ? "Escopo aprovado"
-                      : acting === "approve"
-                        ? "Aprovando…"
-                        : "Aprovar o escopo"}
-                  </Button>
-                  <Button
-                    variant="outline"
-                    className="rounded-2xl"
-                    onClick={() => act("sign")}
-                    disabled={loading || acting !== null || !proposal?.approved_at}
-                  >
-                    {acting === "sign" ? "Gerando…" : "Assinar contrato"}
-                  </Button>
+                <div>
+                  <span className="font-semibold">token:</span> {token}
                 </div>
               </div>
-
-              <Separator className="my-4" />
-
-              {loading ? (
-                <div className="text-sm text-slate-600">Carregando…</div>
-              ) : scopeLines.length === 0 ? (
-                <div className="text-sm text-slate-600">Nenhum item no escopo.</div>
-              ) : (
-                <div className="grid gap-2">
-                  {scopeLines.map((l, idx) => (
-                    <div key={idx} className="rounded-2xl border bg-white px-3 py-2 text-sm text-slate-800">
-                      {l}
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {proposal?.signing_link ? (
-                <div className="mt-4 rounded-2xl border border-black/10 bg-white px-3 py-3 text-sm">
-                  <div className="font-semibold text-slate-900">Link de assinatura</div>
-                  <div className="mt-1 break-all text-xs text-slate-700">{proposal.signing_link}</div>
-                  <Button
-                    className="mt-3 rounded-2xl"
-                    onClick={() => window.open(proposal.signing_link!, "_blank", "noopener,noreferrer")}
-                  >
-                    Abrir assinatura
-                  </Button>
-                </div>
-              ) : null}
+              <div className="mt-4 flex justify-end gap-2">
+                <Button variant="outline" className="rounded-2xl" onClick={load}>
+                  Tentar novamente
+                </Button>
+              </div>
             </Card>
-          </TabsContent>
+          ) : null}
 
-          <TabsContent value="report" className="mt-4">
-            {data?.report ? <PublicReport report={data.report} /> : null}
-          </TabsContent>
+          <Tabs defaultValue="scope" className="w-full">
+            <TabsList className="flex h-auto flex-wrap justify-start gap-2 rounded-[28px] bg-white/65 p-2">
+              <TabsTrigger value="scope" className="rounded-2xl">
+                Proposta / Escopo
+              </TabsTrigger>
+              <TabsTrigger value="report" className="rounded-2xl">
+                Relatório
+              </TabsTrigger>
+              <TabsTrigger value="calendar" className="rounded-2xl">
+                Calendário
+              </TabsTrigger>
+              <TabsTrigger value="history" className="rounded-2xl">
+                Linha do tempo
+              </TabsTrigger>
+            </TabsList>
 
-          <TabsContent value="calendar" className="mt-4">
-            <PublicPostsCalendar publications={data?.calendar?.publications ?? []} />
-          </TabsContent>
+            <TabsContent value="scope" className="mt-4 space-y-4">
+              <div className="grid gap-4 lg:grid-cols-2">
+                <Card className="rounded-[28px] border-black/10 bg-white/85 p-5 shadow-sm">
+                  <div className="text-sm font-semibold text-slate-900">Seu tenant</div>
+                  <div className="mt-2 text-sm text-slate-700">
+                    <div>
+                      <span className="font-semibold">Nome:</span> {tenant?.name ?? "—"}
+                    </div>
+                    <div>
+                      <span className="font-semibold">CNPJ:</span> {safe(tenant?.company?.cnpj) || "—"}
+                    </div>
+                    <div>
+                      <span className="font-semibold">Endereço:</span> {safe(tenant?.company?.address_line) || "—"}
+                    </div>
+                  </div>
+                </Card>
 
-          <TabsContent value="history" className="mt-4">
-            <PublicEntityHistory cases={data?.history?.cases ?? []} events={data?.history?.events ?? []} />
-          </TabsContent>
-        </Tabs>
-      </div>
+                <Card className="rounded-[28px] border-black/10 bg-white/85 p-5 shadow-sm">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-sm font-semibold text-slate-900">Cliente</div>
+                    {party?.logo_url ? (
+                      <img
+                        src={party.logo_url}
+                        alt="Logo cliente"
+                        className="h-9 w-9 rounded-2xl object-contain bg-white p-1"
+                      />
+                    ) : null}
+                  </div>
+                  <div className="mt-2 text-sm text-slate-700">
+                    <div>
+                      <span className="font-semibold">Nome:</span> {party?.display_name ?? "—"}
+                    </div>
+                    <div>
+                      <span className="font-semibold">CPF/CNPJ:</span> {safe(party?.customer?.document) || "—"}
+                    </div>
+                    <div>
+                      <span className="font-semibold">Endereço:</span> {safe(party?.customer?.address_line) || "—"}
+                    </div>
+                    <div>
+                      <span className="font-semibold">WhatsApp:</span> {safe(party?.customer?.whatsapp) || "—"}
+                    </div>
+                    <div>
+                      <span className="font-semibold">Email:</span> {safe(party?.customer?.email) || "—"}
+                    </div>
+                  </div>
+                </Card>
+              </div>
+
+              <Card className="rounded-[28px] border-black/10 bg-white/85 p-5 shadow-sm">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <div className="text-sm font-semibold text-slate-900">Escopo a ser entregue</div>
+                    <div className="text-xs text-slate-600">
+                      Gerado a partir dos templates dos offerings nos compromissos selecionados.
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      className="rounded-2xl"
+                      onClick={() => act("approve")}
+                      disabled={loading || acting !== null || Boolean(proposal?.approved_at)}
+                    >
+                      {proposal?.approved_at
+                        ? "Escopo aprovado"
+                        : acting === "approve"
+                          ? "Aprovando…"
+                          : "Aprovar o escopo"}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      className="rounded-2xl"
+                      onClick={() => act("sign")}
+                      disabled={loading || acting !== null || !proposal?.approved_at}
+                    >
+                      {acting === "sign" ? "Gerando…" : "Assinar contrato"}
+                    </Button>
+                  </div>
+                </div>
+
+                <Separator className="my-4" />
+
+                {loading ? (
+                  <div className="text-sm text-slate-600">Carregando…</div>
+                ) : scopeLines.length === 0 ? (
+                  <div className="text-sm text-slate-600">Nenhum item no escopo.</div>
+                ) : (
+                  <div className="grid gap-2">
+                    {scopeLines.map((l, idx) => (
+                      <div key={idx} className="rounded-2xl border bg-white px-3 py-2 text-sm text-slate-800">
+                        {l}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {proposal?.signing_link ? (
+                  <div className="mt-4 rounded-2xl border border-black/10 bg-white px-3 py-3 text-sm">
+                    <div className="font-semibold text-slate-900">Link de assinatura</div>
+                    <div className="mt-1 break-all text-xs text-slate-700">{proposal.signing_link}</div>
+                    <Button
+                      className="mt-3 rounded-2xl"
+                      onClick={() => window.open(proposal.signing_link!, "_blank", "noopener,noreferrer")}
+                    >
+                      Abrir assinatura
+                    </Button>
+                  </div>
+                ) : null}
+              </Card>
+            </TabsContent>
+
+            <TabsContent value="report" className="mt-4">
+              {data?.report ? <PublicReport report={data.report} /> : null}
+            </TabsContent>
+
+            <TabsContent value="calendar" className="mt-4">
+              <PublicPostsCalendar publications={data?.calendar?.publications ?? []} />
+            </TabsContent>
+
+            <TabsContent value="history" className="mt-4">
+              <PublicEntityHistory cases={data?.history?.cases ?? []} events={data?.history?.events ?? []} />
+            </TabsContent>
+          </Tabs>
+        </div>
+      )}
     </PublicPortalShell>
   );
 }

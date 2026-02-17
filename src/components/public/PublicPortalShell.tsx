@@ -59,21 +59,13 @@ export type PublicPalette = {
 
 export function PublicPortalShell({
   palette,
-  tenantLogoUrl,
   children,
 }: {
   palette: PublicPalette | null | undefined;
-  tenantLogoUrl: string | null | undefined;
   children: ReactNode;
 }) {
   useEffect(() => {
     const primaryHex = String(palette?.primary?.hex ?? "").trim();
-    if (!isValidHex(primaryHex)) return;
-
-    const rgb = hexToRgb(primaryHex);
-    if (!rgb) return;
-
-    const { h, s, l } = rgbToHsl(rgb);
 
     const root = document.documentElement;
     const prev = {
@@ -85,17 +77,29 @@ export function PublicPortalShell({
       publicCardText: root.style.getPropertyValue("--public-card-text"),
     };
 
-    const accent = `${h} ${Math.max(35, Math.min(95, s))}% ${Math.max(25, Math.min(60, l))}%`;
+    // Default while loading/without palette.
+    root.style.setProperty("--public-bg", "hsl(var(--byfrost-bg))");
+    root.style.setProperty("--public-card-text", "#0b1220");
 
-    // Inspired by mock: background is the primary brand color.
-    root.style.setProperty("--public-bg", primaryHex);
-    root.style.setProperty("--public-card-text", bestTextOnHex(primaryHex));
+    if (isValidHex(primaryHex)) {
+      const rgb = hexToRgb(primaryHex);
+      if (rgb) {
+        const { h, s, l } = rgbToHsl(rgb);
 
-    // Keep byfrost/shadcn tokens coherent on this public portal.
-    root.style.setProperty("--tenant-accent", accent);
-    root.style.setProperty("--tenant-bg", accent);
-    root.style.setProperty("--primary", accent);
-    root.style.setProperty("--ring", accent);
+        const accent = `${h} ${Math.max(35, Math.min(95, s))}% ${Math.max(25, Math.min(60, l))}%`;
+        const bg = `${h} 40% 97%`;
+
+        // Inspired by mock: background is the primary brand color.
+        root.style.setProperty("--public-bg", primaryHex);
+        root.style.setProperty("--public-card-text", bestTextOnHex(primaryHex));
+
+        // Keep byfrost/shadcn tokens coherent on this public portal.
+        root.style.setProperty("--tenant-accent", accent);
+        root.style.setProperty("--tenant-bg", bg);
+        root.style.setProperty("--primary", accent);
+        root.style.setProperty("--ring", accent);
+      }
+    }
 
     return () => {
       root.style.setProperty("--tenant-accent", prev.tenantAccent);
@@ -108,20 +112,11 @@ export function PublicPortalShell({
   }, [palette?.primary?.hex]);
 
   return (
-    <div className="min-h-screen" style={{ background: "var(--public-bg)" as any }}>
+    <div
+      className="min-h-screen transition-colors duration-300"
+      style={{ backgroundColor: "var(--public-bg)" as any }}
+    >
       <div className="mx-auto max-w-6xl px-4 py-6">
-        <div className="flex items-center justify-end">
-          <div className="rounded-[34px] bg-white/75 p-4 shadow-sm backdrop-blur">
-            <div className="flex h-24 w-28 items-center justify-center rounded-[28px] bg-white">
-              {tenantLogoUrl ? (
-                <img src={tenantLogoUrl} alt="Logo" className="max-h-16 max-w-20 object-contain" />
-              ) : (
-                <div className="text-sm font-semibold text-slate-600">Logo tenant</div>
-              )}
-            </div>
-          </div>
-        </div>
-
         <div className="mt-5">{children}</div>
       </div>
     </div>

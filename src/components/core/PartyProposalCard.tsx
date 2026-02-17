@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { supabase, SUPABASE_URL_IN_USE } from "@/lib/supabase";
+import { supabase } from "@/lib/supabase";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -9,6 +9,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { showError, showSuccess } from "@/utils/toast";
 
 function randomToken() {
@@ -43,6 +45,24 @@ function ensureArray(v: any): any[] {
   return Array.isArray(v) ? v : [];
 }
 
+function renderTemplate(body: string, vars: Record<string, string>) {
+  let out = String(body ?? "");
+  for (const [k, val] of Object.entries(vars)) {
+    // TS lib target may not include String.prototype.replaceAll
+    out = out.split(`{{${k}}}`).join(String(val ?? ""));
+  }
+  return out;
+}
+
+function partyAddressFull(md: any) {
+  const address = safe(md?.address);
+  const city = safe(md?.city);
+  const uf = safe(md?.uf ?? md?.state);
+  const cep = safe(md?.cep);
+  const parts = [address, [city, uf].filter(Boolean).join("/"), cep ? `CEP ${cep}` : ""].filter(Boolean);
+  return parts.join(" • ");
+}
+
 export function PartyProposalCard({
   tenantId,
   partyId,
@@ -55,20 +75,42 @@ export function PartyProposalCard({
   const qc = useQueryClient();
   const [saving, setSaving] = useState(false);
   const [activeProposalId, setActiveProposalId] = useState<string | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
 
   const tenantTemplatesQ = useQuery({
     queryKey: ["tenant_contract_templates_for_proposal", tenantId],
     enabled: Boolean(tenantId),
     queryFn: async () => {
-      const { data, error } = await supabase.from("tenants").select("id,branding_json").eq("id", tenantId).maybeSingle();
+      const { data, error } = await supabase.from("tenants").select("id,name,branding_json").eq("id", tenantId).maybeSingle();
       if (error) throw error;
       const bj = (data as any)?.branding_json ?? {};
-      return ensureArray(bj.contract_templates).filter(Boolean) as ContractTemplate[];
+      return {
+        tenantName: String((data as any)?.name ?? ""),
+        templates: ensureArray(bj.contract_templates).filter(Boolean) as ContractTemplate[],
+      };
     },
     staleTime: 10_000,
   });
 
-  const templates = tenantTemplatesQ.data ?? [];
+  const tenantName = tenantTemplatesQ.data?.tenantName ?? "";
+  const templates = tenantTemplatesQ.data?.templates ?? [];
+
+  const partyQ = useQuery({
+    queryKey: ["party_entity_for_proposal", tenantId, partyId],
+    enabled: Boolean(tenantId && partyId),
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("core_entities")
+        .select("id,display_name,metadata")
+        .eq("tenant_id", tenantId)
+        .eq("id", partyId)
+        .is("deleted_at", null)
+        .maybeSingle();
+      if (error) throw error;
+      return (data ?? null) as any;
+    },
+    staleTime: 10_000,
+  });
 
   const proposalsQ = useQuery({
     queryKey: ["party_proposals", tenantId, partyId],
@@ -165,20 +207,65 @@ export function PartyProposalCard({
       .map(([k]) => k);
   }, [selected]);
 
+  const scopeQ = useQuery({
+    queryKey: ["proposal_scope_lines_preview", tenantId, selectedIds.join(",")],
+    enabled: Boolean(tenantId && selectedIds.length),
+    queryFn: async () => {
+      const { data: its, error: iErr } = await supabase
+        .from("commitment_items")
+        .select("id,commitment_id,offering_entity_id")
+        .eq("tenant_id", tenantId)
+        .in("commitment_id", selectedIds)
+        .is("deleted_at", null);
+      if (iErr) throw iErr;
+
+      const items = its ?? [];
+      const offeringIds = Array.from(new Set(items.map((it: any) => String(it.offering_entity_id)).filter(Boolean)));
+
+      if (!offeringIds.length) return { scopeLines: [] as string[] };
+
+      const { data: offs, error: oErr } = await supabase
+        .from("core_entities")
+        .select("id,display_name")
+        .eq("tenant_id", tenantId)
+        .in("id", offeringIds)
+        .is("deleted_at", null);
+      if (oErr) throw oErr;
+
+      const offeringsById: Record<string, any> = Object.fromEntries((offs ?? []).map((o: any) => [String(o.id), o]));
+
+      const { data: ts, error: tErr } = await supabase
+        .from("deliverable_templates")
+        .select("id,offering_entity_id,name")
+        .eq("tenant_id", tenantId)
+        .in("offering_entity_id", offeringIds)
+        .is("deleted_at", null);
+      if (tErr) throw tErr;
+
+      const templates = ts ?? [];
+      const templatesByOffering = new Map<string, any[]>();
+      for (const t of templates) {
+        const oid = String((t as any).offering_entity_id);
+        if (!templatesByOffering.has(oid)) templatesByOffering.set(oid, []);
+        templatesByOffering.get(oid)!.push(t);
+      }
+
+      const scopeLines: string[] = [];
+      for (const it of items) {
+        const oid = String((it as any).offering_entity_id);
+        const offName = String(offeringsById[oid]?.display_name ?? oid);
+        const ts2 = templatesByOffering.get(oid) ?? [];
+        for (const t of ts2) scopeLines.push(`${offName} — ${(t as any).name}`);
+      }
+
+      return { scopeLines };
+    },
+    staleTime: 2_000,
+  });
+
   const proposalUrl = useMemo(() => {
     if (!activeProposal?.token) return null;
     return `${window.location.origin}/p/${encodeURIComponent(tenantSlug)}/${encodeURIComponent(activeProposal.token)}`;
-  }, [activeProposal?.token, tenantSlug]);
-
-  const contractPdfUrl = useMemo(() => {
-    if (!activeProposal?.token) return null;
-    const base = `${SUPABASE_URL_IN_USE}/functions/v1/public-proposal`;
-    const qs = new URLSearchParams({
-      tenant_slug: tenantSlug,
-      token: activeProposal.token,
-      action: "contract_pdf",
-    });
-    return `${base}?${qs.toString()}`;
   }, [activeProposal?.token, tenantSlug]);
 
   const createNewProposal = async () => {
@@ -277,254 +364,265 @@ export function PartyProposalCard({
     }
   };
 
-  const copyContractPdf = async () => {
-    if (!contractPdfUrl) return;
-    try {
-      await navigator.clipboard.writeText(contractPdfUrl);
-      showSuccess("Link da prévia do contrato copiado.");
-    } catch {
-      showError("Não consegui copiar.");
-    }
-  };
+  const activeTemplate = useMemo(() => {
+    return templates.find((t) => String(t.id) === String(templateId)) ?? templates[0] ?? null;
+  }, [templates, templateId]);
+
+  const previewText = useMemo(() => {
+    const md = partyQ.data?.metadata ?? {};
+
+    const scopeLines = scopeQ.data?.scopeLines ?? [];
+    const scopeBlock = scopeLines.length ? scopeLines.map((l) => `• ${l}`).join("\n") : "(sem itens)";
+
+    const vars: Record<string, string> = {
+      tenant_name: safe(tenantName || tenantSlug),
+      party_name: safe(partyQ.data?.display_name || "Cliente"),
+      party_document: safe(md?.cpf_cnpj ?? md?.cpfCnpj ?? md?.document),
+      party_whatsapp: safe(md?.whatsapp ?? md?.phone ?? md?.phone_e164),
+      party_email: safe(md?.email),
+      party_address_full: partyAddressFull(md),
+      contract_term: safe(contractTerm),
+      contract_total_value: safe(contractTotalValue),
+      payment_method: safe(paymentMethod),
+      installments_due_date: safe(installmentsDueDate),
+      scope_lines: scopeBlock,
+      generated_at: new Date().toLocaleString("pt-BR"),
+    };
+
+    const body = safe(activeTemplate?.body) || `Tenant: {{tenant_name}}\nCliente: {{party_name}}\n\n{{scope_lines}}\n`;
+    return renderTemplate(body, vars);
+  }, [
+    activeTemplate?.body,
+    contractTerm,
+    contractTotalValue,
+    paymentMethod,
+    installmentsDueDate,
+    partyQ.data?.display_name,
+    partyQ.data?.metadata,
+    scopeQ.data?.scopeLines,
+    tenantName,
+    tenantSlug,
+  ]);
 
   return (
-    <Card className="rounded-2xl border-slate-200 p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <div className="text-sm font-semibold text-slate-900">Propostas públicas</div>
-          <div className="mt-1 text-xs text-slate-600">
-            Você pode criar múltiplas propostas para o mesmo cliente (party) e gerenciar o escopo de cada uma.
+    <>
+      <Card className="rounded-2xl border-slate-200 p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="text-sm font-semibold text-slate-900">Propostas públicas</div>
+            <div className="mt-1 text-xs text-slate-600">
+              Você pode criar múltiplas propostas para o mesmo cliente (party) e gerenciar o escopo de cada uma.
+            </div>
           </div>
-        </div>
-        <Button className="rounded-xl" onClick={createNewProposal} disabled={saving}>
-          {saving ? "Criando…" : "Nova proposta"}
-        </Button>
-      </div>
-
-      <div className="mt-4 grid gap-4 md:grid-cols-[240px,1fr]">
-        <div className="rounded-2xl border bg-white p-3">
-          <div className="flex items-center justify-between">
-            <div className="text-xs font-semibold text-slate-700">Propostas</div>
-            <Badge variant="secondary">{proposals.length}</Badge>
-          </div>
-
-          <div className="mt-2 grid gap-2">
-            {proposals.length === 0 ? (
-              <div className="text-sm text-slate-600">Nenhuma proposta ainda.</div>
-            ) : (
-              proposals.map((p) => {
-                const isActive = p.id === activeProposalId;
-                const autStatus = safe(p.autentique_json?.status);
-                const lastEvent = safe(p.autentique_json?.last_webhook_event);
-                const lastAt = safe(p.autentique_json?.last_webhook_received_at);
-
-                return (
-                  <button
-                    key={p.id}
-                    type="button"
-                    onClick={() => setActiveProposalId(p.id)}
-                    className={`w-full rounded-xl border px-3 py-2 text-left transition ${
-                      isActive ? "border-slate-900 bg-slate-50" : "border-slate-200 bg-white hover:bg-slate-50"
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="truncate text-sm font-semibold text-slate-900">{p.status}</div>
-                      <Badge variant={isActive ? "default" : "outline"} className="shrink-0">
-                        {String(p.token).slice(0, 6)}…
-                      </Badge>
-                    </div>
-                    <div className="mt-1 text-[11px] text-slate-600">
-                      {new Date(p.created_at).toLocaleString("pt-BR")}
-                      {autStatus ? ` • ass.: ${autStatus}` : ""}
-                    </div>
-                    {lastEvent || lastAt ? (
-                      <div className="mt-0.5 text-[11px] text-slate-500">
-                        webhook: {lastEvent || "—"}{lastAt ? ` • ${new Date(lastAt).toLocaleString("pt-BR")}` : ""}
-                      </div>
-                    ) : null}
-                  </button>
-                );
-              })
-            )}
-          </div>
+          <Button className="rounded-xl" onClick={createNewProposal} disabled={saving}>
+            {saving ? "Criando…" : "Nova proposta"}
+          </Button>
         </div>
 
-        <div className="rounded-2xl border bg-white p-3">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <div className="text-xs font-semibold text-slate-700">Proposta selecionada</div>
-              <div className="mt-0.5 text-sm font-semibold text-slate-900">
-                {activeProposal ? `${activeProposal.status} • ${String(activeProposal.id).slice(0, 8)}…` : "—"}
-              </div>
-              {activeProposal?.autentique_json?.status ? (
-                <div className="mt-1 text-xs text-slate-600">
-                  Assinatura: {String(activeProposal.autentique_json.status)}
-                </div>
-              ) : null}
-            </div>
-            <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                className="rounded-xl"
-                onClick={saveActiveProposal}
-                disabled={saving || !activeProposal}
-              >
-                {saving ? "Salvando…" : "Salvar proposta"}
-              </Button>
-            </div>
-          </div>
-
-          <Separator className="my-3" />
-
+        <div className="mt-4 grid gap-4 md:grid-cols-[240px,1fr]">
           <div className="rounded-2xl border bg-white p-3">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <div className="text-xs font-semibold text-slate-700">Template do contrato</div>
-                <div className="mt-0.5 text-xs text-slate-600">
-                  Esse modelo será usado para a prévia e quando você emitir/enviar o contrato para assinatura no Autentique.
-                </div>
-              </div>
-              <div className="min-w-[240px]">
-                <Select value={templateId} onValueChange={(v) => setTemplateId(v)}>
-                  <SelectTrigger className="h-10 rounded-xl">
-                    <SelectValue placeholder={templates.length ? "Selecione…" : "Sem templates"} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {templates.length === 0 ? (
-                      <SelectItem value="__no_templates__" disabled>
-                        Nenhum template cadastrado
-                      </SelectItem>
-                    ) : (
-                      templates.map((t) => (
-                        <SelectItem key={t.id} value={String(t.id)}>
-                          {t.name}
-                        </SelectItem>
-                      ))
-                    )}
-                  </SelectContent>
-                </Select>
-                <div className="mt-1 text-[11px] text-slate-500">
-                  Dica: cadastre/edite em "Contratos" (menu lateral) e use <span className="font-mono">{"{{scope_lines}}"}</span>.
-                </div>
-              </div>
+            <div className="flex items-center justify-between">
+              <div className="text-xs font-semibold text-slate-700">Propostas</div>
+              <Badge variant="secondary">{proposals.length}</Badge>
             </div>
 
-            <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
-              <Button
-                variant="outline"
-                className="rounded-xl"
-                onClick={() => contractPdfUrl && window.open(contractPdfUrl, "_blank")}
-                disabled={!activeProposal || !contractPdfUrl}
-              >
-                Ver contrato (prévia)
-              </Button>
-              <Button
-                variant="outline"
-                className="rounded-xl"
-                onClick={copyContractPdf}
-                disabled={!activeProposal || !contractPdfUrl}
-              >
-                Copiar link da prévia
-              </Button>
-            </div>
-          </div>
-
-          <Separator className="my-3" />
-
-          <div className="rounded-2xl border bg-white p-3">
-            <div className="text-xs font-semibold text-slate-700">Dados do contrato</div>
-            <div className="mt-2 grid gap-3 md:grid-cols-2">
-              <div className="grid gap-1">
-                <Label className="text-xs">Prazo do contrato</Label>
-                <Input
-                  value={contractTerm}
-                  onChange={(e) => setContractTerm(e.target.value)}
-                  className="h-10 rounded-xl"
-                  placeholder="Ex: 12 meses"
-                />
-              </div>
-              <div className="grid gap-1">
-                <Label className="text-xs">Valor total do contrato</Label>
-                <Input
-                  value={contractTotalValue}
-                  onChange={(e) => setContractTotalValue(e.target.value)}
-                  className="h-10 rounded-xl"
-                  placeholder="Ex: R$ 10.000,00"
-                />
-              </div>
-              <div className="grid gap-1">
-                <Label className="text-xs">Forma de pagamento</Label>
-                <Input
-                  value={paymentMethod}
-                  onChange={(e) => setPaymentMethod(e.target.value)}
-                  className="h-10 rounded-xl"
-                  placeholder="Ex: 12x no boleto"
-                />
-              </div>
-              <div className="grid gap-1">
-                <Label className="text-xs">Vencimento das parcelas</Label>
-                <Input
-                  value={installmentsDueDate}
-                  onChange={(e) => setInstallmentsDueDate(e.target.value)}
-                  className="h-10 rounded-xl"
-                  placeholder="Ex: todo dia 10"
-                />
-              </div>
-            </div>
-            <div className="mt-2 text-[11px] text-slate-500">
-              Esses campos viram variáveis no template: <span className="font-mono">{"{{contract_term}}"}</span>,{" "}
-              <span className="font-mono">{"{{contract_total_value}}"}</span>, <span className="font-mono">{"{{payment_method}}"}</span>,{" "}
-              <span className="font-mono">{"{{installments_due_date}}"}</span>.
-            </div>
-          </div>
-
-          <Separator className="my-3" />
-
-          <div className="rounded-2xl border bg-white p-3">
-            <div className="text-xs font-semibold text-slate-700">Compromissos do cliente</div>
             <div className="mt-2 grid gap-2">
-              {(commitmentsQ.data ?? []).length === 0 ? (
-                <div className="text-sm text-slate-600">Nenhum compromisso encontrado para este cliente.</div>
+              {proposals.length === 0 ? (
+                <div className="text-sm text-slate-600">Nenhuma proposta ainda.</div>
               ) : (
-                (commitmentsQ.data ?? []).map((c: any) => (
-                  <label key={c.id} className="flex items-center justify-between gap-3 rounded-xl border bg-white px-3 py-2">
-                    <div className="flex items-center gap-3">
-                      <Checkbox
-                        checked={Boolean(selected[c.id])}
-                        onCheckedChange={(v) => setSelected((prev) => ({ ...prev, [c.id]: Boolean(v) }))}
-                      />
-                      <div className="min-w-0">
-                        <div className="truncate text-sm font-semibold text-slate-900">
-                          {String(c.commitment_type)} • {String(c.id).slice(0, 8)}
-                        </div>
-                        <div className="text-xs text-slate-600">status: {c.status ?? "—"}</div>
+                proposals.map((p) => {
+                  const isActive = p.id === activeProposalId;
+                  const autStatus = safe(p.autentique_json?.status);
+                  const lastEvent = safe(p.autentique_json?.last_webhook_event);
+                  const lastAt = safe(p.autentique_json?.last_webhook_received_at);
+
+                  return (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => setActiveProposalId(p.id)}
+                      className={`w-full rounded-xl border px-3 py-2 text-left transition ${
+                        isActive ? "border-slate-900 bg-slate-50" : "border-slate-200 bg-white hover:bg-slate-50"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="truncate text-sm font-semibold text-slate-900">{p.status}</div>
+                        <Badge variant={isActive ? "default" : "outline"} className="shrink-0">
+                          {String(p.token).slice(0, 6)}…
+                        </Badge>
                       </div>
-                    </div>
-                    <Badge variant="outline">{new Date(c.created_at).toLocaleDateString("pt-BR")}</Badge>
-                  </label>
-                ))
+                      <div className="mt-1 text-[11px] text-slate-600">
+                        {new Date(p.created_at).toLocaleString("pt-BR")}
+                        {autStatus ? ` • ass.: ${autStatus}` : ""}
+                      </div>
+                      {lastEvent || lastAt ? (
+                        <div className="mt-0.5 text-[11px] text-slate-500">
+                          webhook: {lastEvent || "—"}{lastAt ? ` • ${new Date(lastAt).toLocaleString("pt-BR")}` : ""}
+                        </div>
+                      ) : null}
+                    </button>
+                  );
+                })
               )}
             </div>
           </div>
 
-          <div className="mt-4 rounded-2xl border bg-white p-3">
-            <Label className="text-xs">Link público (da proposta selecionada)</Label>
-            <Input value={proposalUrl ?? "Selecione/crie uma proposta"} readOnly className="mt-1 rounded-xl" />
-            <div className="mt-2 flex items-center justify-end gap-2">
-              <Button variant="outline" className="rounded-xl" onClick={copy} disabled={!proposalUrl}>
-                Copiar link
-              </Button>
-              <Button
-                className="rounded-xl"
-                onClick={() => proposalUrl && window.open(proposalUrl, "_blank")}
-                disabled={!proposalUrl}
-              >
-                Abrir
-              </Button>
+          <div className="rounded-2xl border bg-white p-3">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <div className="text-xs font-semibold text-slate-700">Proposta selecionada</div>
+                <div className="mt-0.5 text-sm font-semibold text-slate-900">
+                  {activeProposal ? `${activeProposal.status} • ${String(activeProposal.id).slice(0, 8)}…` : "—"}
+                </div>
+                {activeProposal?.autentique_json?.status ? (
+                  <div className="mt-1 text-xs text-slate-600">Assinatura: {String(activeProposal.autentique_json.status)}</div>
+                ) : null}
+              </div>
+              <div className="flex items-center gap-2">
+                <Button variant="outline" className="rounded-xl" onClick={saveActiveProposal} disabled={saving || !activeProposal}>
+                  {saving ? "Salvando…" : "Salvar proposta"}
+                </Button>
+              </div>
+            </div>
+
+            <Separator className="my-3" />
+
+            <div className="rounded-2xl border bg-white p-3">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <div className="text-xs font-semibold text-slate-700">Template do contrato</div>
+                  <div className="mt-0.5 text-xs text-slate-600">Use esse modelo para a prévia do contrato.</div>
+                </div>
+                <div className="min-w-[240px]">
+                  <Select value={templateId} onValueChange={(v) => setTemplateId(v)}>
+                    <SelectTrigger className="h-10 rounded-xl">
+                      <SelectValue placeholder={templates.length ? "Selecione…" : "Sem templates"} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {templates.length === 0 ? (
+                        <SelectItem value="__no_templates__" disabled>
+                          Nenhum template cadastrado
+                        </SelectItem>
+                      ) : (
+                        templates.map((t) => (
+                          <SelectItem key={t.id} value={String(t.id)}>
+                            {t.name}
+                          </SelectItem>
+                        ))
+                      )}
+                    </SelectContent>
+                  </Select>
+                  <div className="mt-1 text-[11px] text-slate-500">
+                    Dica: edite em "Contratos" e use <span className="font-mono">{"{{scope_lines}}"}</span>.
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
+                <Button
+                  variant="outline"
+                  className="rounded-xl"
+                  onClick={() => setPreviewOpen(true)}
+                  disabled={!activeProposal || tenantTemplatesQ.isLoading}
+                >
+                  Ver contrato (prévia texto)
+                </Button>
+              </div>
+            </div>
+
+            <Separator className="my-3" />
+
+            <div className="rounded-2xl border bg-white p-3">
+              <div className="text-xs font-semibold text-slate-700">Dados do contrato</div>
+              <div className="mt-2 grid gap-3 md:grid-cols-2">
+                <div className="grid gap-1">
+                  <Label className="text-xs">Prazo do contrato</Label>
+                  <Input value={contractTerm} onChange={(e) => setContractTerm(e.target.value)} className="h-10 rounded-xl" placeholder="Ex: 12 meses" />
+                </div>
+                <div className="grid gap-1">
+                  <Label className="text-xs">Valor total do contrato</Label>
+                  <Input
+                    value={contractTotalValue}
+                    onChange={(e) => setContractTotalValue(e.target.value)}
+                    className="h-10 rounded-xl"
+                    placeholder="Ex: R$ 10.000,00"
+                  />
+                </div>
+                <div className="grid gap-1">
+                  <Label className="text-xs">Forma de pagamento</Label>
+                  <Input value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)} className="h-10 rounded-xl" placeholder="Ex: 12x no boleto" />
+                </div>
+                <div className="grid gap-1">
+                  <Label className="text-xs">Vencimento das parcelas</Label>
+                  <Input
+                    value={installmentsDueDate}
+                    onChange={(e) => setInstallmentsDueDate(e.target.value)}
+                    className="h-10 rounded-xl"
+                    placeholder="Ex: todo dia 10"
+                  />
+                </div>
+              </div>
+              <div className="mt-2 text-[11px] text-slate-500">
+                Variáveis: <span className="font-mono">{"{{contract_term}}"}</span>, <span className="font-mono">{"{{contract_total_value}}"}</span>,{" "}
+                <span className="font-mono">{"{{payment_method}}"}</span>, <span className="font-mono">{"{{installments_due_date}}"}</span>.
+              </div>
+            </div>
+
+            <Separator className="my-3" />
+
+            <div className="rounded-2xl border bg-white p-3">
+              <div className="text-xs font-semibold text-slate-700">Compromissos do cliente</div>
+              <div className="mt-2 grid gap-2">
+                {(commitmentsQ.data ?? []).length === 0 ? (
+                  <div className="text-sm text-slate-600">Nenhum compromisso encontrado para este cliente.</div>
+                ) : (
+                  (commitmentsQ.data ?? []).map((c: any) => (
+                    <label key={c.id} className="flex items-center justify-between gap-3 rounded-xl border bg-white px-3 py-2">
+                      <div className="flex items-center gap-3">
+                        <Checkbox checked={Boolean(selected[c.id])} onCheckedChange={(v) => setSelected((prev) => ({ ...prev, [c.id]: Boolean(v) }))} />
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-semibold text-slate-900">
+                            {String(c.commitment_type)} • {String(c.id).slice(0, 8)}
+                          </div>
+                          <div className="text-xs text-slate-600">status: {c.status ?? "—"}</div>
+                        </div>
+                      </div>
+                      <Badge variant="outline">{new Date(c.created_at).toLocaleDateString("pt-BR")}</Badge>
+                    </label>
+                  ))
+                )}
+              </div>
+            </div>
+
+            <div className="mt-4 rounded-2xl border bg-white p-3">
+              <Label className="text-xs">Link público (da proposta selecionada)</Label>
+              <Input value={proposalUrl ?? "Selecione/crie uma proposta"} readOnly className="mt-1 rounded-xl" />
+              <div className="mt-2 flex items-center justify-end gap-2">
+                <Button variant="outline" className="rounded-xl" onClick={copy} disabled={!proposalUrl}>
+                  Copiar link
+                </Button>
+                <Button className="rounded-xl" onClick={() => proposalUrl && window.open(proposalUrl, "_blank")} disabled={!proposalUrl}>
+                  Abrir
+                </Button>
+              </div>
             </div>
           </div>
         </div>
-      </div>
-    </Card>
+      </Card>
+
+      <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Prévia do contrato (texto)</DialogTitle>
+          </DialogHeader>
+          <div className="text-xs text-slate-600">
+            Isso é uma prévia renderizada do template selecionado com os dados atuais (inclui escopo e campos do contrato).
+          </div>
+          <ScrollArea className="mt-3 max-h-[70vh] rounded-xl border bg-slate-50 p-3">
+            <pre className="whitespace-pre-wrap break-words font-mono text-xs text-slate-900">{previewText}</pre>
+          </ScrollArea>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

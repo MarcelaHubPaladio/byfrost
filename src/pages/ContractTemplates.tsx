@@ -181,8 +181,8 @@ export default function ContractTemplates() {
               <div className="text-xl font-bold text-slate-900">Templates de contrato</div>
               <div className="mt-1 text-sm text-slate-600">
                 Modelos (por tenant) usados para gerar o PDF enviado ao Autentique. Variáveis suportadas: {" "}
-                <span className="font-mono">{{tenant_name}}</span>, <span className="font-mono">{{party_name}}</span>,{" "}
-                <span className="font-mono">{{scope_lines}}</span>, <span className="font-mono">{{generated_at}}</span>.
+                <span className="font-mono">{"{{tenant_name}}"}</span>, <span className="font-mono">{"{{party_name}}"}</span>,{" "}
+                <span className="font-mono">{"{{scope_lines}}"}</span>, <span className="font-mono">{"{{generated_at}}"}</span>.
               </div>
             </div>
 
@@ -258,42 +258,37 @@ export default function ContractTemplates() {
                 </div>
 
                 <div className="mt-4 grid gap-3">
-                  <div>
-                    <Label className="text-xs">Nome</Label>
-                    <Input
-                      value={draftName}
-                      onChange={(e) => setDraftName(e.target.value)}
-                      className="mt-1 h-10 rounded-2xl"
-                    />
+                  <div className="grid gap-1">
+                    <Label>Nome</Label>
+                    <Input className="rounded-xl" value={draftName} onChange={(e) => setDraftName(e.target.value)} />
                   </div>
 
-                  <div>
+                  <div className="grid gap-2">
                     <div className="flex flex-wrap items-center justify-between gap-2">
-                      <Label className="text-xs">Conteúdo</Label>
-                      <div className="flex flex-wrap gap-2">
-                        <Button type="button" variant="secondary" size="sm" className="rounded-xl" onClick={() => insertVariable("scope_lines")}>
-                          + escopo
+                      <Label>Conteúdo</Label>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Button type="button" variant="outline" size="sm" className="rounded-xl" onClick={() => insertVariable("tenant_name")}>
+                          + {"{{tenant_name}}"}
                         </Button>
-                        <Button type="button" variant="secondary" size="sm" className="rounded-xl" onClick={() => insertVariable("tenant_name")}>
-                          + tenant
+                        <Button type="button" variant="outline" size="sm" className="rounded-xl" onClick={() => insertVariable("party_name")}>
+                          + {"{{party_name}}"}
                         </Button>
-                        <Button type="button" variant="secondary" size="sm" className="rounded-xl" onClick={() => insertVariable("party_name")}>
-                          + cliente
+                        <Button type="button" variant="outline" size="sm" className="rounded-xl" onClick={() => insertVariable("scope_lines")}>
+                          + {"{{scope_lines}}"}
                         </Button>
-                        <Button type="button" variant="secondary" size="sm" className="rounded-xl" onClick={() => insertVariable("generated_at")}>
-                          + data
+                        <Button type="button" variant="outline" size="sm" className="rounded-xl" onClick={() => insertVariable("generated_at")}>
+                          + {"{{generated_at}}"}
                         </Button>
                       </div>
                     </div>
-
                     <Textarea
                       value={draftBody}
                       onChange={(e) => setDraftBody(e.target.value)}
-                      className="mt-1 min-h-[360px] rounded-2xl font-mono text-xs"
-                      placeholder={DEFAULT_BODY}
+                      rows={18}
+                      className="rounded-2xl font-mono text-xs"
                     />
-                    <div className="mt-2 text-xs text-slate-600">
-                      Dica: use <span className="font-mono">{{scope_lines}}</span> em uma linha isolada para listar os itens.
+                    <div className="text-xs text-slate-600">
+                      Dica: use linhas começando com <span className="font-mono">#</span> para título (ex: <span className="font-mono"># CONTRATO</span>).
                     </div>
                   </div>
                 </div>

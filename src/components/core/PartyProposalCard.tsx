@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/lib/supabase";
+import { supabase, SUPABASE_URL_IN_USE } from "@/lib/supabase";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -135,20 +135,28 @@ export function PartyProposalCard({
   }, [activeProposal?.id]);
 
   const [templateId, setTemplateId] = useState<string>("");
+  const [contractTerm, setContractTerm] = useState<string>("");
+  const [contractTotalValue, setContractTotalValue] = useState<string>("");
+  const [paymentMethod, setPaymentMethod] = useState<string>("");
+  const [installmentsDueDate, setInstallmentsDueDate] = useState<string>("");
 
   useEffect(() => {
     if (!activeProposal) {
       setTemplateId(templates[0]?.id ? String(templates[0].id) : "");
+      setContractTerm("");
+      setContractTotalValue("");
+      setPaymentMethod("");
+      setInstallmentsDueDate("");
       return;
     }
 
     const currentId = safe(activeProposal.approval_json?.contract_template_id);
-    if (currentId) {
-      setTemplateId(currentId);
-      return;
-    }
+    setTemplateId(currentId || (templates[0]?.id ? String(templates[0].id) : ""));
 
-    setTemplateId(templates[0]?.id ? String(templates[0].id) : "");
+    setContractTerm(safe(activeProposal.approval_json?.contract_term));
+    setContractTotalValue(safe(activeProposal.approval_json?.contract_total_value));
+    setPaymentMethod(safe(activeProposal.approval_json?.payment_method));
+    setInstallmentsDueDate(safe(activeProposal.approval_json?.installments_due_date));
   }, [activeProposal?.id, templates.length]);
 
   const selectedIds = useMemo(() => {
@@ -162,12 +170,29 @@ export function PartyProposalCard({
     return `${window.location.origin}/p/${encodeURIComponent(tenantSlug)}/${encodeURIComponent(activeProposal.token)}`;
   }, [activeProposal?.token, tenantSlug]);
 
+  const contractPdfUrl = useMemo(() => {
+    if (!activeProposal?.token) return null;
+    const base = `${SUPABASE_URL_IN_USE}/functions/v1/public-proposal`;
+    const qs = new URLSearchParams({
+      tenant_slug: tenantSlug,
+      token: activeProposal.token,
+      action: "contract_pdf",
+    });
+    return `${base}?${qs.toString()}`;
+  }, [activeProposal?.token, tenantSlug]);
+
   const createNewProposal = async () => {
     if (!tenantId || !partyId) return;
 
     setSaving(true);
     try {
-      const initialApproval = templateId ? { contract_template_id: templateId } : {};
+      const initialApproval = {
+        ...(templateId ? { contract_template_id: templateId } : {}),
+        contract_term: contractTerm || null,
+        contract_total_value: contractTotalValue || null,
+        payment_method: paymentMethod || null,
+        installments_due_date: installmentsDueDate || null,
+      };
 
       const { data, error } = await supabase
         .from("party_proposals")
@@ -219,6 +244,10 @@ export function PartyProposalCard({
       const nextApprovalJson = {
         ...(activeProposal.approval_json ?? {}),
         contract_template_id: templateId || null,
+        contract_term: contractTerm || null,
+        contract_total_value: contractTotalValue || null,
+        payment_method: paymentMethod || null,
+        installments_due_date: installmentsDueDate || null,
       };
 
       const { error } = await supabase
@@ -243,6 +272,16 @@ export function PartyProposalCard({
     try {
       await navigator.clipboard.writeText(proposalUrl);
       showSuccess("Link copiado.");
+    } catch {
+      showError("Não consegui copiar.");
+    }
+  };
+
+  const copyContractPdf = async () => {
+    if (!contractPdfUrl) return;
+    try {
+      await navigator.clipboard.writeText(contractPdfUrl);
+      showSuccess("Link da prévia do contrato copiado.");
     } catch {
       showError("Não consegui copiar.");
     }
@@ -330,7 +369,7 @@ export function PartyProposalCard({
                 onClick={saveActiveProposal}
                 disabled={saving || !activeProposal}
               >
-                {saving ? "Salvando…" : "Salvar escopo"}
+                {saving ? "Salvando…" : "Salvar proposta"}
               </Button>
             </div>
           </div>
@@ -342,7 +381,7 @@ export function PartyProposalCard({
               <div>
                 <div className="text-xs font-semibold text-slate-700">Template do contrato</div>
                 <div className="mt-0.5 text-xs text-slate-600">
-                  Esse modelo será usado quando você emitir/enviar o contrato para assinatura no Autentique.
+                  Esse modelo será usado para a prévia e quando você emitir/enviar o contrato para assinatura no Autentique.
                 </div>
               </div>
               <div className="min-w-[240px]">
@@ -368,6 +407,74 @@ export function PartyProposalCard({
                   Dica: cadastre/edite em "Contratos" (menu lateral) e use <span className="font-mono">{"{{scope_lines}}"}</span>.
                 </div>
               </div>
+            </div>
+
+            <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
+              <Button
+                variant="outline"
+                className="rounded-xl"
+                onClick={() => contractPdfUrl && window.open(contractPdfUrl, "_blank")}
+                disabled={!activeProposal || !contractPdfUrl}
+              >
+                Ver contrato (prévia)
+              </Button>
+              <Button
+                variant="outline"
+                className="rounded-xl"
+                onClick={copyContractPdf}
+                disabled={!activeProposal || !contractPdfUrl}
+              >
+                Copiar link da prévia
+              </Button>
+            </div>
+          </div>
+
+          <Separator className="my-3" />
+
+          <div className="rounded-2xl border bg-white p-3">
+            <div className="text-xs font-semibold text-slate-700">Dados do contrato</div>
+            <div className="mt-2 grid gap-3 md:grid-cols-2">
+              <div className="grid gap-1">
+                <Label className="text-xs">Prazo do contrato</Label>
+                <Input
+                  value={contractTerm}
+                  onChange={(e) => setContractTerm(e.target.value)}
+                  className="h-10 rounded-xl"
+                  placeholder="Ex: 12 meses"
+                />
+              </div>
+              <div className="grid gap-1">
+                <Label className="text-xs">Valor total do contrato</Label>
+                <Input
+                  value={contractTotalValue}
+                  onChange={(e) => setContractTotalValue(e.target.value)}
+                  className="h-10 rounded-xl"
+                  placeholder="Ex: R$ 10.000,00"
+                />
+              </div>
+              <div className="grid gap-1">
+                <Label className="text-xs">Forma de pagamento</Label>
+                <Input
+                  value={paymentMethod}
+                  onChange={(e) => setPaymentMethod(e.target.value)}
+                  className="h-10 rounded-xl"
+                  placeholder="Ex: 12x no boleto"
+                />
+              </div>
+              <div className="grid gap-1">
+                <Label className="text-xs">Vencimento das parcelas</Label>
+                <Input
+                  value={installmentsDueDate}
+                  onChange={(e) => setInstallmentsDueDate(e.target.value)}
+                  className="h-10 rounded-xl"
+                  placeholder="Ex: todo dia 10"
+                />
+              </div>
+            </div>
+            <div className="mt-2 text-[11px] text-slate-500">
+              Esses campos viram variáveis no template: <span className="font-mono">{"{{contract_term}}"}</span>,{" "}
+              <span className="font-mono">{"{{contract_total_value}}"}</span>, <span className="font-mono">{"{{payment_method}}"}</span>,{" "}
+              <span className="font-mono">{"{{installments_due_date}}"}</span>.
             </div>
           </div>
 

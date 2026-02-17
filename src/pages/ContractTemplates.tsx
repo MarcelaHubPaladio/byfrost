@@ -34,7 +34,7 @@ function ensureArray(v: any): any[] {
   return Array.isArray(v) ? v : [];
 }
 
-const DEFAULT_BODY = `CONTRATO / PROPOSTA\n\nTenant: {{tenant_name}}\nCliente: {{party_name}}\n\nCliente (documento): {{party_document}}\nCliente (whatsapp): {{party_whatsapp}}\nCliente (email): {{party_email}}\nCliente (endereço): {{party_address_full}}\n\nESCOPO (deliverables)\n{{scope_lines}}\n\nGerado em: {{generated_at}}\n`;
+const DEFAULT_BODY = `CONTRATO / PROPOSTA\n\nTenant: {{tenant_name}}\nCliente: {{party_name}}\n\nCliente (documento): {{party_document}}\nCliente (whatsapp): {{party_whatsapp}}\nCliente (email): {{party_email}}\nCliente (endereço): {{party_address_full}}\n\nPrazo: {{contract_term}}\nValor total: {{contract_total_value}}\nForma de pagamento: {{payment_method}}\nVencimento das parcelas: {{installments_due_date}}\n\nESCOPO (deliverables)\n{{scope_lines}}\n\nGerado em: {{generated_at}}\n`;
 
 export default function ContractTemplates() {
   const qc = useQueryClient();
@@ -204,10 +204,12 @@ export default function ContractTemplates() {
             <div>
               <div className="text-xl font-bold text-slate-900">Templates de contrato</div>
               <div className="mt-1 text-sm text-slate-600">
-                Modelos (por tenant) usados para gerar o PDF enviado ao Autentique. Variáveis suportadas: {" "}
+                Modelos (por tenant) usados para gerar a prévia (PDF) e o PDF enviado ao Autentique. Variáveis suportadas: {" "}
                 <span className="font-mono">{"{{tenant_name}}"}</span>, <span className="font-mono">{"{{party_name}}"}</span>,{" "}
                 <span className="font-mono">{"{{party_document}}"}</span>, <span className="font-mono">{"{{party_whatsapp}}"}</span>,{" "}
                 <span className="font-mono">{"{{party_email}}"}</span>, <span className="font-mono">{"{{party_address_full}}"}</span>,{" "}
+                <span className="font-mono">{"{{contract_term}}"}</span>, <span className="font-mono">{"{{contract_total_value}}"}</span>,{" "}
+                <span className="font-mono">{"{{payment_method}}"}</span>, <span className="font-mono">{"{{installments_due_date}}"}</span>,{" "}
                 <span className="font-mono">{"{{scope_lines}}"}</span>, <span className="font-mono">{"{{generated_at}}"}</span>.
               </div>
             </div>
@@ -316,6 +318,36 @@ export default function ContractTemplates() {
                           onClick={() => insertVariable("party_address_full")}
                         >
                           + {"{{party_address_full}}"}
+                        </Button>
+                        <Button type="button" variant="outline" size="sm" className="rounded-xl" onClick={() => insertVariable("contract_term")}>
+                          + {"{{contract_term}}"}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="rounded-xl"
+                          onClick={() => insertVariable("contract_total_value")}
+                        >
+                          + {"{{contract_total_value}}"}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="rounded-xl"
+                          onClick={() => insertVariable("payment_method")}
+                        >
+                          + {"{{payment_method}}"}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="rounded-xl"
+                          onClick={() => insertVariable("installments_due_date")}
+                        >
+                          + {"{{installments_due_date}}"}
                         </Button>
                         <Button type="button" variant="outline" size="sm" className="rounded-xl" onClick={() => insertVariable("scope_lines")}>
                           + {"{{scope_lines}}"}

@@ -33,10 +33,10 @@ type ProposalRow = {
   autentique_json: any;
 };
 
-function json(data: any, status = 200) {
+function json(data: any, status = 200, extraHeaders?: Record<string, string>) {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
+    headers: { ...corsHeaders, "Content-Type": "application/json", ...(extraHeaders ?? {}) },
   });
 }
 
@@ -65,15 +65,6 @@ function renderTemplate(body: string, vars: Record<string, string>) {
     out = out.replaceAll(`{{${k}}}`, String(val ?? ""));
   }
   return out;
-}
-
-function toBase64(bytes: Uint8Array) {
-  let bin = "";
-  const chunk = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunk) {
-    bin += String.fromCharCode(...bytes.slice(i, i + chunk));
-  }
-  return btoa(bin);
 }
 
 async function buildTextContractPdf(params: { bodyText: string }) {
@@ -260,20 +251,20 @@ async function autentiqueCreateDocument(params: {
   });
 
   const text = await res.text();
-  let json: any = null;
+  let json2: any = null;
   try {
-    json = JSON.parse(text);
+    json2 = JSON.parse(text);
   } catch {
     // ignore
   }
 
-  if (!res.ok || !json?.data?.createDocument) {
-    const gqlErr = String(json?.errors?.[0]?.message ?? "").trim();
+  if (!res.ok || !json2?.data?.createDocument) {
+    const gqlErr = String(json2?.errors?.[0]?.message ?? "").trim();
     const hint = res.status === 404 ? " (verifique AUTENTIQUE_GQL_URL: v2/graphql vs v2/graphql/corporate)" : "";
     throw new Error(gqlErr ? `autentique_${gqlErr}` : `autentique_http_${res.status}${hint}`);
   }
 
-  return json.data.createDocument as {
+  return json2.data.createDocument as {
     id: string;
     name?: string;
     signatures?: Array<{ public_id: string; name: string; email: string; action?: { name?: string } | null }>;
@@ -299,16 +290,16 @@ async function autentiqueCreateSignatureLink(params: { apiToken: string; signerP
   });
 
   const text = await res.text();
-  let json: any = null;
+  let json2: any = null;
   try {
-    json = JSON.parse(text);
+    json2 = JSON.parse(text);
   } catch {
     // ignore
   }
 
-  const link = json?.data?.createLinkToSignature?.short_link ?? null;
+  const link = json2?.data?.createLinkToSignature?.short_link ?? null;
   if (!res.ok || !link) {
-    const gqlErr = String(json?.errors?.[0]?.message ?? "").trim();
+    const gqlErr = String(json2?.errors?.[0]?.message ?? "").trim();
     const hint = res.status === 404 ? " (verifique AUTENTIQUE_GQL_URL: v2/graphql vs v2/graphql/corporate)" : "";
     throw new Error(gqlErr ? `autentique_${gqlErr}` : `autentique_http_${res.status}${hint}`);
   }
@@ -333,14 +324,14 @@ async function autentiqueGetDocumentStatus(params: { apiToken: string; documentI
   });
 
   const text = await res.text();
-  let json: any = null;
+  let json2: any = null;
   try {
-    json = JSON.parse(text);
+    json2 = JSON.parse(text);
   } catch {
     // ignore
   }
 
-  const status = json?.data?.document?.status ?? null;
+  const status = json2?.data?.document?.status ?? null;
   return status ? String(status).toLowerCase() : null;
 }
 
@@ -457,7 +448,6 @@ serve(async (req) => {
 
     // Track effective status in this request (since we may update DB during GET).
     let effectiveProposalStatus: string = String(pr.status ?? "");
-    let effectiveAutentiqueStatus: string | null = pr.autentique_json?.status ?? null;
 
     // Load party entity
     const { data: party, error: eErr } = await supabase
@@ -499,21 +489,11 @@ serve(async (req) => {
 
     // Load commitments + items + templates (scope)
     const commitmentIds = (pr.selected_commitment_ids ?? []).filter(Boolean);
-    let commitments: any[] = [];
     let items: any[] = [];
     let templates: any[] = [];
     let offeringsById: Record<string, any> = {};
 
     if (commitmentIds.length) {
-      const { data: cs, error: cErr } = await supabase
-        .from("commercial_commitments")
-        .select("id,tenant_id,customer_entity_id,commitment_type,status,created_at")
-        .eq("tenant_id", tenant.id)
-        .in("id", commitmentIds)
-        .is("deleted_at", null);
-      if (cErr) return err("commitments_load_failed", 500, { message: cErr.message });
-      commitments = cs ?? [];
-
       const { data: its, error: iErr } = await supabase
         .from("commitment_items")
         .select("id,tenant_id,commitment_id,offering_entity_id,quantity,created_at")
@@ -546,27 +526,73 @@ serve(async (req) => {
       }
     }
 
-    const report = {
-      commitments_selected: commitmentIds.length,
-      commitment_items_selected: (items ?? []).length,
-      deliverable_templates_selected: (templates ?? []).length,
-      offerings_selected: Object.keys(offeringsById ?? {}).length,
-    };
+    // ---------------------------------
+    // Contract PDF preview
+    // ---------------------------------
+    const url = new URL(req.url);
+    const action = url.searchParams.get("action") ?? "";
 
-    const history = {
-      cases: [],
-      events: [],
-    };
+    const customer = getPartyCustomer((party as any)?.metadata ?? {});
 
-    const calendar = {
-      items: [],
-    };
+    if (req.method === "GET" && action === "contract_pdf") {
+      const scopeLines: string[] = [];
+      const templatesByOffering = new Map<string, any[]>();
+      for (const t of templates ?? []) {
+        const oid = String((t as any).offering_entity_id);
+        if (!templatesByOffering.has(oid)) templatesByOffering.set(oid, []);
+        templatesByOffering.get(oid)!.push(t);
+      }
+
+      for (const it of items ?? []) {
+        const oid = String((it as any).offering_entity_id);
+        const off = offeringsById[oid];
+        const offName = String(off?.display_name ?? oid);
+        const ts = templatesByOffering.get(oid) ?? [];
+        for (const t of ts) {
+          scopeLines.push(`${offName} — ${(t as any).name}`);
+        }
+      }
+
+      const tenantTemplates = ensureArray((tenant as any)?.branding_json?.contract_templates).filter(Boolean);
+      const chosenId = safeStr((pr as any)?.approval_json?.contract_template_id) || "";
+      const chosen = tenantTemplates.find((t: any) => safeStr(t?.id) === chosenId) ?? tenantTemplates[0] ?? null;
+      const chosenBody = safeStr(chosen?.body);
+
+      const scopeBlock = scopeLines.length ? scopeLines.map((l) => `• ${l}`).join("\n") : "(sem itens)";
+
+      const vars: Record<string, string> = {
+        tenant_name: safeStr((tenant as any).name ?? tenantSlug),
+        party_name: safeStr((party as any).display_name ?? "Cliente"),
+        party_legal_name: safeStr(customer?.legal_name ?? (party as any).display_name),
+        party_document: safeStr(customer?.document),
+        party_whatsapp: safeStr(customer?.whatsapp),
+        party_email: safeStr(customer?.email),
+        party_address_full: partyAddressFull(customer),
+        contract_term: safeStr((pr as any)?.approval_json?.contract_term),
+        contract_total_value: safeStr((pr as any)?.approval_json?.contract_total_value),
+        payment_method: safeStr((pr as any)?.approval_json?.payment_method),
+        installments_due_date: safeStr((pr as any)?.approval_json?.installments_due_date),
+        scope_lines: scopeBlock,
+        generated_at: new Date().toLocaleString("pt-BR"),
+      };
+
+      const bodyText = chosenBody ? renderTemplate(chosenBody, vars) : renderTemplate("{{tenant_name}}\n{{party_name}}\n\n{{scope_lines}}", vars);
+      const pdfBytes = await buildTextContractPdf({ bodyText });
+
+      return new Response(pdfBytes, {
+        status: 200,
+        headers: {
+          ...corsHeaders,
+          "Content-Type": "application/pdf",
+          "Content-Disposition": `inline; filename=contrato-previa-${tenantSlug}-${String(pr.id).slice(0, 8)}.pdf`,
+          "Cache-Control": "no-store",
+        },
+      });
+    }
 
     // ---------------------------------
     // Action handling
     // ---------------------------------
-    const url = new URL(req.url);
-    const action = url.searchParams.get("action") ?? "";
 
     if (req.method === "POST" && action === "approve") {
       const { error: upErr } = await supabase
@@ -612,7 +638,6 @@ serve(async (req) => {
         return json({ ok: true, signing_link: existingLink, already: true });
       }
 
-      const customer = getPartyCustomer((party as any).metadata ?? {});
       const signerName = String(customer?.legal_name ?? (party as any).display_name ?? "Cliente").trim();
       const signerEmail = String(customer?.email ?? "").trim();
       if (!signerEmail) return err("missing_customer_email", 400);
@@ -673,6 +698,14 @@ serve(async (req) => {
           party_whatsapp: safeStr(customer?.whatsapp),
           party_email: safeStr(customer?.email),
           party_address_full: partyAddressFull(customer),
+          contract_term: safeStr((fresh.data as any)?.approval_json?.contract_term ?? (pr as any)?.approval_json?.contract_term),
+          contract_total_value: safeStr(
+            (fresh.data as any)?.approval_json?.contract_total_value ?? (pr as any)?.approval_json?.contract_total_value
+          ),
+          payment_method: safeStr((fresh.data as any)?.approval_json?.payment_method ?? (pr as any)?.approval_json?.payment_method),
+          installments_due_date: safeStr(
+            (fresh.data as any)?.approval_json?.installments_due_date ?? (pr as any)?.approval_json?.installments_due_date
+          ),
           scope_lines: scopeBlock,
           generated_at: new Date().toLocaleString("pt-BR"),
         };
@@ -762,9 +795,6 @@ serve(async (req) => {
     // Default: GET payload
     // ---------------------
 
-    // Enrich party payload with full customer info (as requested)
-    const customer = getPartyCustomer((party as any)?.metadata ?? {});
-
     return json({
       ok: true,
       tenant: {
@@ -800,9 +830,14 @@ serve(async (req) => {
           cep: safeStr(customer?.cep) || null,
         },
       },
-      report,
-      calendar,
-      history,
+      report: {
+        commitments_selected: commitmentIds.length,
+        commitment_items_selected: (items ?? []).length,
+        deliverable_templates_selected: (templates ?? []).length,
+        offerings_selected: Object.keys(offeringsById ?? {}).length,
+      },
+      calendar: { items: [] },
+      history: { cases: [], events: [] },
     });
   } catch (e: any) {
     const msg = String(e?.message ?? String(e) ?? "internal_error").trim();

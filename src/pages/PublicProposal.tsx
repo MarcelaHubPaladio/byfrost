@@ -4,28 +4,39 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { showError, showSuccess } from "@/utils/toast";
 import { SUPABASE_ANON_KEY_IN_USE, SUPABASE_URL_IN_USE, USING_FALLBACK_SUPABASE } from "@/lib/supabase";
 import { createClient } from "@supabase/supabase-js";
+import { PublicPortalShell, type PublicPalette } from "@/components/public/PublicPortalShell";
+import { PublicReport, type PublicReportData } from "@/components/public/PublicReport";
+import { PublicPostsCalendar, type PublicPublication } from "@/components/public/PublicPostsCalendar";
+import { PublicEntityHistory, type PublicCase, type PublicTimelineEvent } from "@/components/public/PublicEntityHistory";
 
 const FN_URL = `${SUPABASE_URL_IN_USE}/functions/v1/public-proposal`;
 
 type ApiData = {
   ok: boolean;
   tenant: {
+    id: string;
     name: string;
     slug: string;
     logo_url: string | null;
     company: any;
-    palette_primary_hex?: string | null;
   };
-  party: { display_name: string; logo_url: string | null; customer: any };
+  party: { id: string; display_name: string; logo_url: string | null; customer: any };
   proposal: {
+    id: string;
     status: string;
     approved_at: string | null;
+    selected_commitment_ids: string[];
     signing_link: string | null;
     autentique_status: string | null;
   };
+  palette: PublicPalette | null;
+  report: PublicReportData;
+  calendar: { publications: PublicPublication[] };
+  history: { cases: PublicCase[]; events: PublicTimelineEvent[] };
   scope: {
     commitments: any[];
     items: any[];
@@ -40,43 +51,6 @@ const publicSb = createClient(SUPABASE_URL_IN_USE, SUPABASE_ANON_KEY_IN_USE, {
 
 function safe(s: any) {
   return String(s ?? "").trim();
-}
-
-function isValidHex(hex: string) {
-  return /^#[0-9a-fA-F]{6}$/.test(hex);
-}
-
-function hexToRgb(hex: string) {
-  if (!isValidHex(hex)) return null;
-  const v = hex.replace("#", "");
-  const r = parseInt(v.slice(0, 2), 16);
-  const g = parseInt(v.slice(2, 4), 16);
-  const b = parseInt(v.slice(4, 6), 16);
-  return { r, g, b };
-}
-
-function rgbToHsl(rgb: { r: number; g: number; b: number }) {
-  const r = rgb.r / 255;
-  const g = rgb.g / 255;
-  const b = rgb.b / 255;
-
-  const max = Math.max(r, g, b);
-  const min = Math.min(r, g, b);
-  const d = max - min;
-
-  let h = 0;
-  if (d !== 0) {
-    if (max === r) h = ((g - b) / d) % 6;
-    else if (max === g) h = (b - r) / d + 2;
-    else h = (r - g) / d + 4;
-    h *= 60;
-    if (h < 0) h += 360;
-  }
-
-  const l = (max + min) / 2;
-  const s = d === 0 ? 0 : d / (1 - Math.abs(2 * l - 1));
-
-  return { h: Math.round(h), s: Math.round(s * 100), l: Math.round(l * 100) };
 }
 
 export default function PublicProposal() {
@@ -282,60 +256,20 @@ export default function PublicProposal() {
   const party = data?.party;
   const proposal = data?.proposal;
 
-  useEffect(() => {
-    const hex = String(tenant?.palette_primary_hex ?? "").trim();
-    if (!isValidHex(hex)) return;
-
-    const rgb = hexToRgb(hex);
-    if (!rgb) return;
-
-    const { h, s, l } = rgbToHsl(rgb);
-
-    const root = document.documentElement;
-    const prev = {
-      tenantAccent: root.style.getPropertyValue("--tenant-accent"),
-      tenantBg: root.style.getPropertyValue("--tenant-bg"),
-      primary: root.style.getPropertyValue("--primary"),
-      ring: root.style.getPropertyValue("--ring"),
-    };
-
-    const accent = `${h} ${Math.max(35, Math.min(95, s))}% ${Math.max(25, Math.min(60, l))}%`;
-    const bg = `${h} 40% 97%`;
-
-    root.style.setProperty("--tenant-accent", accent);
-    root.style.setProperty("--tenant-bg", bg);
-    // Make shadcn primary match tenant accent on this public page.
-    root.style.setProperty("--primary", accent);
-    root.style.setProperty("--ring", accent);
-
-    return () => {
-      root.style.setProperty("--tenant-accent", prev.tenantAccent);
-      root.style.setProperty("--tenant-bg", prev.tenantBg);
-      root.style.setProperty("--primary", prev.primary);
-      root.style.setProperty("--ring", prev.ring);
-    };
-  }, [tenant?.palette_primary_hex]);
-
   return (
-    <div className="min-h-screen bg-[hsl(var(--byfrost-bg))] px-4 py-6">
-      <div className="mx-auto max-w-3xl space-y-4">
-        <Card className="rounded-3xl border-slate-200 bg-white/75 p-5 shadow-sm backdrop-blur">
+    <PublicPortalShell palette={data?.palette} tenantLogoUrl={tenant?.logo_url}>
+      <div className="mx-auto max-w-5xl space-y-4">
+        <Card className="rounded-[34px] border-black/10 bg-white/85 p-5 shadow-sm backdrop-blur">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-3">
-              {tenant?.logo_url ? (
-                <img
-                  src={tenant.logo_url}
-                  alt="Logo"
-                  className="h-10 w-10 rounded-2xl object-contain bg-white p-1"
-                />
-              ) : (
-                <div className="grid h-10 w-10 place-items-center rounded-2xl bg-slate-100 text-sm font-bold text-slate-700">
-                  {safe(tenant?.name).slice(0, 1).toUpperCase() || "B"}
-                </div>
-              )}
-              <div>
-                <div className="text-sm font-semibold text-slate-900">{tenant?.name ?? tenantSlug}</div>
-                <div className="text-xs text-slate-600">Proposta / Escopo</div>
+            <div className="min-w-0">
+              <div className="text-xs font-semibold" style={{ color: "var(--public-card-text)" as any }}>
+                Proposta pública
+              </div>
+              <div className="mt-1 text-lg font-bold text-slate-900 line-clamp-1">
+                {party?.display_name ?? "Cliente"}
+              </div>
+              <div className="mt-1 text-xs text-slate-600">
+                {tenant?.name ?? tenantSlug} • token: {String(token ?? "").slice(0, 6)}…
               </div>
             </div>
 
@@ -349,7 +283,7 @@ export default function PublicProposal() {
         </Card>
 
         {loadError ? (
-          <Card className="rounded-3xl border-red-200 bg-white/80 p-5 shadow-sm backdrop-blur">
+          <Card className="rounded-[34px] border-red-200 bg-white/85 p-5 shadow-sm backdrop-blur">
             <div className="text-sm font-semibold text-red-800">Não foi possível carregar a proposta</div>
             <div className="mt-2 text-sm text-red-800">{loadError}</div>
             <div className="mt-4 grid gap-2 text-xs text-slate-700">
@@ -372,125 +306,152 @@ export default function PublicProposal() {
               </div>
             </div>
             <div className="mt-4 flex justify-end gap-2">
-              <Button variant="outline" className="rounded-xl" onClick={load}>
+              <Button variant="outline" className="rounded-2xl" onClick={load}>
                 Tentar novamente
               </Button>
             </div>
           </Card>
         ) : null}
 
-        <div className="grid gap-4 lg:grid-cols-2">
-          <Card className="rounded-3xl border-slate-200 bg-white/75 p-5 shadow-sm backdrop-blur">
-            <div className="text-sm font-semibold text-slate-900">Seu tenant</div>
-            <div className="mt-2 text-sm text-slate-700">
-              <div>
-                <span className="font-semibold">Nome:</span> {tenant?.name ?? "—"}
-              </div>
-              <div>
-                <span className="font-semibold">CNPJ:</span> {safe(tenant?.company?.cnpj) || "—"}
-              </div>
-              <div>
-                <span className="font-semibold">Endereço:</span> {safe(tenant?.company?.address_line) || "—"}
-              </div>
-            </div>
-          </Card>
+        <Tabs defaultValue="scope" className="w-full">
+          <TabsList className="flex h-auto flex-wrap justify-start gap-2 rounded-[28px] bg-white/65 p-2">
+            <TabsTrigger value="scope" className="rounded-2xl">
+              Proposta / Escopo
+            </TabsTrigger>
+            <TabsTrigger value="report" className="rounded-2xl">
+              Relatório
+            </TabsTrigger>
+            <TabsTrigger value="calendar" className="rounded-2xl">
+              Calendário
+            </TabsTrigger>
+            <TabsTrigger value="history" className="rounded-2xl">
+              Linha do tempo
+            </TabsTrigger>
+          </TabsList>
 
-          <Card className="rounded-3xl border-slate-200 bg-white/75 p-5 shadow-sm backdrop-blur">
-            <div className="flex items-center justify-between gap-3">
-              <div className="text-sm font-semibold text-slate-900">Cliente</div>
-              {party?.logo_url ? (
-                <img
-                  src={party.logo_url}
-                  alt="Logo cliente"
-                  className="h-9 w-9 rounded-2xl object-contain bg-white p-1"
-                />
-              ) : null}
-            </div>
-            <div className="mt-2 text-sm text-slate-700">
-              <div>
-                <span className="font-semibold">Nome:</span> {party?.display_name ?? "—"}
-              </div>
-              <div>
-                <span className="font-semibold">CPF/CNPJ:</span> {safe(party?.customer?.document) || "—"}
-              </div>
-              <div>
-                <span className="font-semibold">Endereço:</span> {safe(party?.customer?.address_line) || "—"}
-              </div>
-              <div>
-                <span className="font-semibold">WhatsApp:</span> {safe(party?.customer?.whatsapp) || "—"}
-              </div>
-              <div>
-                <span className="font-semibold">Email:</span> {safe(party?.customer?.email) || "—"}
-              </div>
-            </div>
-          </Card>
-        </div>
-
-        <Card className="rounded-3xl border-slate-200 bg-white/75 p-5 shadow-sm backdrop-blur">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <div className="text-sm font-semibold text-slate-900">Escopo a ser entregue</div>
-              <div className="text-xs text-slate-600">
-                Gerado a partir dos templates dos offerings nos compromissos selecionados.
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <Button
-                className="rounded-xl"
-                onClick={() => act("approve")}
-                disabled={loading || acting !== null || Boolean(proposal?.approved_at)}
-              >
-                {proposal?.approved_at
-                  ? "Escopo aprovado"
-                  : acting === "approve"
-                    ? "Aprovando…"
-                    : "Aprovar o escopo"}
-              </Button>
-              <Button
-                variant="outline"
-                className="rounded-xl"
-                onClick={() => act("sign")}
-                disabled={loading || acting !== null || !proposal?.approved_at}
-              >
-                {acting === "sign" ? "Gerando…" : "Assinar contrato"}
-              </Button>
-            </div>
-          </div>
-
-          <Separator className="my-4" />
-
-          {loading ? (
-            <div className="text-sm text-slate-600">Carregando…</div>
-          ) : scopeLines.length === 0 ? (
-            <div className="text-sm text-slate-600">Nenhum item no escopo.</div>
-          ) : (
-            <div className="grid gap-2">
-              {scopeLines.map((l, idx) => (
-                <div key={idx} className="rounded-2xl border bg-white px-3 py-2 text-sm text-slate-800">
-                  {l}
+          <TabsContent value="scope" className="mt-4 space-y-4">
+            <div className="grid gap-4 lg:grid-cols-2">
+              <Card className="rounded-[28px] border-black/10 bg-white/85 p-5 shadow-sm">
+                <div className="text-sm font-semibold text-slate-900">Seu tenant</div>
+                <div className="mt-2 text-sm text-slate-700">
+                  <div>
+                    <span className="font-semibold">Nome:</span> {tenant?.name ?? "—"}
+                  </div>
+                  <div>
+                    <span className="font-semibold">CNPJ:</span> {safe(tenant?.company?.cnpj) || "—"}
+                  </div>
+                  <div>
+                    <span className="font-semibold">Endereço:</span> {safe(tenant?.company?.address_line) || "—"}
+                  </div>
                 </div>
-              ))}
-            </div>
-          )}
+              </Card>
 
-          {proposal?.signing_link ? (
-            <div className="mt-4 rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm">
-              <div className="font-semibold text-slate-900">Link de assinatura</div>
-              <div className="mt-1 break-all text-xs text-slate-700">{proposal.signing_link}</div>
-              <Button
-                className="mt-3 rounded-xl"
-                onClick={() => window.open(proposal.signing_link!, "_blank", "noopener,noreferrer")}
-              >
-                Abrir assinatura
-              </Button>
+              <Card className="rounded-[28px] border-black/10 bg-white/85 p-5 shadow-sm">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="text-sm font-semibold text-slate-900">Cliente</div>
+                  {party?.logo_url ? (
+                    <img
+                      src={party.logo_url}
+                      alt="Logo cliente"
+                      className="h-9 w-9 rounded-2xl object-contain bg-white p-1"
+                    />
+                  ) : null}
+                </div>
+                <div className="mt-2 text-sm text-slate-700">
+                  <div>
+                    <span className="font-semibold">Nome:</span> {party?.display_name ?? "—"}
+                  </div>
+                  <div>
+                    <span className="font-semibold">CPF/CNPJ:</span> {safe(party?.customer?.document) || "—"}
+                  </div>
+                  <div>
+                    <span className="font-semibold">Endereço:</span> {safe(party?.customer?.address_line) || "—"}
+                  </div>
+                  <div>
+                    <span className="font-semibold">WhatsApp:</span> {safe(party?.customer?.whatsapp) || "—"}
+                  </div>
+                  <div>
+                    <span className="font-semibold">Email:</span> {safe(party?.customer?.email) || "—"}
+                  </div>
+                </div>
+              </Card>
             </div>
-          ) : null}
-        </Card>
 
-        <div className="text-center text-xs text-slate-500">
-          {loading ? "" : `tenant: ${tenantSlug} • token: ${String(token).slice(0, 6)}…`}
-        </div>
+            <Card className="rounded-[28px] border-black/10 bg-white/85 p-5 shadow-sm">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <div className="text-sm font-semibold text-slate-900">Escopo a ser entregue</div>
+                  <div className="text-xs text-slate-600">
+                    Gerado a partir dos templates dos offerings nos compromissos selecionados.
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    className="rounded-2xl"
+                    onClick={() => act("approve")}
+                    disabled={loading || acting !== null || Boolean(proposal?.approved_at)}
+                  >
+                    {proposal?.approved_at
+                      ? "Escopo aprovado"
+                      : acting === "approve"
+                        ? "Aprovando…"
+                        : "Aprovar o escopo"}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="rounded-2xl"
+                    onClick={() => act("sign")}
+                    disabled={loading || acting !== null || !proposal?.approved_at}
+                  >
+                    {acting === "sign" ? "Gerando…" : "Assinar contrato"}
+                  </Button>
+                </div>
+              </div>
+
+              <Separator className="my-4" />
+
+              {loading ? (
+                <div className="text-sm text-slate-600">Carregando…</div>
+              ) : scopeLines.length === 0 ? (
+                <div className="text-sm text-slate-600">Nenhum item no escopo.</div>
+              ) : (
+                <div className="grid gap-2">
+                  {scopeLines.map((l, idx) => (
+                    <div key={idx} className="rounded-2xl border bg-white px-3 py-2 text-sm text-slate-800">
+                      {l}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {proposal?.signing_link ? (
+                <div className="mt-4 rounded-2xl border border-black/10 bg-white px-3 py-3 text-sm">
+                  <div className="font-semibold text-slate-900">Link de assinatura</div>
+                  <div className="mt-1 break-all text-xs text-slate-700">{proposal.signing_link}</div>
+                  <Button
+                    className="mt-3 rounded-2xl"
+                    onClick={() => window.open(proposal.signing_link!, "_blank", "noopener,noreferrer")}
+                  >
+                    Abrir assinatura
+                  </Button>
+                </div>
+              ) : null}
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="report" className="mt-4">
+            {data?.report ? <PublicReport report={data.report} /> : null}
+          </TabsContent>
+
+          <TabsContent value="calendar" className="mt-4">
+            <PublicPostsCalendar publications={data?.calendar?.publications ?? []} />
+          </TabsContent>
+
+          <TabsContent value="history" className="mt-4">
+            <PublicEntityHistory cases={data?.history?.cases ?? []} events={data?.history?.events ?? []} />
+          </TabsContent>
+        </Tabs>
       </div>
-    </div>
+    </PublicPortalShell>
   );
 }

@@ -641,30 +641,9 @@ serve(async (req) => {
     // Action handling
     // ---------------------------------
 
-    if (req.method === "POST" && action === "approve") {
-      const { error: upErr } = await supabase
-        .from("party_proposals")
-        .update({ status: "approved", approved_at: nowIso() })
-        .eq("tenant_id", tenant.id)
-        .eq("id", pr.id)
-        .is("deleted_at", null);
+    if (req.method === "POST" && (action === "sign" || action === "sign_force")) {
+      const force = action === "sign_force";
 
-      if (upErr) return err("proposal_update_failed", 500, { message: upErr.message });
-
-      await insertTimelineEventOnce(supabase, {
-        tenantId: tenant.id,
-        eventType: "proposal_approved",
-        actorType: "system",
-        message: "Proposta aprovada.",
-        occurredAt: nowIso(),
-        meta: { proposal_id: pr.id, party_entity_id: pr.party_entity_id },
-      });
-
-      effectiveProposalStatus = "approved";
-      return json({ ok: true });
-    }
-
-    if (req.method === "POST" && action === "sign") {
       // Validate/refresh proposal status
       const { data: fresh, error: fErr } = await supabase
         .from("party_proposals")
@@ -679,9 +658,9 @@ serve(async (req) => {
       const approvedAt = (fresh as any)?.approved_at ?? null;
       if (!approvedAt) return err("scope_not_approved", 403);
 
-      // BLOCK: do not create multiple signing links/documents.
+      // BLOCK: do not create multiple signing links/documents (unless force).
       const existingLink = String((fresh as any)?.autentique_json?.signing_link ?? "").trim();
-      if (existingLink) {
+      if (!force && existingLink) {
         return json({ ok: true, signing_link: existingLink, already: true });
       }
 
@@ -839,12 +818,35 @@ serve(async (req) => {
         tenantId: tenant.id,
         eventType: "contract_sent",
         actorType: "system",
-        message: "Contrato emitido para assinatura.",
+        message: force ? "Contrato reenviado para assinatura." : "Contrato emitido para assinatura.",
         occurredAt: nowIso(),
         meta: { proposal_id: pr.id, party_entity_id: pr.party_entity_id, document_id: created.id, signing_link: signingLink },
       });
 
-      return json({ ok: true, signing_link: signingLink, document_id: created.id });
+      return json({ ok: true, signing_link: signingLink, document_id: created.id, forced: force });
+    }
+
+    if (req.method === "POST" && action === "approve") {
+      const { error: upErr } = await supabase
+        .from("party_proposals")
+        .update({ status: "approved", approved_at: nowIso() })
+        .eq("tenant_id", tenant.id)
+        .eq("id", pr.id)
+        .is("deleted_at", null);
+
+      if (upErr) return err("proposal_update_failed", 500, { message: upErr.message });
+
+      await insertTimelineEventOnce(supabase, {
+        tenantId: tenant.id,
+        eventType: "proposal_approved",
+        actorType: "system",
+        message: "Proposta aprovada.",
+        occurredAt: nowIso(),
+        meta: { proposal_id: pr.id, party_entity_id: pr.party_entity_id },
+      });
+
+      effectiveProposalStatus = "approved";
+      return json({ ok: true });
     }
 
     // ---------------------

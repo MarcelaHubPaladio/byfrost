@@ -68,7 +68,7 @@ export default function PublicProposal() {
   const { tenantSlug, token } = useParams();
   const [data, setData] = useState<ApiData | null>(null);
   const [loading, setLoading] = useState(false);
-  const [acting, setActing] = useState<"approve" | "sign" | null>(null);
+  const [acting, setActing] = useState<"approve" | "sign" | "sign_force" | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
 
@@ -220,7 +220,7 @@ export default function PublicProposal() {
     return lines;
   }, [data]);
 
-  const act = async (action: "approve" | "sign") => {
+  const act = async (action: "approve" | "sign" | "sign_force") => {
     if (!tenantSlug || !token) return;
 
     setActing(action);
@@ -271,7 +271,7 @@ export default function PublicProposal() {
         showSuccess("Escopo aprovado.");
       } else {
         const link = safe(json?.signing_link);
-        showSuccess("Link gerado.");
+        showSuccess(action === "sign_force" ? "Contrato reenviado." : "Link gerado.");
         if (link) window.open(link, "_blank", "noopener,noreferrer");
       }
 
@@ -382,23 +382,45 @@ export default function PublicProposal() {
             <TabsContent value="scope" className="mt-4 space-y-4">
               {debug ? (
                 <Card className="rounded-[28px] border-black/10 bg-white/85 p-5 shadow-sm">
-                  <div className="text-sm font-semibold text-slate-900">Debug (escopo)</div>
-                  <div className="mt-2 grid gap-2 text-xs text-slate-700">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div>
-                      <span className="font-semibold">selected_commitment_ids:</span>{" "}
-                      {JSON.stringify(data?.proposal?.selected_commitment_ids ?? [])}
+                      <div className="text-sm font-semibold text-slate-900">Debug (escopo)</div>
+                      <div className="mt-2 grid gap-2 text-xs text-slate-700">
+                        <div>
+                          <span className="font-semibold">selected_commitment_ids:</span>{" "}
+                          {JSON.stringify(data?.proposal?.selected_commitment_ids ?? [])}
+                        </div>
+                        <div>
+                          <span className="font-semibold">scope.commitments:</span> {(data?.scope?.commitments ?? []).length}
+                        </div>
+                        <div>
+                          <span className="font-semibold">scope.items:</span> {(data?.scope?.items ?? []).length}
+                        </div>
+                        <div>
+                          <span className="font-semibold">scope.templates:</span> {(data?.scope?.templates ?? []).length}
+                        </div>
+                        <div>
+                          <span className="font-semibold">scopeLines:</span> {scopeLines.length}
+                        </div>
+                      </div>
                     </div>
-                    <div>
-                      <span className="font-semibold">scope.commitments:</span> {(data?.scope?.commitments ?? []).length}
-                    </div>
-                    <div>
-                      <span className="font-semibold">scope.items:</span> {(data?.scope?.items ?? []).length}
-                    </div>
-                    <div>
-                      <span className="font-semibold">scope.templates:</span> {(data?.scope?.templates ?? []).length}
-                    </div>
-                    <div>
-                      <span className="font-semibold">scopeLines:</span> {scopeLines.length}
+
+                    <div className="flex flex-col gap-2 sm:items-end">
+                      <Button
+                        variant="outline"
+                        className="rounded-2xl"
+                        onClick={() => {
+                          if (window.confirm("Reenviar o contrato para assinatura (vai gerar um novo documento no Autentique)?")) {
+                            act("sign_force");
+                          }
+                        }}
+                        disabled={loading || acting !== null || !proposal?.approved_at}
+                      >
+                        {acting === "sign_force" ? "Reenviando…" : "Reenviar contrato (debug)"}
+                      </Button>
+                      <div className="text-[11px] text-slate-600">
+                        Útil quando um contrato antigo foi gerado sem escopo/template e você precisa regenerar.
+                      </div>
                     </div>
                   </div>
                 </Card>

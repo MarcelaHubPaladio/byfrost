@@ -434,7 +434,13 @@ serve(async (req) => {
     if (eErr || !party) return err("party_not_found", 404);
 
     const company = (tenant as any)?.branding_json?.company ?? {};
-    const palettePrimaryHex = (tenant as any)?.branding_json?.palette?.primary?.hex ?? null;
+
+    // Public portal palette:
+    // 1) Prefer party.metadata.public_portal.palette (customer-specific theme for this proposal link)
+    // 2) Fallback to tenant.branding_json.palette
+    const partyPalette = (party as any)?.metadata?.public_portal?.palette ?? null;
+    const tenantPalette = (tenant as any)?.branding_json?.palette ?? null;
+    const portalPalette = partyPalette ?? tenantPalette ?? null;
 
     const tenantLogoBucket = (tenant as any)?.branding_json?.logo?.bucket ?? null;
     const tenantLogoPath = (tenant as any)?.branding_json?.logo?.path ?? null;
@@ -503,6 +509,60 @@ serve(async (req) => {
       }
     }
 
+    // -------------------------
+    // Public portal extra menus
+    // -------------------------
+
+    // Timeline (journeys/cases) related to this entity.
+    // The CRM bridge stores cases.customer_entity_id.
+    const { data: cases, error: casesErr } = await supabase
+      .from("cases")
+      .select("id,case_type,title,status,state,created_at,updated_at")
+      .eq("tenant_id", tenant.id)
+      .eq("customer_entity_id", pr.party_entity_id)
+      .is("deleted_at", null)
+      .order("updated_at", { ascending: false })
+      .limit(200);
+    if (casesErr) return err("cases_load_failed", 500, { message: casesErr.message });
+
+    const caseIds = (cases ?? []).map((c: any) => String(c.id)).filter(Boolean);
+    let timelineEvents: any[] = [];
+    if (caseIds.length) {
+      const { data: evs, error: evErr } = await supabase
+        .from("timeline_events")
+        .select("id,case_id,event_type,actor_type,message,occurred_at,meta_json")
+        .eq("tenant_id", tenant.id)
+        .in("case_id", caseIds)
+        .is("deleted_at", null)
+        .order("occurred_at", { ascending: false })
+        .limit(400);
+      if (evErr) return err("timeline_load_failed", 500, { message: evErr.message });
+      timelineEvents = evs ?? [];
+    }
+
+    // Publications calendar for this entity: by cases -> content_publications
+    let publications: any[] = [];
+    if (caseIds.length) {
+      const { data: pubs, error: pubErr } = await supabase
+        .from("content_publications")
+        .select("id,channel,scheduled_at,publish_status,content_items(theme_title,client_name)")
+        .eq("tenant_id", tenant.id)
+        .in("case_id", caseIds)
+        .order("scheduled_at", { ascending: true })
+        .limit(2000);
+      if (pubErr) return err("publications_load_failed", 500, { message: pubErr.message });
+      publications = pubs ?? [];
+    }
+
+    const report = {
+      commitments_selected: commitmentIds.length,
+      deliverables_in_scope: (items ?? []).length * (templates ?? []).length,
+      cases_related: (cases ?? []).length,
+      timeline_events: (timelineEvents ?? []).length,
+      publications_scheduled: (publications ?? []).filter((p: any) => String(p?.publish_status ?? "") === "SCHEDULED").length,
+      publications_published: (publications ?? []).filter((p: any) => String(p?.publish_status ?? "") === "PUBLISHED").length,
+    };
+
     // Autentique status best-effort
     let autentiqueStatus: string | null = null;
     const apiToken = Deno.env.get("AUTENTIQUE_API_TOKEN") ?? "";
@@ -543,7 +603,6 @@ serve(async (req) => {
           name: tenant.name,
           logo_url: tenantLogoUrl,
           company,
-          palette_primary_hex: palettePrimaryHex,
         },
         party: {
           id: party.id,
@@ -558,6 +617,15 @@ serve(async (req) => {
           selected_commitment_ids: pr.selected_commitment_ids,
           signing_link: pr.autentique_json?.signing_link ?? null,
           autentique_status: effectiveAutentiqueStatus ?? autentiqueStatus ?? null,
+        },
+        palette: portalPalette,
+        report,
+        calendar: {
+          publications,
+        },
+        history: {
+          cases: cases ?? [],
+          events: timelineEvents ?? [],
         },
         scope: {
           commitments,

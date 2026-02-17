@@ -68,6 +68,8 @@ function renderTemplate(body: string, vars: Record<string, string>) {
   return out;
 }
 
+const DEFAULT_CONTRACT_BODY = `CONTRATO / PROPOSTA\n\nTenant: {{tenant_name}}\nCliente: {{party_name}}\nPortal do cliente: {{portal_link}}\n\nCliente (documento): {{party_document}}\nCliente (whatsapp): {{party_whatsapp}}\nCliente (email): {{party_email}}\nCliente (endereço): {{party_address_full}}\n\nPrazo: {{contract_term}}\nValor total: {{contract_total_value}}\nForma de pagamento: {{payment_method}}\nVencimento das parcelas: {{installments_due_date}}\n\nESCOPO (deliverables)\n{{scope_lines}}\n\nObservações\n{{scope_notes}}\n\nGerado em: {{generated_at}}\n`;
+
 async function buildTextContractPdf(params: { bodyText: string }) {
   const { PDFDocument, StandardFonts, rgb } = await import("https://esm.sh/pdf-lib@1.17.1");
 
@@ -715,48 +717,40 @@ serve(async (req) => {
       const chosen = tenantTemplates.find((t: any) => safeStr(t?.id) === chosenId) ?? tenantTemplates[0] ?? null;
       const chosenBody = safeStr(chosen?.body);
 
-      let pdfBytes: Uint8Array;
-      if (chosenBody) {
-        const scopeBlock = scopeLines.length ? scopeLines.map((l) => `• ${l}`).join("\n") : "(sem itens)";
+      // Always generate contract from (template body OR default body). This avoids sending a "generic" PDF
+      // when the tenant has no templates or the chosen template body is empty.
+      const contractBody = chosenBody || DEFAULT_CONTRACT_BODY;
 
-        const customerName = safeStr(customer?.legal_name ?? (party as any).display_name);
-        const origin = inferOrigin(req);
-        const portalLink = origin ? `${origin}/p/${encodeURIComponent(tenantSlug)}/${encodeURIComponent(pr.token)}` : "";
+      const scopeBlock = scopeLines.length ? scopeLines.map((l) => `• ${l}`).join("\n") : "(sem itens)";
 
-        const vars: Record<string, string> = {
-          tenant_name: safeStr((tenant as any).name ?? tenantSlug),
-          party_name: safeStr((party as any).display_name ?? "Cliente"),
-          party_legal_name: customerName,
-          party_document: safeStr(customer?.document),
-          party_whatsapp: safeStr(customer?.whatsapp),
-          party_email: safeStr(customer?.email),
-          party_address_full: partyAddressFull(customer),
-          portal_link: portalLink,
-          contract_term: safeStr((fresh as any)?.approval_json?.contract_term ?? (pr as any)?.approval_json?.contract_term),
-          contract_total_value: safeStr(
-            (fresh as any)?.approval_json?.contract_total_value ?? (pr as any)?.approval_json?.contract_total_value
-          ),
-          payment_method: safeStr((fresh as any)?.approval_json?.payment_method ?? (pr as any)?.approval_json?.payment_method),
-          installments_due_date: safeStr(
-            (fresh as any)?.approval_json?.installments_due_date ?? (pr as any)?.approval_json?.installments_due_date
-          ),
-          scope_notes: safeStr((fresh as any)?.approval_json?.scope_notes ?? (pr as any)?.approval_json?.scope_notes),
-          scope_lines: scopeBlock,
-          generated_at: new Date().toLocaleString("pt-BR"),
-        };
+      const customerName = safeStr(customer?.legal_name ?? (party as any).display_name);
+      const origin = inferOrigin(req);
+      const portalLink = origin ? `${origin}/p/${encodeURIComponent(tenantSlug)}/${encodeURIComponent(pr.token)}` : "";
 
-        const bodyText = renderTemplate(chosenBody, vars);
-        pdfBytes = await buildTextContractPdf({ bodyText });
-      } else {
-        // Fallback to the built-in PDF.
-        pdfBytes = await buildSimpleContractPdf({
-          tenantName: safeStr((tenant as any).name ?? tenantSlug),
-          tenantCompany,
-          partyName: safeStr((party as any).display_name ?? "Cliente"),
-          partyCustomer,
-          scopeLines,
-        });
-      }
+      const vars: Record<string, string> = {
+        tenant_name: safeStr((tenant as any).name ?? tenantSlug),
+        party_name: safeStr((party as any).display_name ?? "Cliente"),
+        party_legal_name: customerName,
+        party_document: safeStr(customer?.document),
+        party_whatsapp: safeStr(customer?.whatsapp),
+        party_email: safeStr(customer?.email),
+        party_address_full: partyAddressFull(customer),
+        portal_link: portalLink,
+        contract_term: safeStr((fresh as any)?.approval_json?.contract_term ?? (pr as any)?.approval_json?.contract_term),
+        contract_total_value: safeStr(
+          (fresh as any)?.approval_json?.contract_total_value ?? (pr as any)?.approval_json?.contract_total_value
+        ),
+        payment_method: safeStr((fresh as any)?.approval_json?.payment_method ?? (pr as any)?.approval_json?.payment_method),
+        installments_due_date: safeStr(
+          (fresh as any)?.approval_json?.installments_due_date ?? (pr as any)?.approval_json?.installments_due_date
+        ),
+        scope_notes: safeStr((fresh as any)?.approval_json?.scope_notes ?? (pr as any)?.approval_json?.scope_notes),
+        scope_lines: scopeBlock,
+        generated_at: new Date().toLocaleString("pt-BR"),
+      };
+
+      const bodyText = renderTemplate(contractBody, vars);
+      const pdfBytes = await buildTextContractPdf({ bodyText });
 
       const filename = `contrato-${tenantSlug}-${String((party as any).id).slice(0, 8)}.pdf`;
       const documentName = `Contrato • ${String((tenant as any).name ?? tenantSlug)} • ${String((party as any).display_name ?? "Cliente")}`;

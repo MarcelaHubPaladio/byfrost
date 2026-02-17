@@ -528,14 +528,17 @@ serve(async (req) => {
     const caseIds = (cases ?? []).map((c: any) => String(c.id)).filter(Boolean);
     let timelineEvents: any[] = [];
     if (caseIds.length) {
-      const { data: evs, error: evErr } = await supabase
+      const q = supabase
         .from("timeline_events")
         .select("id,case_id,event_type,actor_type,message,occurred_at,meta_json")
         .eq("tenant_id", tenant.id)
         .in("case_id", caseIds)
-        .is("deleted_at", null)
+        // NOTE: some deployments may not have soft-delete on timeline_events.
+        // Avoid referencing timeline_events.deleted_at to prevent runtime errors.
         .order("occurred_at", { ascending: false })
         .limit(400);
+
+      const { data: evs, error: evErr } = await q;
       if (evErr) return err("timeline_load_failed", 500, { message: evErr.message });
       timelineEvents = evs ?? [];
     }

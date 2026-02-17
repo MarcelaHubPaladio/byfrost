@@ -1,4 +1,6 @@
 import { Badge } from "@/components/ui/badge";
+import { Card } from "@/components/ui/card";
+import { cn } from "@/lib/utils";
 
 export type PublicCase = {
   id: string;
@@ -20,12 +22,24 @@ export type PublicTimelineEvent = {
   meta_json: any;
 };
 
-function fmtTs(ts: string) {
+function fmtDate(ts: string) {
   try {
-    return new Date(ts).toLocaleString("pt-BR");
+    return new Date(ts).toLocaleDateString("pt-BR", { year: "numeric", month: "2-digit", day: "2-digit" });
   } catch {
     return ts;
   }
+}
+
+function fmtTime(ts: string) {
+  try {
+    return new Date(ts).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  } catch {
+    return "";
+  }
+}
+
+function safe(s: any) {
+  return String(s ?? "").trim();
 }
 
 export function PublicEntityHistory({
@@ -38,6 +52,11 @@ export function PublicEntityHistory({
   const byCase = new Map<string, PublicCase>();
   for (const c of cases) byCase.set(c.id, c);
 
+  // Most recent first (top) -> older below.
+  const ordered = [...(events ?? [])].sort(
+    (a, b) => new Date(String(b.occurred_at)).getTime() - new Date(String(a.occurred_at)).getTime()
+  );
+
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2 text-sm" style={{ color: "var(--public-card-text)" as any }}>
@@ -45,35 +64,83 @@ export function PublicEntityHistory({
         <Badge variant="secondary">{events.length} evento(s)</Badge>
       </div>
 
-      <div className="divide-y rounded-[28px] border border-black/10 bg-white/85 shadow-sm">
-        {events.length === 0 ? (
+      {/* Timeline layout inspired by the mock: center line, alternating sides. */}
+      <div className="relative rounded-[28px] border border-black/10 bg-white/85 p-4 shadow-sm">
+        <div className="absolute bottom-6 left-1/2 top-6 hidden w-px -translate-x-1/2 bg-black/15 md:block" />
+
+        {ordered.length === 0 ? (
           <div className="p-4 text-sm text-slate-700">Sem eventos.</div>
         ) : (
-          events.map((ev) => {
-            const c = ev.case_id ? byCase.get(ev.case_id) : null;
-            return (
-              <div key={ev.id} className="p-4">
-                <div className="flex flex-wrap items-center gap-2">
-                  <Badge variant="outline">{ev.event_type}</Badge>
-                  <span className="text-xs text-slate-600">{fmtTs(ev.occurred_at)}</span>
-                  <span className="text-xs text-slate-500">actor: {ev.actor_type}</span>
-                </div>
+          <div className="grid gap-6">
+            {ordered.map((ev, idx) => {
+              const c = ev.case_id ? byCase.get(ev.case_id) : null;
+              const side: "left" | "right" = idx % 2 === 0 ? "left" : "right";
 
-                {c ? (
-                  <div className="mt-2 rounded-2xl border border-black/10 bg-white px-3 py-2 text-xs text-slate-700">
-                    <div className="font-semibold text-slate-900">
-                      {c.title || "(sem título)"} • {c.case_type}
+              const dateBlock = (
+                <div
+                  className={cn(
+                    "space-y-1",
+                    // align towards the center line
+                    side === "left" ? "text-right" : "text-left"
+                  )}
+                  style={{ color: "var(--public-card-text)" as any }}
+                >
+                  <div className="text-2xl font-extrabold tracking-tight md:text-3xl">{fmtDate(ev.occurred_at)}</div>
+                  <div className="text-xs font-semibold opacity-80">{fmtTime(ev.occurred_at)}</div>
+                </div>
+              );
+
+              const contentBlock = (
+                <Card className="rounded-[26px] border-black/10 bg-white/90 p-4 shadow-sm">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant="outline">{safe(ev.event_type) || "evento"}</Badge>
+                    <span className="text-xs text-slate-500">actor: {safe(ev.actor_type) || "—"}</span>
+                  </div>
+
+                  <div className="mt-2 text-sm font-semibold text-slate-900">{safe(ev.message) || "(sem mensagem)"}</div>
+
+                  {c ? (
+                    <div className="mt-3 rounded-2xl border border-black/10 bg-white px-3 py-2 text-xs text-slate-700">
+                      <div className="font-semibold text-slate-900">
+                        {c.title || "(sem título)"} • {c.case_type}
+                      </div>
+                      <div className="mt-0.5 text-[11px] text-slate-600">
+                        status: {c.status} • state: {c.state} • atualizado: {fmtDate(c.updated_at)} {fmtTime(c.updated_at)}
+                      </div>
                     </div>
-                    <div className="mt-0.5 text-[11px] text-slate-600">
-                      status: {c.status} • state: {c.state} • atualizado: {fmtTs(c.updated_at)}
+                  ) : null}
+                </Card>
+              );
+
+              return (
+                <div key={ev.id} className="relative">
+                  {/* Mobile: stack */}
+                  <div className="grid gap-2 md:hidden">
+                    {dateBlock}
+                    {contentBlock}
+                  </div>
+
+                  {/* Desktop: alternate sides around a center line */}
+                  <div className="hidden md:grid md:grid-cols-[1fr_56px_1fr] md:items-start md:gap-6">
+                    <div className={cn("flex", side === "left" ? "justify-end" : "justify-end")}>
+                      {side === "left" ? dateBlock : contentBlock}
+                    </div>
+
+                    <div className="relative flex items-start justify-center">
+                      <div className="mt-3 h-3 w-3 rounded-full bg-[hsl(var(--byfrost-accent))] shadow-sm" />
+                      {/* small connector lines */}
+                      <div className="absolute top-[18px] left-1/2 hidden h-px w-6 -translate-x-[calc(100%+8px)] bg-black/15 md:block" />
+                      <div className="absolute top-[18px] left-1/2 hidden h-px w-6 translate-x-[8px] bg-black/15 md:block" />
+                    </div>
+
+                    <div className={cn("flex", side === "left" ? "justify-start" : "justify-start")}>
+                      {side === "left" ? contentBlock : dateBlock}
                     </div>
                   </div>
-                ) : null}
-
-                <div className="mt-2 text-sm text-slate-800">{ev.message}</div>
-              </div>
-            );
-          })
+                </div>
+              );
+            })}
+          </div>
         )}
       </div>
     </div>

@@ -583,9 +583,13 @@ serve(async (req) => {
         const oid = String((it as any).offering_entity_id);
         const off = offeringsById[oid];
         const offName = String(off?.display_name ?? oid);
+        const qty = Number((it as any).quantity ?? 1);
         const ts = templatesByOffering.get(oid) ?? [];
-        for (const t of ts) {
-          scopeLines.push(`${offName} — ${(t as any).name}`);
+
+        if (ts.length === 0) {
+          scopeLines.push(`${offName} (qtd ${qty})`);
+        } else {
+          for (const t of ts) scopeLines.push(`${offName} — ${(t as any).name} (qtd ${qty})`);
         }
       }
 
@@ -672,11 +676,11 @@ serve(async (req) => {
 
       if (fErr || !fresh) return err("proposal_not_found", 404);
 
-      const approvedAt = (fresh.data as any)?.approved_at ?? null;
+      const approvedAt = (fresh as any)?.approved_at ?? null;
       if (!approvedAt) return err("scope_not_approved", 403);
 
       // BLOCK: do not create multiple signing links/documents.
-      const existingLink = String((fresh.data as any)?.autentique_json?.signing_link ?? "").trim();
+      const existingLink = String((fresh as any)?.autentique_json?.signing_link ?? "").trim();
       if (existingLink) {
         return json({ ok: true, signing_link: existingLink, already: true });
       }
@@ -698,9 +702,13 @@ serve(async (req) => {
         const oid = String((it as any).offering_entity_id);
         const off = offeringsById[oid];
         const offName = String(off?.display_name ?? oid);
+        const qty = Number((it as any).quantity ?? 1);
         const ts = templatesByOffering.get(oid) ?? [];
-        for (const t of ts) {
-          scopeLines.push(`${offName} — ${(t as any).name}`);
+
+        if (ts.length === 0) {
+          scopeLines.push(`${offName} (qtd ${qty})`);
+        } else {
+          for (const t of ts) scopeLines.push(`${offName} — ${(t as any).name} (qtd ${qty})`);
         }
       }
 
@@ -721,7 +729,7 @@ serve(async (req) => {
       // ---------------------------------
       const tenantTemplates = ensureArray((tenant as any)?.branding_json?.contract_templates).filter(Boolean);
       const chosenId =
-        safeStr((fresh.data as any)?.approval_json?.contract_template_id) ||
+        safeStr((fresh as any)?.approval_json?.contract_template_id) ||
         safeStr((pr as any)?.approval_json?.contract_template_id) ||
         "";
 
@@ -745,15 +753,15 @@ serve(async (req) => {
           party_email: safeStr(customer?.email),
           party_address_full: partyAddressFull(customer),
           portal_link: portalLink,
-          contract_term: safeStr((fresh.data as any)?.approval_json?.contract_term ?? (pr as any)?.approval_json?.contract_term),
+          contract_term: safeStr((fresh as any)?.approval_json?.contract_term ?? (pr as any)?.approval_json?.contract_term),
           contract_total_value: safeStr(
-            (fresh.data as any)?.approval_json?.contract_total_value ?? (pr as any)?.approval_json?.contract_total_value
+            (fresh as any)?.approval_json?.contract_total_value ?? (pr as any)?.approval_json?.contract_total_value
           ),
-          payment_method: safeStr((fresh.data as any)?.approval_json?.payment_method ?? (pr as any)?.approval_json?.payment_method),
+          payment_method: safeStr((fresh as any)?.approval_json?.payment_method ?? (pr as any)?.approval_json?.payment_method),
           installments_due_date: safeStr(
-            (fresh.data as any)?.approval_json?.installments_due_date ?? (pr as any)?.approval_json?.installments_due_date
+            (fresh as any)?.approval_json?.installments_due_date ?? (pr as any)?.approval_json?.installments_due_date
           ),
-          scope_notes: safeStr((fresh.data as any)?.approval_json?.scope_notes ?? (pr as any)?.approval_json?.scope_notes),
+          scope_notes: safeStr((fresh as any)?.approval_json?.scope_notes ?? (pr as any)?.approval_json?.scope_notes),
           scope_lines: scopeBlock,
           generated_at: new Date().toLocaleString("pt-BR"),
         };

@@ -541,6 +541,32 @@ export function FinancialLedgerPanel() {
     }
   }, [accountId, accountsQ.data]);
 
+  const entitySuggestionQ = useQuery({
+    queryKey: ["financial_suggest_entity", activeTenantId, descNorm],
+    enabled: Boolean(activeTenantId && descNorm.length >= 3),
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("financial_suggest_entity", {
+        p_tenant_id: activeTenantId!,
+        p_description_norm: descNorm,
+      });
+      if (error) throw error;
+      return data as any;
+    },
+  });
+
+  const suggestedEntity = entitySuggestionQ.data?.match ? entitySuggestionQ.data : null;
+  const [entityTouched, setEntityTouched] = useState(false);
+
+  useEffect(() => {
+    if (!entityTouched && suggestedEntity?.entity_id) {
+      setTxEntityId(String(suggestedEntity.entity_id));
+    }
+    if (!description) {
+      setEntityTouched(false);
+      setTxEntityId(null);
+    }
+  }, [suggestedEntity?.entity_id, entityTouched, description]);
+
   const suggestionQ = useQuery({
     queryKey: ["financial_suggest_category", activeTenantId, descNorm],
     enabled: Boolean(activeTenantId && descNorm.length >= 3),
@@ -602,9 +628,7 @@ export function FinancialLedgerPanel() {
       });
       if (insErr) throw insErr;
 
-      // Learning:
-      // - If suggestion existed and user kept it: increase confidence
-      // - If user changed category: create/update a rule for this pattern
+      // Learning for Categories
       if (categoryId) {
         if (suggested?.rule_id && String(suggested.category_id) === categoryId && !categoryTouched) {
           await supabase.rpc("financial_increment_rule_use", {
@@ -621,6 +645,24 @@ export function FinancialLedgerPanel() {
           });
         }
       }
+
+      // Learning for Entities
+      if (txEntityId) {
+        if (suggestedEntity?.rule_id && String(suggestedEntity.entity_id) === txEntityId && !entityTouched) {
+          await supabase.rpc("financial_increment_entity_rule_use", {
+            p_tenant_id: activeTenantId,
+            p_rule_id: String(suggestedEntity.rule_id),
+            p_used_increment: 1,
+          });
+        } else {
+          await supabase.rpc("financial_upsert_entity_rule", {
+            p_tenant_id: activeTenantId,
+            p_pattern: descNorm,
+            p_entity_id: txEntityId,
+            p_used_increment: 1,
+          });
+        }
+      }
     },
     onSuccess: async () => {
       showSuccess("Transação lançada.");
@@ -629,6 +671,7 @@ export function FinancialLedgerPanel() {
       setCategoryId("");
       setCategoryTouched(false);
       setTxEntityId(null);
+      setEntityTouched(false);
       setTxDialogOpen(false);
       await qc.invalidateQueries({ queryKey: ["financial_transactions", activeTenantId] });
     },
@@ -661,6 +704,34 @@ export function FinancialLedgerPanel() {
       showSuccess("Categoria atualizada (regra aprendida).");
     },
     onError: (e: any) => showError(e?.message ?? "Falha ao atualizar categoria"),
+  });
+
+  const updateTxEntityM = useMutation({
+    mutationFn: async ({ id, description, entityId }: { id: string; description: string; entityId: string | null }) => {
+      if (!activeTenantId) throw new Error("Tenant inválido");
+      const descN = normalizeDescription(description);
+
+      const { error } = await supabase
+        .from("financial_transactions")
+        .update({ entity_id: entityId || null })
+        .eq("tenant_id", activeTenantId)
+        .eq("id", id);
+      if (error) throw error;
+
+      if (entityId) {
+        await supabase.rpc("financial_upsert_entity_rule", {
+          p_tenant_id: activeTenantId,
+          p_pattern: descN,
+          p_entity_id: entityId,
+          p_used_increment: 1,
+        });
+      }
+    },
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ["financial_transactions", activeTenantId] });
+      showSuccess("Entidade atrelada e regra de aprendizado criada.");
+    },
+    onError: (e: any) => showError(e?.message ?? "Falha ao atualizar entidade"),
   });
 
   return (
@@ -789,11 +860,15 @@ export function FinancialLedgerPanel() {
                     </div>
 
                     <div className="md:col-span-2">
-                      <Label className="text-xs">Entidade</Label>
+                      <Label className="text-xs">Entidade {suggestedEntity?.entity_id ? "(sugerida)" : ""}</Label>
                       <AsyncSelect
                         className="mt-1 h-9 rounded-2xl"
                         value={txEntityId}
-                        onChange={setTxEntityId}
+                        initialLabel={suggestedEntity?.label}
+                        onChange={(v) => {
+                          setEntityTouched(true);
+                          setTxEntityId(v);
+                        }}
                         placeholder="Buscar cliente/fornec..."
                         loadOptions={async (val) => {
                           if (!activeTenantId || val.length < 2) return [];
@@ -807,6 +882,11 @@ export function FinancialLedgerPanel() {
                           return (data || []).map((d) => ({ value: d.id, label: d.display_name }));
                         }}
                       />
+                      {suggestedEntity?.pattern ? (
+                        <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                          Regra: "{suggestedEntity.pattern}" • conf: {Number(suggestedEntity.confidence ?? 0).toFixed(2)}
+                        </div>
+                      ) : null}
                     </div>
 
                     <div className="md:col-span-4">
@@ -909,10 +989,27 @@ export function FinancialLedgerPanel() {
                           {t.source} • {t.status}
                         </div>
                       </TableCell>
-                      <TableCell>
-                        <div className="whitespace-nowrap font-medium text-slate-800 dark:text-slate-200">
-                          {t.core_entities?.display_name ?? <span className="text-slate-400">—</span>}
-                        </div>
+                      <TableCell className="min-w-[220px]">
+                        <AsyncSelect
+                          className="h-9 rounded-2xl border-transparent hover:border-slate-200 focus:border-slate-300 transition-colors"
+                          value={t.entity_id ?? null}
+                          initialLabel={t.core_entities?.display_name ?? null}
+                          onChange={(v) =>
+                            updateTxEntityM.mutate({ id: t.id, description: t.description, entityId: v })
+                          }
+                          placeholder="(sem entidade)"
+                          loadOptions={async (val) => {
+                            if (!activeTenantId || val.length < 2) return [];
+                            const { data } = await supabase
+                              .from("core_entities")
+                              .select("id, display_name")
+                              .eq("tenant_id", activeTenantId)
+                              .ilike("display_name", `%${val}%`)
+                              .is("deleted_at", null)
+                              .limit(10);
+                            return (data || []).map((d) => ({ value: d.id, label: d.display_name }));
+                          }}
+                        />
                       </TableCell>
                       <TableCell className="whitespace-nowrap">
                         {acc ? `${acc.account_name}` : String(t.account_id).slice(0, 8)}

@@ -23,6 +23,7 @@ export type Option = {
 
 type AsyncSelectProps = {
     value?: string | null;
+    initialLabel?: string | null;
     onChange: (value: string | null) => void;
     loadOptions: (inputValue: string) => Promise<Option[]>;
     placeholder?: string;
@@ -54,6 +55,7 @@ function useDebounceValue<T>(value: T, delay: number): T {
 
 export function AsyncSelect({
     value,
+    initialLabel,
     onChange,
     loadOptions,
     placeholder = "Select...",
@@ -65,7 +67,7 @@ export function AsyncSelect({
     const debouncedSearchTerm = useDebounceValue(searchTerm, 300);
     const [options, setOptions] = React.useState<Option[]>([]);
     const [loading, setLoading] = React.useState(false);
-    const [selectedLabel, setSelectedLabel] = React.useState<string>("");
+    const [selectedLabel, setSelectedLabel] = React.useState<string>(initialLabel || "");
 
     // Load initial options or when search changes
     React.useEffect(() => {
@@ -105,10 +107,9 @@ export function AsyncSelect({
     React.useEffect(() => {
         const found = options.find((o) => o.value === value);
         if (found) setSelectedLabel(found.label);
+        else if (value && initialLabel) setSelectedLabel(initialLabel);
         else if (!value) setSelectedLabel("");
-        // If value exists but not in options, we keep previous label or empty.
-        // Ideally we should have a way to fetch label for initial value.
-    }, [value, options]);
+    }, [value, options, initialLabel]);
 
     return (
         <Popover open={open} onOpenChange={setOpen}>

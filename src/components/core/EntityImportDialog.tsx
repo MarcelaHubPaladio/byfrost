@@ -227,7 +227,10 @@ export function EntityImportDialog({ open, onOpenChange, tenantId }: EntityImpor
 
             const { data, error } = await supabase
                 .from("core_entities")
-                .insert(rows)
+                .upsert(rows, {
+                    onConflict: 'tenant_id,display_name',
+                    ignoreDuplicates: false // We want to update subtype/status if it changed
+                })
                 .select("id");
 
             if (error) throw error;

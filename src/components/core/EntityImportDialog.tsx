@@ -80,6 +80,9 @@ function mapTypeAndSubtype(rawType: string): { entity_type: "party" | "offering"
     if (["colaborador", "funcionario", "employee", "partner", "socio"].includes(t)) {
         return { entity_type: "party", subtype: "collaborator" };
     }
+    if (["banco", "bank", "instituicao", "instituicao financeira"].includes(t)) {
+        return { entity_type: "party", subtype: "bank" };
+    }
 
     // Offerings
     if (["produto", "product", "item"].includes(t)) {

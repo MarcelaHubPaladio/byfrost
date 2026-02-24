@@ -34,6 +34,7 @@ import {
   Handshake,
   PackageCheck,
   FileSignature,
+  LineChart,
 } from "lucide-react";
 import * as HoverCardPrimitive from "@radix-ui/react-hover-card";
 import { cn } from "@/lib/utils";
@@ -345,6 +346,7 @@ const FINANCE_NAV_CHILDREN: FinanceNavChild[] = [
   { to: "/app/finance/tensions", label: "Tensões", icon: AlertTriangle, routeKey: "app.finance.tensions" },
   { to: "/app/finance/planning", label: "Planejamento", icon: CalendarRange, routeKey: "app.finance.planning" },
   { to: "/app/finance/board", label: "Quadro", icon: KanbanSquare, routeKey: "app.finance.board" },
+  { to: "/app/finance/ledger?tab=dre", label: "DRE-Caixa", icon: LineChart, routeKey: "app.finance.ledger" },
 ];
 
 type PresenceNavChild = {

@@ -249,6 +249,14 @@ function currentMonthRangeIso() {
 }
 
 export function FinancialLedgerPanel() {
+  const [activeTab, setActiveTab] = useState("transactions");
+
+  // Handle ?tab=dre in URL
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const t = params.get("tab");
+    if (t === "dre") setActiveTab("dre");
+  }, []);
   const { activeTenantId } = useTenant();
   const qc = useQueryClient();
 
@@ -860,7 +868,7 @@ export function FinancialLedgerPanel() {
   });
 
   return (
-    <Tabs defaultValue="transactions" className="grid gap-4">
+    <Tabs value={activeTab} onValueChange={setActiveTab} className="grid gap-4">
       <TabsList className="w-fit rounded-2xl">
         <TabsTrigger value="transactions" className="rounded-2xl">
           Lançamentos

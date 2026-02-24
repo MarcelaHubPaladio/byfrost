@@ -11,6 +11,8 @@ import {
   type ChartConfig,
 } from "@/components/ui/chart";
 import { Bar, BarChart, CartesianGrid, Line, LineChart, XAxis, YAxis } from "recharts";
+import { Link } from "react-router-dom";
+import { LineChart as LineChartIcon } from "lucide-react";
 
 function formatMoneyBRL(n: number) {
   try {
@@ -273,6 +275,12 @@ export function FinanceControlTowerPanel() {
         >
           Atualizar
         </Button>
+        <Link to="/app/finance/ledger?tab=dre">
+          <Button variant="outline" className="h-9 rounded-2xl border-[hsl(var(--byfrost-accent)/0.3)] bg-[hsl(var(--byfrost-accent)/0.05)] text-[hsl(var(--byfrost-accent))] hover:bg-[hsl(var(--byfrost-accent)/0.1)]">
+            <LineChartIcon className="mr-2 h-4 w-4" />
+            DRE-Caixa
+          </Button>
+        </Link>
       </div>
 
       {/* KPIs */}

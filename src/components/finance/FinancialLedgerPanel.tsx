@@ -314,6 +314,23 @@ export function FinancialLedgerPanel() {
     },
   });
 
+  const sortedTransactions = useMemo(() => {
+    const data = transactionsQ.data || [];
+    return [...data].sort((a, b) => {
+      const aIncomplete = !a.category_id || !a.entity_id;
+      const bIncomplete = !b.category_id || !b.entity_id;
+
+      if (aIncomplete && !bIncomplete) return -1;
+      if (!aIncomplete && bIncomplete) return 1;
+
+      // Both same group, use chronological order
+      if (a.transaction_date !== b.transaction_date) {
+        return b.transaction_date.localeCompare(a.transaction_date);
+      }
+      return b.created_at.localeCompare(a.created_at);
+    });
+  }, [transactionsQ.data]);
+
   const categoryById = useMemo(() => {
     const m = new Map<string, CategoryRow>();
     for (const c of categoriesQ.data ?? []) m.set(c.id, c);
@@ -977,75 +994,85 @@ export function FinancialLedgerPanel() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {(transactionsQ.data ?? []).map((t) => {
-                  const acc = accountById.get(t.account_id);
-                  const cat = t.category_id ? categoryById.get(t.category_id) : null;
-                  return (
-                    <TableRow key={t.id}>
-                      <TableCell className="whitespace-nowrap">{t.transaction_date}</TableCell>
-                      <TableCell className="min-w-[260px]">
-                        <div className="font-medium text-slate-900 dark:text-slate-100">{t.description ?? "—"}</div>
-                        <div className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">
-                          {t.source} • {t.status}
-                        </div>
-                      </TableCell>
-                      <TableCell className="min-w-[220px]">
-                        <AsyncSelect
-                          className="h-9 rounded-2xl"
-                          value={t.entity_id ?? null}
-                          initialLabel={t.core_entities?.display_name ?? null}
-                          onChange={(v) =>
-                            updateTxEntityM.mutate({ id: t.id, description: t.description, entityId: v })
-                          }
-                          placeholder="(sem entidade)"
-                          loadOptions={async (val) => {
-                            if (!activeTenantId || val.length < 2) return [];
-                            const { data } = await supabase
-                              .from("core_entities")
-                              .select("id, display_name")
-                              .eq("tenant_id", activeTenantId)
-                              .ilike("display_name", `%${val}%`)
-                              .is("deleted_at", null)
-                              .limit(10);
-                            return (data || []).map((d) => ({ value: d.id, label: d.display_name }));
-                          }}
-                        />
-                      </TableCell>
-                      <TableCell className="whitespace-nowrap">
-                        {acc ? `${acc.account_name}` : String(t.account_id).slice(0, 8)}
-                      </TableCell>
-                      <TableCell className="whitespace-nowrap">{t.type}</TableCell>
-                      <TableCell className="whitespace-nowrap text-right">{formatMoneyBRL(Number(t.amount ?? 0))}</TableCell>
-                      <TableCell className="min-w-[220px]">
-                        <Select
-                          value={t.category_id ?? ""}
-                          onValueChange={(v) =>
-                            updateTxCategoryM.mutate({ id: t.id, description: t.description, categoryId: v })
-                          }
-                        >
-                          <SelectTrigger className="h-9 rounded-2xl">
-                            <SelectValue placeholder="(sem categoria)" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {(categoriesQ.data ?? []).map((c) => (
-                              <SelectItem key={c.id} value={c.id}>
-                                {c.name} ({c.type})
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        {cat ? (
-                          <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">{cat.type}</div>
-                        ) : null}
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
+                {transactionsQ.isLoading ? (
+                  <TableRow>
+                    <TableCell colSpan={7} className="text-slate-600 dark:text-slate-400">
+                      Carregando...
+                    </TableCell>
+                  </TableRow>
+                ) : transactionsQ.isSuccess ? (
+                  sortedTransactions.map((t) => {
+                    const acc = accountById.get(t.account_id);
+                    const cat = t.category_id ? categoryById.get(t.category_id) : null;
+                    return (
+                      <TableRow key={t.id}>
+                        <TableCell className="whitespace-nowrap">{t.transaction_date}</TableCell>
+                        <TableCell className="min-w-[260px]">
+                          <div className="font-medium text-slate-900 dark:text-slate-100">{t.description ?? "—"}</div>
+                          <div className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">
+                            {t.source} • {t.status}
+                          </div>
+                        </TableCell>
+                        <TableCell className="min-w-[220px]">
+                          <AsyncSelect
+                            className="h-9 rounded-2xl"
+                            value={t.entity_id ?? null}
+                            initialLabel={t.core_entities?.display_name ?? null}
+                            onChange={(v) =>
+                              updateTxEntityM.mutate({ id: t.id, description: t.description, entityId: v })
+                            }
+                            placeholder="(sem entidade)"
+                            loadOptions={async (val) => {
+                              if (!activeTenantId || val.length < 2) return [];
+                              const { data } = await supabase
+                                .from("core_entities")
+                                .select("id, display_name")
+                                .eq("tenant_id", activeTenantId)
+                                .ilike("display_name", `%${val}%`)
+                                .is("deleted_at", null)
+                                .limit(10);
+                              return (data || []).map((d) => ({ value: d.id, label: d.display_name }));
+                            }}
+                          />
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap">
+                          {acc ? `${acc.account_name}` : String(t.account_id).slice(0, 8)}
+                        </TableCell>
+                        <TableCell className="font-medium text-slate-900 dark:text-slate-100">{t.type}</TableCell>
+                        <TableCell className="text-right font-bold text-slate-900 dark:text-slate-100">
+                          {new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(t.amount)}
+                        </TableCell>
+                        <TableCell className="min-w-[220px]">
+                          <Select
+                            value={t.category_id ?? ""}
+                            onValueChange={(v) =>
+                              updateTxCategoryM.mutate({ id: t.id, description: t.description, categoryId: v })
+                            }
+                          >
+                            <SelectTrigger className="h-9 rounded-2xl">
+                              <SelectValue placeholder="(sem categoria)" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {(categoriesQ.data ?? []).map((c) => (
+                                <SelectItem key={c.id} value={c.id}>
+                                  {c.name} ({c.type})
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          {cat ? (
+                            <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">{cat.type}</div>
+                          ) : null}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })
+                ) : null}
 
                 {!transactionsQ.isLoading && !(transactionsQ.data ?? []).length ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-slate-600 dark:text-slate-400">
-                      Nenhuma transação nesse período.
+                    <TableCell colSpan={7} className="text-slate-600 dark:text-slate-400">
+                      Nenhuma transação encontrada.
                     </TableCell>
                   </TableRow>
                 ) : null}

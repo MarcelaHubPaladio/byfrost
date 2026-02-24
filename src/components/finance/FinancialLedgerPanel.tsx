@@ -290,6 +290,12 @@ export function FinancialLedgerPanel() {
     },
   });
 
+  // Sorting & Filtering State
+  const [filterEntityId, setFilterEntityId] = useState<string | null>(null);
+  const [filterCategoryId, setFilterCategoryId] = useState<string | null>(null);
+  const [sortKey, setSortKey] = useState<string | null>(null);
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+
   const transactionsQ = useQuery({
     queryKey: ["financial_transactions", activeTenantId, txStartDate, txEndDate],
     enabled: Boolean(activeTenantId && txStartDate && txEndDate),
@@ -315,21 +321,56 @@ export function FinancialLedgerPanel() {
   });
 
   const sortedTransactions = useMemo(() => {
-    const data = transactionsQ.data || [];
-    return [...data].sort((a, b) => {
+    let data = [...(transactionsQ.data || [])];
+
+    // 1. Filtering
+    if (filterEntityId) {
+      data = data.filter((t) => t.entity_id === filterEntityId);
+    }
+    if (filterCategoryId) {
+      data = data.filter((t) => t.category_id === filterCategoryId);
+    }
+
+    // 2. Sorting
+    data.sort((a, b) => {
+      if (sortKey) {
+        let valA: any = a[sortKey];
+        let valB: any = b[sortKey];
+
+        if (sortKey === "amount") {
+          valA = Number(valA || 0);
+          valB = Number(valB || 0);
+        }
+
+        if (valA < valB) return sortDir === "asc" ? -1 : 1;
+        if (valA > valB) return sortDir === "asc" ? 1 : -1;
+        return 0;
+      }
+
+      // Default: Incomplete first, then date
       const aIncomplete = !a.category_id || !a.entity_id;
       const bIncomplete = !b.category_id || !b.entity_id;
 
       if (aIncomplete && !bIncomplete) return -1;
       if (!aIncomplete && bIncomplete) return 1;
 
-      // Both same group, use chronological order
       if (a.transaction_date !== b.transaction_date) {
         return b.transaction_date.localeCompare(a.transaction_date);
       }
       return b.created_at.localeCompare(a.created_at);
     });
-  }, [transactionsQ.data]);
+
+    return data;
+  }, [transactionsQ.data, filterEntityId, filterCategoryId, sortKey, sortDir]);
+
+  const toggleSort = (key: string) => {
+    if (sortKey === key) {
+      setSortDir(sortDir === "asc" ? "desc" : "asc");
+    } else {
+      setSortKey(key);
+      setSortDir("desc");
+    }
+  };
 
   const categoryById = useMemo(() => {
     const m = new Map<string, CategoryRow>();
@@ -983,14 +1024,34 @@ export function FinancialLedgerPanel() {
           <div className="mt-3 overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800">
             <Table>
               <TableHeader>
-                <TableRow>
-                  <TableHead>Data</TableHead>
-                  <TableHead>Descrição</TableHead>
-                  <TableHead>Entidade</TableHead>
-                  <TableHead>Conta</TableHead>
-                  <TableHead>Tipo</TableHead>
-                  <TableHead className="text-right">Valor</TableHead>
-                  <TableHead>Categoria</TableHead>
+                <TableRow className="bg-slate-50/50 dark:bg-slate-900/20">
+                  <TableHead className="w-[110px] cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => toggleSort("transaction_date")}>
+                    Data {sortKey === "transaction_date" && (sortDir === "asc" ? "↑" : "↓")}
+                  </TableHead>
+                  <TableHead className="min-w-[200px] cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => toggleSort("description")}>
+                    Descrição {sortKey === "description" && (sortDir === "asc" ? "↑" : "↓")}
+                  </TableHead>
+                  <TableHead className="w-[180px]">
+                    <div className="flex items-center justify-between">
+                      <span className="cursor-pointer" onClick={() => toggleSort("entity_id")}>Entidade</span>
+                      {filterEntityId && (
+                        <Button variant="ghost" size="sm" className="h-6 px-1 text-[10px]" onClick={() => setFilterEntityId(null)}>Limpar</Button>
+                      )}
+                    </div>
+                  </TableHead>
+                  <TableHead className="w-[140px]">Conta</TableHead>
+                  <TableHead className="w-[80px]">Tipo</TableHead>
+                  <TableHead className="w-[110px] text-right cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => toggleSort("amount")}>
+                    Valor {sortKey === "amount" && (sortDir === "asc" ? "↑" : "↓")}
+                  </TableHead>
+                  <TableHead className="w-[180px]">
+                    <div className="flex items-center justify-between">
+                      <span className="cursor-pointer" onClick={() => toggleSort("category_id")}>Categoria</span>
+                      {filterCategoryId && (
+                        <Button variant="ghost" size="sm" className="h-6 px-1 text-[10px]" onClick={() => setFilterCategoryId(null)}>Limpar</Button>
+                      )}
+                    </div>
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -1006,21 +1067,21 @@ export function FinancialLedgerPanel() {
                     const cat = t.category_id ? categoryById.get(t.category_id) : null;
                     return (
                       <TableRow key={t.id}>
-                        <TableCell className="whitespace-nowrap">{t.transaction_date}</TableCell>
-                        <TableCell className="min-w-[260px]">
-                          <div className="font-medium text-slate-900 dark:text-slate-100">{t.description ?? "—"}</div>
+                        <TableCell className="w-[110px] whitespace-nowrap">{t.transaction_date}</TableCell>
+                        <TableCell className="max-w-[300px]">
+                          <div className="truncate font-medium text-slate-900 dark:text-slate-100" title={t.description}>{t.description ?? "—"}</div>
                           <div className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">
                             {t.source} • {t.status}
                           </div>
                         </TableCell>
-                        <TableCell className="min-w-[220px]">
+                        <TableCell className="w-[180px]">
                           <AsyncSelect
-                            className="h-9 rounded-2xl"
+                            className="h-8 rounded-xl"
                             value={t.entity_id ?? null}
                             initialLabel={t.core_entities?.display_name ?? null}
-                            onChange={(v) =>
-                              updateTxEntityM.mutate({ id: t.id, description: t.description, entityId: v })
-                            }
+                            onChange={(v) => {
+                              updateTxEntityM.mutate({ id: t.id, description: t.description, entityId: v });
+                            }}
                             placeholder="(sem entidade)"
                             loadOptions={async (val) => {
                               if (!activeTenantId || val.length < 2) return [];

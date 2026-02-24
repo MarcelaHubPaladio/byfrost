@@ -123,7 +123,7 @@ export function AsyncSelect({
                         className
                     )}
                 >
-                    <span className="truncate">{selectedLabel || value || placeholder}</span>
+                    <span className="max-w-[140px] truncate">{selectedLabel || value || placeholder}</span>
                     <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                 </Button>
             </PopoverTrigger>

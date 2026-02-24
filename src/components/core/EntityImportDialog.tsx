@@ -255,7 +255,11 @@ export function EntityImportDialog({ open, onOpenChange, tenantId }: EntityImpor
                     <DialogTitle>Importar Entidades via CSV</DialogTitle>
                     <DialogDescription>
                         Envie uma lista de colunas como `Nome;Tipo`.
-                        O sistema reconhece termos como Cliente, Fornecedor e Produto automaticamente.
+                        O sistema reconhece e classifica automaticamente os seguintes tipos:
+                        <br />
+                        <b>Party (Pessoas/Empresas):</b> Cliente, Fornecedor, Colaborador, Banco.
+                        <br />
+                        <b>Offering (Ofertas):</b> Produto, Serviço, Plano/Assinatura.
                     </DialogDescription>
                 </DialogHeader>
 

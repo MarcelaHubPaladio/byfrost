@@ -255,18 +255,14 @@ export function EntityImportDialog({ open, onOpenChange, tenantId }: EntityImpor
                     <DialogTitle>Importar Entidades via CSV</DialogTitle>
                     <DialogDescription>
                         Envie uma lista de colunas como `Nome;Tipo`.
-                        O sistema reconhece e classifica automaticamente os seguintes tipos:
-                        <br />
-                        <b>Party (Pessoas/Empresas):</b> Cliente, Fornecedor, Colaborador, Banco.
-                        <br />
-                        <b>Offering (Ofertas):</b> Produto, Serviço, Plano/Assinatura.
+                        Tipos reconhecidos: Cliente, Fornecedor, Colaborador, Banco, Produto e Serviço.
                     </DialogDescription>
                 </DialogHeader>
 
                 <ScrollArea className="flex-1 pr-2">
                     <div className="space-y-4 pt-2 pb-6">
                         <div className="rounded-[16px] border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800 dark:border-blue-900/50 dark:bg-blue-950/30 dark:text-blue-200">
-                            <b>Dica:</b> A primeira linha do CSV é considerada o cabeçalho. Formatos suportados: <code>[Nome]</code> ou <code>[Nome, Tipo]</code>.
+                            <b>Dica:</b> A primeira linha deve ser o cabeçalho. O "Tipo" pode ser: <i>Cliente, Fornecedor, Colaborador, Banco, Produto, Serviço, Plano.</i>
                         </div>
 
                         <div className="grid gap-4 md:grid-cols-2">

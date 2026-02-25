@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { showError, showSuccess } from "@/utils/toast";
 import { cn } from "@/lib/utils";
-import { Banknote, IdCard, Save } from "lucide-react";
+import { Banknote, ExternalLink, IdCard, MapPin, Save } from "lucide-react";
 import { useTenant } from "@/providers/TenantProvider";
 import { useSession } from "@/providers/SessionProvider";
 
@@ -79,6 +79,9 @@ export function CaseCustomerDataEditorCard(props: {
         "delivery_forecast_text",
         "expected_delivery_date_text",
       ]),
+      local: getField(fields, "local"),
+      latitude: getField(fields, "latitude"),
+      longitude: getField(fields, "longitude"),
       obs: getFieldAny(fields, ["obs", "notes"]),
     }),
     [fields]
@@ -142,6 +145,9 @@ export function CaseCustomerDataEditorCard(props: {
           key: "delivery_forecast_text",
           value_text: cleanOrNull(draft.delivery_forecast_text),
         },
+        { key: "local", value_text: cleanOrNull(draft.local) },
+        { key: "latitude", value_text: cleanOrNull(draft.latitude) },
+        { key: "longitude", value_text: cleanOrNull(draft.longitude) },
         { key: "obs", value_text: cleanOrNull(draft.obs) },
       ]
         .map((r) => ({
@@ -180,6 +186,9 @@ export function CaseCustomerDataEditorCard(props: {
         "payment_due_date_text",
         "proposal_validity_date_text",
         "delivery_forecast_text",
+        "local",
+        "latitude",
+        "longitude",
         "obs",
 
         // legacy (para não deixar valores antigos divergirem)
@@ -388,6 +397,49 @@ export function CaseCustomerDataEditorCard(props: {
               onChange={(e) => setDraft((p) => ({ ...p, state: e.target.value }))}
               className="mt-1 h-10 rounded-2xl"
               placeholder="Paraná"
+            />
+          </div>
+        </div>
+
+        <div>
+          <Label className="text-xs font-semibold text-blue-600">Local (Obrigatório para transição)</Label>
+          <Input
+            value={draft.local}
+            onChange={(e) => setDraft((p) => ({ ...p, local: e.target.value }))}
+            className="mt-1 h-10 rounded-2xl border-blue-100 bg-blue-50/30"
+            placeholder="Cidade ou ponto de referência"
+          />
+          <div className="mt-1 text-[10px] text-blue-500">
+            Este campo satisfaz a exigência de "local" para mover o caso de coluna.
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-slate-100 bg-slate-50/50 p-3">
+          <div className="flex items-center justify-between gap-2">
+            <Label className="text-[11px] font-medium text-slate-500">Coordenadas GPS (opcional)</Label>
+            {draft.latitude && draft.longitude && (
+              <a
+                href={`https://www.google.com/maps/search/?api=1&query=${draft.latitude},${draft.longitude}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center text-[10px] font-medium text-blue-600 hover:underline"
+              >
+                <ExternalLink className="mr-1 h-3 w-3" /> Ver no Maps
+              </a>
+            )}
+          </div>
+          <div className="mt-2 grid gap-3 sm:grid-cols-2">
+            <Input
+              value={draft.latitude}
+              onChange={(e) => setDraft((p) => ({ ...p, latitude: e.target.value }))}
+              className="h-9 rounded-xl text-xs"
+              placeholder="Latitude (ex: -23.55)"
+            />
+            <Input
+              value={draft.longitude}
+              onChange={(e) => setDraft((p) => ({ ...p, longitude: e.target.value }))}
+              className="h-9 rounded-xl text-xs"
+              placeholder="Longitude (ex: -46.63)"
             />
           </div>
         </div>

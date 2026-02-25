@@ -1895,18 +1895,8 @@ serve(async (req) => {
           if (!cpf || String(cpf).length < 11) missing.push({ type: "missing_field", question: "Envie o CPF (somente números).", required: true });
           if (!rg || String(rg).length < 7) missing.push({ type: "missing_field", question: "Envie o RG (somente números).", required: true });
           if (!birth) missing.push({ type: "missing_field", question: "Qual é a data de nascimento? (dd/mm/aaaa)", required: true });
-          if (!phone) missing.push({ type: "missing_field", question: "Qual é o telefone do cliente? (DDD + número)", required: true });
-
-          if (!location) missing.push({ type: "need_location", question: "Envie sua localização (WhatsApp: Compartilhar localização).", required: true });
-
-          if (signature === "no") {
-            missing.push({ type: "missing_field", question: "O pedido está sem assinatura do cliente. Confirme se há assinatura e, se possível, envie uma foto mais nítida da assinatura.", required: true });
-          }
-
-          if (!totalRaw) {
-            // Não trava, mas avisa líder/admin
-            missing.push({ type: "leader_followup", question: "TOTAL não detectado. Validar manualmente o valor total do pedido.", required: false });
-          }
+          // Required fields validation is now handled strictly by the Journey `status_configs`.
+          // Hardcoded creation of pendencies has been removed from this core extraction logic.
 
           // Upsert pendencies (don't duplicate)
           for (const m of missing) {

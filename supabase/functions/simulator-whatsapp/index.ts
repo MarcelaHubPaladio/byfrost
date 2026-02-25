@@ -948,30 +948,7 @@ serve(async (req) => {
         if (!aErr) debug.created.attachments += 1;
       }
 
-      // Default pendencies
-      {
-        const { error: pErr } = await supabase.from("pendencies").insert([
-          {
-            case_id: caseId,
-            type: "need_location",
-            assigned_to_role: "vendor",
-            question_text: "Envie sua localização (WhatsApp: Compartilhar localização). Sem isso não conseguimos registrar o pedido.",
-            required: true,
-            status: "open",
-            due_at: new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString(),
-          },
-          {
-            case_id: caseId,
-            type: "need_more_pages",
-            assigned_to_role: "vendor",
-            question_text: "Tem mais alguma folha desse pedido? Se sim, envie as próximas fotos. Se não, responda: última folha.",
-            required: false,
-            status: "open",
-            due_at: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
-          },
-        ]);
-        if (!pErr) debug.created.pendencies += 2;
-      }
+      // Default pendencies are no longer created here by default to respect Journey `status_configs`.
 
       // OCR
       if (mediaUrl || mediaBase64) {

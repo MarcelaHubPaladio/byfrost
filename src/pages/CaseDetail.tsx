@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, ReactNode } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AppShell } from "@/components/AppShell";
@@ -28,6 +28,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { WhatsAppConversation } from "@/components/case/WhatsAppConversation";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { CaseTimeline, type CaseTimelineEvent } from "@/components/case/CaseTimeline";
 import { CaseTechnicalReportDialog } from "@/components/case/CaseTechnicalReportDialog";
 import { CaseCustomerDataEditorCard } from "@/components/case/CaseCustomerDataEditorCard";
@@ -99,6 +100,12 @@ export default function CaseDetail() {
   const [sending, setSending] = useState(false);
   const [chatOnly, setChatOnly] = useState(false);
   const [updatingChatOnly, setUpdatingChatOnly] = useState(false);
+
+  const [transitionBlock, setTransitionBlock] = useState<{
+    open: boolean;
+    title: string;
+    description: ReactNode;
+  }>({ open: false, title: "", description: null });
   const [deleting, setDeleting] = useState(false);
 
 
@@ -263,6 +270,8 @@ export default function CaseDetail() {
     const statusConfigs = sm?.status_configs ?? {};
     const configForNext = statusConfigs[next] ?? {};
 
+    const blocks: ReactNode[] = [];
+
     // 1. Check required fields for the NEXT state
     const requiredFields = Array.isArray(configForNext.required_case_fields) ? configForNext.required_case_fields : [];
     if (requiredFields.length > 0) {
@@ -273,29 +282,40 @@ export default function CaseDetail() {
         return !val && !hasJson;
       });
       if (missingFields.length > 0) {
-        showError(`Preencha os campos obrigatórios antes de avançar para este status: ${missingFields.join(", ")}`);
-        return;
+        blocks.push(
+          <div key="fields">
+            <strong>Campos Obrigatórios Pendentes:</strong>{" "}
+            {missingFields.map((f: string) => (
+              <span key={f} className="inline-block bg-slate-100 px-2 py-0.5 rounded text-xs mr-1">{f}</span>
+            ))}
+          </div>
+        );
       }
     }
 
     // 2. Check open required pendencies
     const openRequiredPendencies = (pendQ.data ?? []).filter((p: any) => p.required && p.status === "open");
     if (openRequiredPendencies.length > 0) {
-      showError("Existem pendências obrigatórias em aberto. Responda-as antes de avançar.");
-      return;
+      blocks.push(
+        <div key="open-pends">
+          <strong>Tarefas Incompletas:</strong> Responda todas as pendências obrigatórias antes de avançar.
+        </div>
+      );
     }
 
     // 3. Check closed required pendencies that require attachments but have no attachments
     const missingAttachments = (pendQ.data ?? []).filter((p: any) => {
       const requireAtt = p.answered_payload_json?.require_attachment === true;
       const hasAtts = !!p.answered_payload_json?.answered_attachment;
-      // It must be required to attach AND not have attachments (even if closed, because the user could have closed it without attaching if the UI didn't block it yet)
       return p.required && requireAtt && !hasAtts;
     });
 
     if (missingAttachments.length > 0) {
-      showError("Verifique as pendências obrigatórias, algumas exigem anexos que não foram enviados.");
-      return;
+      blocks.push(
+        <div key="att-pends">
+          <strong>Anexos Faltantes:</strong> Verifique as pendências que exigem anexos obrigatórios.
+        </div>
+      );
     }
 
     // 4. Check closed required pendencies that require justification but have no text
@@ -306,7 +326,27 @@ export default function CaseDetail() {
     });
 
     if (missingJustifications.length > 0) {
-      showError("Verifique as pendências obrigatórias, algumas exigem justificativa que não foi preenchida.");
+      blocks.push(
+        <div key="just-pends">
+          <strong>Justificativas Faltantes:</strong> Verifique as pendências que exigem resposta em texto obrigatória.
+        </div>
+      );
+    }
+
+    if (blocks.length > 0) {
+      setTransitionBlock({
+        open: true,
+        title: "Transição Bloqueada",
+        description: (
+          <div className="flex flex-col gap-3 mt-4 text-sm text-slate-700">
+            <p>Não foi possível mover o caso para o status <strong>{next}</strong> devido às seguintes pendências:</p>
+            <div className="flex flex-col gap-2 p-3 bg-red-50 text-red-900 rounded border border-red-100">
+              {blocks}
+            </div>
+            <p className="mt-2 text-xs text-slate-500">Por favor, preencha os dados no painel ou responda as tarefas pendentes e tente novamente.</p>
+          </div>
+        )
+      });
       return;
     }
 

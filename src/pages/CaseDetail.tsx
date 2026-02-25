@@ -85,7 +85,7 @@ type CaseRow = {
   assigned_user_id: string | null;
   customer_id: string | null;
   is_chat?: boolean;
-  vendors?: { display_name: string | null; phone_e164: string | null } | null;
+  users_profile?: { display_name: string | null; email: string | null } | null;
   journeys?: { key: string | null; name: string | null; is_crm?: boolean; default_state_machine_json?: any } | null;
 };
 
@@ -467,8 +467,8 @@ export default function CaseDetail() {
 
         if (!inst?.id) throw new Error("Nenhuma instância WhatsApp ativa configurada.");
 
-        const vendorName = caseQ.data.vendors?.display_name ?? "seu vendedor";
-        const vendorPhone = caseQ.data.vendors?.phone_e164 ?? "";
+        const vendorName = caseQ.data.users_profile?.display_name ?? caseQ.data.users_profile?.email ?? "seu vendedor";
+        const vendorPhone = "";
 
         const to = extractedCustomerPhone;
         if (!to) throw new Error("Telefone do cliente não encontrado nos campos extraídos.");
@@ -840,8 +840,7 @@ export default function CaseDetail() {
                   {c?.status}
                 </Badge>
                 <span className="truncate">
-                  {(c?.vendors?.display_name ?? "Vendedor") +
-                    (c?.vendors?.phone_e164 ? ` • ${c?.vendors?.phone_e164}` : "")}
+                  {(c?.users_profile?.display_name ?? c?.users_profile?.email ?? "Sem Dono")}
                 </span>
               </div>
             </div>
@@ -993,6 +992,6 @@ export default function CaseDetail() {
           </div>
         </div>
       </AppShell>
-    </RequireAuth>
+    </RequireAuth >
   );
 }

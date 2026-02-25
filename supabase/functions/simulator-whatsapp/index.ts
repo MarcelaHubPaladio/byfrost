@@ -803,24 +803,6 @@ serve(async (req) => {
     const correlationId = `sim:${crypto.randomUUID()}`;
     const supabase = createSupabaseAdmin();
 
-    // Ensure vendor
-    let vendorId: string | null = null;
-    const { data: vendor } = await supabase
-      .from("vendors")
-      .select("id")
-      .eq("tenant_id", tenantId)
-      .eq("phone_e164", from)
-      .maybeSingle();
-    vendorId = vendor?.id ?? null;
-    if (!vendorId) {
-      const { data: createdVendor } = await supabase
-        .from("vendors")
-        .insert({ tenant_id: tenantId, phone_e164: from, display_name: "Vendedor (sim)" })
-        .select("id")
-        .single();
-      vendorId = createdVendor?.id ?? null;
-    }
-
     // Decide which journey to use
     let journeyId: string | null = null;
     if (journeyIdOverride) {
@@ -907,7 +889,7 @@ serve(async (req) => {
           status: "open",
           state: "awaiting_ocr",
           created_by_channel: "api",
-          assigned_user_id: vendorId,
+          assigned_user_id: null,
           title: "Pedido (simulador)",
           meta_json: { correlation_id: correlationId, simulator: true, ocr_provider: ocrProvider },
         })

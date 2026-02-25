@@ -70,7 +70,7 @@ type CaseRow = {
   updated_at: string;
   assigned_user_id: string | null;
   is_chat?: boolean;
-  vendors?: { display_name: string | null; phone_e164: string | null } | null;
+  users_profile?: { display_name: string | null; email: string | null } | null;
   // Nem sempre existe FK/relacionamento exposto; então mantemos também meta_json.
   journeys?: { key: string | null; name: string | null; is_crm?: boolean } | null;
   meta_json?: any;
@@ -425,7 +425,7 @@ export default function Dashboard() {
     refetchInterval: 5000,
     refetchOnWindowFocus: true,
     queryFn: async () => {
-      // NOTE: "cases" possui mais de uma FK para "vendors"; precisamos desambiguar o embed.
+      // NOTE: "cases" possui mais de uma FK para users_profile
       const { data, error } = await supabase
         .from("cases")
         .select(
@@ -570,7 +570,7 @@ export default function Dashboard() {
       const metaPhone = getMetaPhone(r.meta_json);
       const fieldPhone = isCrm ? casePhoneQ.data?.get(r.id) : null;
 
-      const t = `${r.title ?? ""} ${(r.vendors?.display_name ?? "")} ${(r.vendors?.phone_e164 ?? "")} ${cust?.name ?? ""} ${cust?.phone_e164 ?? ""} ${cust?.email ?? ""} ${metaPhone ?? ""} ${fieldPhone ?? ""}`.toLowerCase();
+      const t = `${r.title ?? ""} ${(r.users_profile?.display_name ?? "")} ${(r.users_profile?.email ?? "")} ${cust?.name ?? ""} ${cust?.phone_e164 ?? ""} ${cust?.email ?? ""} ${metaPhone ?? ""} ${fieldPhone ?? ""}`.toLowerCase();
 
       // Busca por número exata ou parcial sem formatação
       const cleanQ = qq.replace(/\D/g, "");
@@ -1198,10 +1198,9 @@ export default function Dashboard() {
 
                               <TableCell className="py-3">
                                 <div className="text-sm text-slate-800">
-                                  {c.vendors?.display_name ?? "—"}
+                                  {c.users_profile?.display_name ?? c.users_profile?.email ?? "—"}
                                 </div>
                                 <div className="mt-0.5 text-[11px] text-slate-500">
-                                  {c.vendors?.phone_e164 ?? ""}
                                 </div>
                               </TableCell>
 
@@ -1338,8 +1337,7 @@ export default function Dashboard() {
                                 <div className="min-w-0">
                                   <div className="truncate text-sm font-semibold text-slate-900">{titlePrimary}</div>
                                   <div className="mt-1 truncate text-xs text-slate-500">
-                                    {(c.vendors?.display_name ?? "Vendedor") +
-                                      (c.vendors?.phone_e164 ? ` • ${c.vendors.phone_e164}` : "")}
+                                    {(c.users_profile?.display_name ?? c.users_profile?.email ?? "Sem dono")}
                                   </div>
                                 </div>
 

@@ -546,10 +546,6 @@ function MyGoalsDashboard() {
         enabled: !!activeTenantId && !!user?.id,
     });
 
-    if (goalsQ.isLoading) {
-        return <div className="p-8 text-center text-slate-500">Carregando metas...</div>;
-    }
-
     const { activeRule, existingSig, showSignatureBanner } = useMemo(() => {
         const activeRule = goalsQ.data?.activeRule;
         const existingSig = goalsQ.data?.existingSig;
@@ -563,6 +559,10 @@ function MyGoalsDashboard() {
 
         return { activeRule, existingSig, showSignatureBanner };
     }, [goalsQ.data]);
+
+    if (goalsQ.isLoading) {
+        return <div className="p-8 text-center text-slate-500">Carregando metas...</div>;
+    }
 
     const handleSignTerms = async () => {
         if (!activeRule || !user) return;

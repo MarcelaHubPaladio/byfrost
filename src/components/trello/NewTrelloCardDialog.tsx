@@ -89,7 +89,6 @@ export function NewTrelloCardDialog(props: { tenantId: string; journeyId: string
         summary_text: normalizeRichTextHtmlOrNull(descriptionHtml),
         state: "BACKLOG",
         ...(assigned_user_id ? { assigned_user_id } : {}),
-        created_by_user_id: user?.id,
         meta_json: {
           due_at: dueAtIso,
         },

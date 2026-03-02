@@ -57,15 +57,16 @@ function roleLabel(role: string) {
   return role || "—";
 }
 
-function userLabel(u: UserRow) {
+function userLabel(u: UserRow | undefined | null) {
+  if (!u) return "Usuário Desconhecido";
   const name = (u.display_name ?? "").trim();
   if (name) return name;
   const email = (u.email ?? "").trim();
   if (email) return email;
-  return `${u.user_id.slice(0, 8)}…`;
+  return `ID ${u.user_id?.slice(0, 8) ?? "???"}…`;
 }
 
-function initials(name: string) {
+function initials(name: string | undefined | null) {
   const s = (name ?? "").trim();
   if (!s) return "U";
   const parts = s.split(/\s+/).slice(0, 2);
@@ -159,7 +160,9 @@ export function OrgChartPanel() {
       ids.sort((a, b) => {
         const ua = usersById.get(a);
         const ub = usersById.get(b);
-        return userLabel(ua as any).localeCompare(userLabel(ub as any));
+        const nameA = ua ? userLabel(ua) : `ID ${a.slice(0, 8)}`;
+        const nameB = ub ? userLabel(ub) : `ID ${b.slice(0, 8)}`;
+        return nameA.localeCompare(nameB);
       });
     };
 
@@ -292,8 +295,8 @@ export function OrgChartPanel() {
     const kids = tree.children.get(userId) ?? [];
 
     return (
-      <div key={userId} className={cn("grid gap-2", depth ? "pl-4" : "")}> 
-        <div className={cn("relative", depth ? "pl-4" : "")}> 
+      <div key={userId} className={cn("grid gap-2", depth ? "pl-4" : "")}>
+        <div className={cn("relative", depth ? "pl-4" : "")}>
           {depth ? (
             <div className="absolute left-1 top-0 h-full w-px bg-slate-200" aria-hidden />
           ) : null}

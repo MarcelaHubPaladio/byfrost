@@ -162,6 +162,7 @@ export default function Dashboard() {
 
   // Filtros jornada Auditoria
   const [instanceFilterId, setInstanceFilterId] = useState<string>("all");
+  const [assigneeFilterId, setAssigneeFilterId] = useState<string>("all");
   const [startDate, setStartDate] = useState<string>("");
   const [endDate, setEndDate] = useState<string>("");
 
@@ -179,6 +180,22 @@ export default function Dashboard() {
         .order("name", { ascending: true });
       if (error) throw error;
       return (data ?? []) as Array<{ id: string; name: string; phone_number: string | null }>;
+    },
+  });
+
+  const tenantUsersQ = useQuery({
+    queryKey: ["tenant_users_all", activeTenantId],
+    enabled: Boolean(activeTenantId),
+    staleTime: 60_000,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("users_profile")
+        .select("user_id, display_name, email")
+        .eq("tenant_id", activeTenantId!)
+        .is("deleted_at", null)
+        .order("display_name", { ascending: true });
+      if (error) throw error;
+      return (data ?? []) as Array<{ user_id: string; display_name: string | null; email: string | null }>;
     },
   });
 
@@ -539,12 +556,15 @@ export default function Dashboard() {
     // Filtro de Instância
     if (instanceFilterId !== "all") {
       base = base.filter((r) => {
-        // Cases table does not have instance_id directly sometimes, but it might be in meta_json.
-        // For audit, it's top-level. For Trello/other, it might be in monitoring.
         const meta = r.meta_json as any;
         const instId = meta?.instance_id || meta?.wa_instance_id || meta?.monitoring?.wa_instance_id || meta?.monitoring?.instance_id;
         return instId === instanceFilterId;
       });
+    }
+
+    // Filtro de Responsável
+    if (assigneeFilterId !== "all") {
+      base = base.filter((r) => r.assigned_user_id === assigneeFilterId);
     }
 
     // Filtro de Datas
@@ -1027,6 +1047,24 @@ export default function Dashboard() {
                 />
               </div>
             </div>
+
+            {isTrelloJourney && (
+              <div className="flex flex-col gap-1">
+                <div className="text-[11px] font-semibold text-slate-700">Responsável</div>
+                <select
+                  value={assigneeFilterId}
+                  onChange={(e) => setAssigneeFilterId(e.target.value)}
+                  className="h-11 rounded-2xl border border-slate-200 bg-white px-3 text-sm text-slate-800 outline-none focus:border-[hsl(var(--byfrost-accent)/0.45)]"
+                >
+                  <option value="all">Todos os responsáveis</option>
+                  {(tenantUsersQ.data ?? []).map((u) => (
+                    <option key={u.user_id} value={u.user_id}>
+                      {u.display_name || u.email || u.user_id.slice(0, 8)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
 
             {(selectedKey === "ff_flow_20260129200457" || selectedKey === "auditoria-de-whatsapp") && (
               <>

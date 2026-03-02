@@ -1,10 +1,12 @@
 import { Navigate } from "react-router-dom";
 import { useSession } from "@/providers/SessionProvider";
 import { useTenant } from "@/providers/TenantProvider";
+import { useTheme } from "@/providers/ThemeProvider";
 
 export default function Index() {
   const { user, loading } = useSession();
   const { tenants, activeTenantId, loading: tenantsLoading } = useTenant();
+  const { prefs } = useTheme();
 
   if (loading || tenantsLoading) {
     return (
@@ -18,9 +20,15 @@ export default function Index() {
 
   if (!user) return <Navigate to="/login" replace />;
 
-  if (activeTenantId) return <Navigate to="/app" replace />;
+  if (activeTenantId) {
+    const target = prefs.startRoute || "/app";
+    return <Navigate to={target} replace />;
+  }
 
-  if (tenants.length === 1) return <Navigate to="/app" replace />;
+  if (tenants.length === 1) {
+    const target = prefs.startRoute || "/app";
+    return <Navigate to={target} replace />;
+  }
 
   return <Navigate to="/tenants" replace />;
 }

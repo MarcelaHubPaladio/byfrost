@@ -11,7 +11,15 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Link2 } from "lucide-react";
+import { Link2, LayoutGrid } from "lucide-react";
+import { CANDIDATE_ROUTES } from "@/lib/access";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 function ThemeCard({
   selected,
@@ -65,7 +73,7 @@ function getUserDisplayName(user: any) {
 
 export default function Me() {
   const { user } = useSession();
-  const { prefs, setMode, setCustom, isLoading } = useTheme();
+  const { prefs, setMode, setCustom, setStartRoute, isLoading } = useTheme();
   const [busy, setBusy] = useState(false);
   const [linking, setLinking] = useState(false);
 
@@ -207,6 +215,34 @@ export default function Me() {
                     </Button>
                     <div className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">
                       Requer Google provider habilitado e "Manual linking" ativo no Supabase Auth.
+                    </div>
+                  </div>
+
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950/40">
+                    <div className="flex items-center gap-2 text-[11px] font-semibold text-slate-700 dark:text-slate-200">
+                      <LayoutGrid className="h-3.5 w-3.5" />
+                      Tela Inicial
+                    </div>
+                    <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                      Escolha qual tela deve abrir logo após o login.
+                    </p>
+                    <div className="mt-3">
+                      <Select
+                        value={prefs.startRoute || "/app"}
+                        onValueChange={(val) => setStartRoute(val)}
+                        disabled={busy}
+                      >
+                        <SelectTrigger className="h-10 rounded-2xl border-slate-200 bg-white text-sm dark:border-slate-800 dark:bg-slate-950">
+                          <SelectValue placeholder="Selecione uma tela..." />
+                        </SelectTrigger>
+                        <SelectContent className="rounded-2xl border-slate-200 dark:border-slate-800">
+                          {CANDIDATE_ROUTES.map((r) => (
+                            <SelectItem key={r.key} value={r.path} className="rounded-xl">
+                              {r.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </div>
                   </div>
                 </div>

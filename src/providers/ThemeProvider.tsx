@@ -11,20 +11,22 @@ export type ThemeCustom = {
   bgHex?: string; // ex: #F6F5FF
 };
 
-type ThemePrefs = {
+type UserPrefs = {
   mode: ThemeMode;
   custom: ThemeCustom;
+  startRoute: string | null;
 };
 
-type ThemeContextValue = {
-  prefs: ThemePrefs;
+type UserPreferencesContextValue = {
+  prefs: UserPrefs;
   isLoading: boolean;
   setMode: (mode: ThemeMode) => Promise<void>;
   setCustom: (custom: ThemeCustom) => Promise<void>;
+  setStartRoute: (route: string | null) => Promise<void>;
   refetch: () => Promise<void>;
 };
 
-const ThemeContext = createContext<ThemeContextValue | null>(null);
+const UserPreferencesContext = createContext<UserPreferencesContextValue | null>(null);
 
 function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n));
@@ -122,7 +124,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("user_preferences")
-        .select("user_id, theme_mode, theme_custom_json")
+        .select("user_id, theme_mode, theme_custom_json, start_route")
         .eq("user_id", user!.id)
         .maybeSingle();
       if (error) throw error;
@@ -130,11 +132,12 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     },
   });
 
-  const prefs: ThemePrefs = useMemo(() => {
+  const prefs: UserPrefs = useMemo(() => {
     const row = prefsQ.data;
     const mode = (row?.theme_mode as ThemeMode | undefined) ?? "byfrost";
     const custom = (row?.theme_custom_json ?? {}) as ThemeCustom;
-    return { mode, custom };
+    const startRoute = (row?.start_route as string | undefined) ?? null;
+    return { mode, custom, startRoute };
   }, [prefsQ.data]);
 
   // Apply to DOM
@@ -159,7 +162,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     clearUserOverrides();
   }, [prefs.mode, prefs.custom]);
 
-  const upsert = async (patch: Partial<{ theme_mode: ThemeMode; theme_custom_json: ThemeCustom }>) => {
+  const upsert = async (patch: Partial<{ theme_mode: ThemeMode; theme_custom_json: ThemeCustom; start_route: string | null }>) => {
     if (!user?.id) return;
 
     const { error } = await supabase
@@ -177,7 +180,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     await qc.invalidateQueries({ queryKey: ["user_preferences", user.id] });
   };
 
-  const value: ThemeContextValue = {
+  const value: UserPreferencesContextValue = {
     prefs,
     isLoading: prefsQ.isLoading,
     setMode: async (mode) => {
@@ -186,16 +189,23 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     setCustom: async (custom) => {
       await upsert({ theme_custom_json: custom });
     },
+    setStartRoute: async (route) => {
+      await upsert({ start_route: route });
+    },
     refetch: async () => {
       await qc.invalidateQueries({ queryKey: ["user_preferences", user?.id] });
     },
   };
 
-  return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
+  return (
+    <UserPreferencesContext.Provider value={value}>
+      {children}
+    </UserPreferencesContext.Provider>
+  );
 }
 
 export function useTheme() {
-  const ctx = useContext(ThemeContext);
+  const ctx = useContext(UserPreferencesContext);
   if (!ctx) throw new Error("useTheme must be used within ThemeProvider");
   return ctx;
 }

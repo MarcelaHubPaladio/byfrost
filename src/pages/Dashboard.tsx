@@ -5,6 +5,7 @@ import { AppShell } from "@/components/AppShell";
 import { RequireAuth } from "@/components/RequireAuth";
 import { useTenant } from "@/providers/TenantProvider";
 import { useSession } from "@/providers/SessionProvider";
+import { useTheme } from "@/providers/ThemeProvider";
 import { supabase } from "@/lib/supabase";
 import { cn, titleizeState } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -147,6 +148,7 @@ export default function Dashboard() {
   const nav = useNavigate();
   const loc = useLocation();
   const { journeyKey } = useParams<{ journeyKey?: string }>();
+  const { prefs } = useTheme();
   const qc = useQueryClient();
 
   const [refreshingToken, setRefreshingToken] = useState(false);
@@ -163,6 +165,15 @@ export default function Dashboard() {
   // Filtros jornada Auditoria
   const [instanceFilterId, setInstanceFilterId] = useState<string>("all");
   const [assigneeFilterId, setAssigneeFilterId] = useState<string>("all");
+
+  // Redireção para Home configurada
+  useEffect(() => {
+    // Só redireciona se estiver na rota BASE do dashboard (/app) 
+    // e se o usuário tiver uma tela inicial configurada diferente dessa.
+    if (!journeyKey && loc.pathname === "/app" && prefs.startRoute && prefs.startRoute !== "/app") {
+      nav(prefs.startRoute, { replace: true });
+    }
+  }, [journeyKey, loc.pathname, prefs.startRoute, nav]);
   const [startDate, setStartDate] = useState<string>("");
   const [endDate, setEndDate] = useState<string>("");
 

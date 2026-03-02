@@ -33,9 +33,13 @@ import {
   Building2,
   Handshake,
   PackageCheck,
-  FileSignature,
-  LineChart,
+  Shield,
+  Smartphone,
+  Star,
   Target,
+  Settings2,
+  LineChart,
+  FileSignature,
 } from "lucide-react";
 import * as HoverCardPrimitive from "@radix-ui/react-hover-card";
 import { cn } from "@/lib/utils";
@@ -333,6 +337,10 @@ function isSimulatorEnabled(modulesJson: any) {
   return Boolean(modulesJson?.simulator_enabled === true);
 }
 
+function isGoalsEnabled(modulesJson: any) {
+  return Boolean(modulesJson?.goals_enabled === true);
+}
+
 type FinanceNavChild = {
   to: string;
   label: string;
@@ -474,6 +482,7 @@ export function AppShell({
   const roleKey = String(activeTenant?.role ?? "");
   const financeEnabledForTenant = isSuperAdmin || isFinanceEnabled(activeTenant?.modules_json);
   const simulatorEnabledForTenant = isSuperAdmin || isSimulatorEnabled(activeTenant?.modules_json);
+  const goalsEnabledForTenant = isSuperAdmin || isGoalsEnabled(activeTenant?.modules_json);
 
   const navAccessQ = useQuery({
     queryKey: ["nav_access", activeTenantId, roleKey],
@@ -497,6 +506,9 @@ export function AppShell({
         "app.settings",
         "app.me",
         "app.admin",
+        // Goals
+        "app.goals",
+        "app.goals.manage",
         // Finance
         "app.finance.cockpit",
         "app.finance.ledger",
@@ -814,8 +826,17 @@ export function AppShell({
                   <NavTile to="/app/simulator" icon={FlaskConical} label="Simulador" disabled={!can("app.simulator")} />
                 )}
 
-                {isSuperAdmin && <NavTile to="/app/admin" icon={Crown} label="Admin" disabled={!can("app.admin")} />}
-                <NavTile to="/app/admin/goals" icon={Target} label="Metas" disabled={!can("app.admin")} />
+                {goalsEnabledForTenant && can("app.goals") && (
+                  <NavTile
+                    to="/app/goals"
+                    icon={Target}
+                    label="Metas"
+                  />
+                )}
+
+                {can("app.admin") && (
+                  <NavTile to="/app/admin" icon={Settings2} label="Admin" />
+                )}
                 <NavTile to="/app/settings" icon={Settings} label="Config" disabled={!can("app.settings")} />
               </div>
             </div>
@@ -1089,22 +1110,23 @@ export function AppShell({
                               />
                             )}
 
-                            {isSuperAdmin && (
+                            {goalsEnabledForTenant && can("app.goals") && (
                               <MobileNavItem
-                                to="/app/admin"
-                                icon={Crown}
-                                label="Admin"
-                                disabled={!can("app.admin")}
+                                to="/app/goals"
+                                icon={Target}
+                                label="Metas"
                                 onNavigate={() => setMobileNavOpen(false)}
                               />
                             )}
-                            <MobileNavItem
-                              to="/app/admin/goals"
-                              icon={Target}
-                              label="Metas"
-                              disabled={!can("app.admin")}
-                              onNavigate={() => setMobileNavOpen(false)}
-                            />
+
+                            {can("app.admin") && (
+                              <MobileNavItem
+                                to="/app/admin"
+                                icon={Settings2}
+                                label="Admin"
+                                onNavigate={() => setMobileNavOpen(false)}
+                              />
+                            )}
                             <MobileNavItem
                               to="/app/settings"
                               icon={Settings}

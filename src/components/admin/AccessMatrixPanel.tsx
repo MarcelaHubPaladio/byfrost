@@ -87,6 +87,20 @@ const DEFAULT_ROUTES: RouteRow[] = [
     path_pattern: "/app/incentives/events",
     description: "Tela de gestão para criar/editar/remover eventos",
   },
+  {
+    key: "app.goals",
+    name: "Metas • Dashboard",
+    category: "Metas",
+    path_pattern: "/app/goals",
+    description: "Acesso ao próprio dashboard de metas",
+  },
+  {
+    key: "app.goals.manage",
+    name: "Metas • Gestão",
+    category: "Metas",
+    path_pattern: "/app/goals",
+    description: "Permite configurar templates e cargos na Central de Metas",
+  },
 ];
 
 const DEFAULT_ROLES = [

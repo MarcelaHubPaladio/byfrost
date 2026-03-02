@@ -14,6 +14,8 @@ import {
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { checkRouteAccess } from "@/lib/access";
 
 const ROLES = [
     { id: "admin", name: "Admin", description: "Administrador do sistema" },
@@ -24,7 +26,23 @@ const ROLES = [
 ];
 
 export default function GoalsCenter() {
+    const { activeTenantId } = useTenant();
     const [selectedRole, setSelectedRole] = useState<string | null>(null);
+
+    // Get current user role and access
+    const { activeTenant, isSuperAdmin } = useTenant();
+    const roleKey = String(activeTenant?.role ?? "");
+
+    const manageAccessQ = useQuery({
+        queryKey: ["nav_access_goals_manage", activeTenantId, roleKey],
+        enabled: Boolean(activeTenantId),
+        queryFn: async () => {
+            if (isSuperAdmin) return true;
+            return await checkRouteAccess({ tenantId: activeTenantId!, roleKey, routeKey: "app.goals.manage" });
+        },
+    });
+
+    const canManage = Boolean(manageAccessQ.data);
 
     return (
         <RequireAuth>
@@ -37,42 +55,65 @@ export default function GoalsCenter() {
                         </h1>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                        <div className="border bg-white rounded-lg p-4 shadow-sm h-full max-h-[70vh] flex flex-col">
-                            <div className="flex justify-between items-center mb-4">
-                                <h2 className="font-semibold text-lg">Cargos</h2>
-                            </div>
+                    <Tabs defaultValue="my-goals" className="w-full">
+                        <TabsList className="mb-4">
+                            <TabsTrigger value="my-goals" className="flex items-center gap-2">
+                                <Target className="w-4 h-4" />
+                                Minhas Metas
+                            </TabsTrigger>
+                            {canManage && (
+                                <TabsTrigger value="manage" className="flex items-center gap-2">
+                                    <Target className="w-4 h-4" />
+                                    Configuração
+                                </TabsTrigger>
+                            )}
+                        </TabsList>
 
-                            <div className="flex-1 overflow-y-auto space-y-2">
-                                {ROLES.map((role) => (
-                                    <div
-                                        key={role.id}
-                                        onClick={() => setSelectedRole(role.id)}
-                                        className={`p-3 rounded-md cursor-pointer border flex justify-between items-center transition-colors ${selectedRole === role.id
-                                            ? "border-indigo-600 bg-indigo-50"
-                                            : "hover:bg-slate-50 border-slate-200"
-                                            }`}
-                                    >
-                                        <div>
-                                            <div className="font-medium text-sm text-slate-800">{role.name}</div>
-                                            <div className="text-xs text-slate-500 truncate mt-0.5">{role.description}</div>
+                        <TabsContent value="my-goals">
+                            <MyGoalsDashboard />
+                        </TabsContent>
+
+                        {canManage && (
+                            <TabsContent value="manage">
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-4">
+                                    <div className="border bg-white rounded-lg p-4 shadow-sm h-full max-h-[70vh] flex flex-col">
+                                        <div className="flex justify-between items-center mb-4">
+                                            <h2 className="font-semibold text-lg">Cargos</h2>
+                                        </div>
+
+                                        <div className="flex-1 overflow-y-auto space-y-2">
+                                            {ROLES.map((role) => (
+                                                <div
+                                                    key={role.id}
+                                                    onClick={() => setSelectedRole(role.id)}
+                                                    className={`p-3 rounded-md cursor-pointer border flex justify-between items-center transition-colors ${selectedRole === role.id
+                                                        ? "border-indigo-600 bg-indigo-50"
+                                                        : "hover:bg-slate-50 border-slate-200"
+                                                        }`}
+                                                >
+                                                    <div>
+                                                        <div className="font-medium text-sm text-slate-800">{role.name}</div>
+                                                        <div className="text-xs text-slate-500 truncate mt-0.5">{role.description}</div>
+                                                    </div>
+                                                </div>
+                                            ))}
                                         </div>
                                     </div>
-                                ))}
-                            </div>
-                        </div>
 
-                        <div className="md:col-span-2 border bg-white rounded-lg p-4 shadow-sm max-h-[70vh] flex flex-col">
-                            {selectedRole ? (
-                                <TemplatesEditor roleKey={selectedRole} />
-                            ) : (
-                                <div className="flex-1 flex flex-col items-center justify-center text-slate-400">
-                                    <Target className="w-12 h-12 mb-2 opacity-50" />
-                                    <p>Selecione um cargo para configurar os templates de metas.</p>
+                                    <div className="md:col-span-2 border bg-white rounded-lg p-4 shadow-sm max-h-[70vh] flex flex-col">
+                                        {selectedRole ? (
+                                            <TemplatesEditor roleKey={selectedRole} />
+                                        ) : (
+                                            <div className="flex-1 flex flex-col items-center justify-center text-slate-400">
+                                                <Target className="w-12 h-12 mb-2 opacity-50" />
+                                                <p>Selecione um cargo para configurar os templates de metas.</p>
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
-                            )}
-                        </div>
-                    </div>
+                            </TabsContent>
+                        )}
+                    </Tabs>
                 </div>
             </AppShell>
         </RequireAuth>
@@ -281,6 +322,22 @@ function TemplatesEditor({ roleKey }: { roleKey: string }) {
                     </div>
                 </DialogContent>
             </Dialog>
+        </div>
+    );
+}
+
+function MyGoalsDashboard() {
+    const { activeTenantId } = useTenant();
+
+    return (
+        <div className="bg-white p-6 rounded-lg border shadow-sm">
+            <h2 className="text-lg font-bold mb-4">Minhas Metas (Dashboard)</h2>
+            <div className="flex-1 flex flex-col items-center justify-center text-slate-400 py-12 border-2 border-dashed rounded-lg bg-slate-50">
+                <Target className="w-12 h-12 mb-3 text-slate-300" />
+                <p className="text-center max-w-md">
+                    Em breve: Mini-dashboard visual com o progresso das suas metas ativas, mostrando conquistas e alvos.
+                </p>
+            </div>
         </div>
     );
 }

@@ -8,7 +8,8 @@ import { SessionProvider } from "@/providers/SessionProvider";
 import { TenantProvider } from "@/providers/TenantProvider";
 import { ThemeProvider } from "@/providers/ThemeProvider";
 import { RequireTenantRole } from "@/components/RequireTenantRole";
-import { RequireRouteAccess } from "@/components/RequireRouteAccess";
+import { RequireRouteAccess } from "./components/RequireRouteAccess";
+import { RequireGoalsEnabled } from "./components/RequireGoalsEnabled";
 import { RequireChatInstanceAccess } from "@/components/RequireChatInstanceAccess";
 import { RequireFinanceEnabled } from "@/components/RequireFinanceEnabled";
 import { RequireSimulatorEnabled } from "@/components/RequireSimulatorEnabled";
@@ -338,13 +339,13 @@ const App = () => (
                   }
                 />
                 <Route
-                  path="/app/admin/goals"
+                  path="/app/goals"
                   element={
-                    <RequireTenantRole roles={["admin"]}>
-                      <RequireRouteAccess routeKey="app.admin">
+                    <RequireGoalsEnabled>
+                      <RequireRouteAccess routeKey="app.goals">
                         <GoalsCenter />
                       </RequireRouteAccess>
-                    </RequireTenantRole>
+                    </RequireGoalsEnabled>
                   }
                 />
                 <Route

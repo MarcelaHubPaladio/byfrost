@@ -14,6 +14,10 @@ function getSimulatorEnabled(modulesJson: any) {
   return Boolean(modulesJson?.simulator_enabled === true);
 }
 
+function getGoalsEnabled(modulesJson: any) {
+  return Boolean(modulesJson?.goals_enabled === true);
+}
+
 function setModuleFlag(modulesJson: any, key: string, enabled: boolean) {
   const base = (modulesJson ?? {}) as any;
   return { ...base, [key]: enabled };
@@ -41,6 +45,7 @@ export function TenantModulesPanel() {
 
   const financeEnabled = useMemo(() => getFinanceEnabled(tenantQ.data?.modules_json), [tenantQ.data]);
   const simulatorEnabled = useMemo(() => getSimulatorEnabled(tenantQ.data?.modules_json), [tenantQ.data]);
+  const goalsEnabled = useMemo(() => getGoalsEnabled(tenantQ.data?.modules_json), [tenantQ.data]);
 
   const toggleModule = async (key: string, next: boolean) => {
     if (!activeTenantId) return;
@@ -100,6 +105,20 @@ export function TenantModulesPanel() {
                 checked={simulatorEnabled}
                 disabled={saving || tenantQ.isLoading}
                 onCheckedChange={(v) => toggleModule("simulator_enabled", v)}
+              />
+            </div>
+
+            <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
+              <div>
+                <div className="text-xs font-semibold text-slate-900">Central de Metas</div>
+                <div className="mt-0.5 text-[11px] text-slate-600">
+                  Habilita o hub de metas, dashboards e métricas.
+                </div>
+              </div>
+              <Switch
+                checked={goalsEnabled}
+                disabled={saving || tenantQ.isLoading}
+                onCheckedChange={(v) => toggleModule("goals_enabled", v)}
               />
             </div>
 

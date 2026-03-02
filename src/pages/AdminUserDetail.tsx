@@ -5,11 +5,12 @@ import { RequireAuth } from "@/components/RequireAuth";
 import { AppShell } from "@/components/AppShell";
 import { supabase } from "@/lib/supabase";
 import { useTenant } from "@/providers/TenantProvider";
+import { useSession } from "@/providers/SessionProvider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { showError, showSuccess } from "@/utils/toast";
-import { ArrowLeft, UserSquare2, Target, KeyRound } from "lucide-react";
+import { ArrowLeft, UserSquare2, Target, KeyRound, Copy, Save, Plus, Library, Trash2, FileSignature, CheckCircle, AlertCircle, Pencil } from "lucide-react";
 import {
     Dialog,
     DialogContent,
@@ -17,7 +18,6 @@ import {
     DialogTitle,
     DialogDescription,
 } from "@/components/ui/dialog";
-import { Plus, Pencil, Trash2, Library } from "lucide-react";
 
 export default function AdminUserDetail() {
     const { id } = useParams();
@@ -255,6 +255,40 @@ function UserGoalsTab({ userData }: { userData: any }) {
         enabled: !!activeTenantId && !!userData.role,
     });
 
+    const activeRuleQ = useQuery({
+        queryKey: ["goal_role_rules", "active", activeTenantId, userData.role],
+        queryFn: async () => {
+            const { data, error } = await supabase
+                .from("goal_role_rules")
+                .select("*")
+                .eq("tenant_id", activeTenantId)
+                .eq("role_key", userData.role)
+                .order("version", { ascending: false })
+                .limit(1)
+                .maybeSingle();
+            if (error) throw error;
+            return data;
+        },
+        enabled: !!activeTenantId && !!userData.role,
+    });
+
+    const sigQ = useQuery({
+        queryKey: ["user_goal_signatures", activeTenantId, userData.user_id, activeRuleQ.data?.id],
+        queryFn: async () => {
+            if (!activeRuleQ.data?.id) return null;
+            const { data, error } = await supabase
+                .from("user_goal_signatures")
+                .select("*")
+                .eq("tenant_id", activeTenantId)
+                .eq("user_id", userData.user_id)
+                .eq("goal_role_rule_id", activeRuleQ.data.id)
+                .maybeSingle();
+            if (error) throw error;
+            return data;
+        },
+        enabled: !!activeTenantId && !!userData.user_id && !!activeRuleQ.data?.id,
+    });
+
     const loadFromTemplates = async () => {
         if (!templatesQ.data || templatesQ.data.length === 0) {
             showError("Não há templates disponíveis para esta role.");
@@ -333,6 +367,42 @@ function UserGoalsTab({ userData }: { userData: any }) {
         }
     };
 
+    const toggleManualSignature = async () => {
+        if (!activeRuleQ.data) return;
+
+        try {
+            const isSigned = sigQ.data?.autentique_status === "signed";
+            const newStatus = isSigned ? "created" : "signed";
+
+            if (sigQ.data) {
+                const { error } = await supabase
+                    .from("user_goal_signatures")
+                    .update({
+                        autentique_status: newStatus,
+                        signed_at: newStatus === "signed" ? new Date().toISOString() : null
+                    })
+                    .eq("id", sigQ.data.id);
+                if (error) throw error;
+            } else {
+                const { error } = await supabase
+                    .from("user_goal_signatures")
+                    .insert({
+                        tenant_id: activeTenantId,
+                        user_id: userData.user_id,
+                        goal_role_rule_id: activeRuleQ.data.id,
+                        autentique_status: newStatus,
+                        signed_at: newStatus === "signed" ? new Date().toISOString() : null
+                    });
+                if (error) throw error;
+            }
+
+            showSuccess(`Assinatura manual ${isSigned ? 'removida' : 'confirmada'} com sucesso!`);
+            queryClient.invalidateQueries({ queryKey: ["user_goal_signatures", activeTenantId, userData.user_id, activeRuleQ.data.id] });
+        } catch (e: any) {
+            showError(`Erro ao alterar assinatura: ${e.message}`);
+        }
+    };
+
     return (
         <div className="bg-white p-6 rounded-lg border shadow-sm flex flex-col min-h-[500px]">
             <div className="flex justify-between items-center mb-6">
@@ -358,6 +428,39 @@ function UserGoalsTab({ userData }: { userData: any }) {
                     </Button>
                 </div>
             </div>
+
+            {activeRuleQ.data && (
+                <div className={`p-4 rounded-lg flex items-center justify-between border ${sigQ.data?.autentique_status === "signed" ? "bg-emerald-50 border-emerald-200" : "bg-amber-50 border-amber-200"}`}>
+                    <div className="flex items-center gap-3">
+                        {sigQ.data?.autentique_status === "signed" ? (
+                            <CheckCircle className="w-6 h-6 text-emerald-600" />
+                        ) : (
+                            <AlertCircle className="w-6 h-6 text-amber-600" />
+                        )}
+                        <div>
+                            <h3 className={`font-semibold ${sigQ.data?.autentique_status === "signed" ? "text-emerald-900" : "text-amber-900"}`}>
+                                Termos e Diretrizes (Versão {activeRuleQ.data.version})
+                            </h3>
+                            <p className={`text-sm ${sigQ.data?.autentique_status === "signed" ? "text-emerald-700" : "text-amber-700"}`}>
+                                {sigQ.data?.autentique_status === "signed"
+                                    ? `Usuário assinou os termos em ${sigQ.data.signed_at ? new Date(sigQ.data.signed_at).toLocaleDateString("pt-BR") : "(data desconhecida)"}.`
+                                    : "Usuário ainda não assinou a versão ativa deste termo."}
+                            </p>
+                        </div>
+                    </div>
+                    <div>
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            className={sigQ.data?.autentique_status === "signed" ? "text-slate-600 hover:bg-slate-200" : "bg-amber-100 text-amber-800 hover:bg-amber-200 border-amber-300"}
+                            onClick={toggleManualSignature}
+                        >
+                            <FileSignature className="w-4 h-4 mr-2" />
+                            {sigQ.data?.autentique_status === "signed" ? 'Mover para Pendente' : 'Marcar como Assinado Manualmente'}
+                        </Button>
+                    </div>
+                </div>
+            )}
 
             <div className="flex-1 space-y-3">
                 {goalsQ.data?.map((g) => (

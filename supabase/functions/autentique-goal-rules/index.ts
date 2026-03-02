@@ -307,16 +307,22 @@ serve(async (req) => {
     let responseId = existingSig?.id;
 
     if (existingSig) {
-      await supabaseAdmin.from("user_goal_signatures").update(sigPayload).eq("id", existingSig.id);
+      const { error: updErr } = await supabaseAdmin.from("user_goal_signatures").update(sigPayload).eq("id", existingSig.id);
+      if (updErr) throw new Error("Update falhou: " + updErr.message);
     } else {
       const { data: insData, error: insErr } = await supabaseAdmin.from("user_goal_signatures").insert(sigPayload).select("id").single();
-      if (insErr) throw insErr;
+      if (insErr) throw new Error("Insert falhou: " + insErr.message);
       responseId = insData.id;
     }
 
     return json({ ok: true, signing_link: signingLink, status: "created" });
   } catch (e: any) {
-    console.error(`[${fn}] error:`, e);
-    return err("internal_error", 500, { message: e.message ?? String(e) });
+    console.error(`[autentique-goal-rules] error:`, e);
+    // Guarantee stringification safely:
+    let msg = "";
+    if (e?.message) msg = e.message;
+    else if (typeof e === "string") msg = e;
+    else msg = JSON.stringify(e);
+    return err("internal_error", 500, { message: msg });
   }
 });

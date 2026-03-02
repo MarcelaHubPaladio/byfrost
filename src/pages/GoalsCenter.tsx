@@ -15,8 +15,15 @@ import {
     DialogContent,
     DialogHeader,
     DialogTitle,
-    DialogDescription
+    DialogDescription,
+    DialogFooter,
 } from "@/components/ui/dialog";
+import {
+    Accordion,
+    AccordionContent,
+    AccordionItem,
+    AccordionTrigger,
+} from "@/components/ui/accordion";
 import { AlertCircle, FileSignature } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { checkRouteAccess } from "@/lib/access";
@@ -368,20 +375,18 @@ function RoleRulesEditor({ roleKey }: { roleKey: string }) {
                 .select("*")
                 .eq("tenant_id", activeTenantId)
                 .eq("role_key", roleKey)
-                .order("version", { ascending: false })
-                .limit(1)
-                .maybeSingle();
+                .order("version", { ascending: false });
 
             if (error) throw error;
-            return data;
+            return data || [];
         },
         enabled: !!activeTenantId && !!roleKey,
     });
 
     useEffect(() => {
-        if (rulesQ.data && !isSaving) {
-            setEditorHtml(rulesQ.data.content_html || "");
-        } else if (!rulesQ.isLoading && !rulesQ.data && !isSaving) {
+        if (rulesQ.data && rulesQ.data.length > 0 && !isSaving) {
+            setEditorHtml(rulesQ.data[0].content_html || "");
+        } else if (!rulesQ.isLoading && (!rulesQ.data || rulesQ.data.length === 0) && !isSaving) {
             setEditorHtml("");
         }
     }, [rulesQ.data, rulesQ.isLoading]);
@@ -390,7 +395,7 @@ function RoleRulesEditor({ roleKey }: { roleKey: string }) {
         if (!activeTenantId || !user) return;
         setIsSaving(true);
         try {
-            const currentVersion = rulesQ.data?.version || 0;
+            const currentVersion = rulesQ.data?.[0]?.version || 0;
             const content = editorHtml.trim();
 
             if (!content) {
@@ -429,10 +434,10 @@ function RoleRulesEditor({ roleKey }: { roleKey: string }) {
                 <div>
                     <h2 className="font-semibold text-lg">Diretrizes e Regras do Cargo</h2>
                     <p className="text-sm text-slate-500">
-                        {rulesQ.data ? `Versão atual ativa: v${rulesQ.data.version}` : 'Nenhuma regra configurada ainda para este cargo.'}
+                        {rulesQ.data?.[0] ? `Versão atual ativa: v${rulesQ.data[0].version}` : 'Nenhuma regra configurada ainda para este cargo.'}
                     </p>
                 </div>
-                <Button onClick={handleSave} disabled={isSaving || (rulesQ.data?.content_html === editorHtml.trim())}>
+                <Button onClick={handleSave} disabled={isSaving || (rulesQ.data?.[0]?.content_html === editorHtml.trim())}>
                     <Save className="w-4 h-4 mr-2" />
                     Salvar Nova Versão
                 </Button>
@@ -443,14 +448,44 @@ function RoleRulesEditor({ roleKey }: { roleKey: string }) {
                 receberão uma notificação para realizar a Assinatura Digital do termo atualizado no Autentique.
             </div>
 
-            <div className="flex-1 min-h-[400px] border rounded-lg bg-slate-50 overflow-hidden flex flex-col">
+            <div className="flex-1 min-h-[300px] border rounded-lg bg-slate-50 flex flex-col mb-4">
                 <div className="p-2 border-b bg-white">
-                    <span className="text-xs font-bold text-slate-500 uppercase">Editor de Texto Rico (Versão {rulesQ.data ? rulesQ.data.version + 1 : 1} - Rascunho)</span>
+                    <span className="text-xs font-bold text-slate-500 uppercase">Editor de Texto Rico (Versão {rulesQ.data?.[0] ? rulesQ.data[0].version + 1 : 1} - Rascunho)</span>
                 </div>
                 <div className="flex-1 overflow-auto p-4 bg-white prose prose-sm max-w-none prose-slate">
                     <RichTextEditor value={editorHtml} onChange={setEditorHtml} />
                 </div>
             </div>
+
+            {rulesQ.data && rulesQ.data.length > 0 && (
+                <div className="mt-4 border-t pt-4">
+                    <h3 className="font-semibold text-md mb-2">Histórico de Versões</h3>
+                    <Accordion type="single" collapsible className="w-full bg-white border rounded-lg px-2">
+                        {rulesQ.data.map((rule) => (
+                            <AccordionItem value={`v${rule.version}`} key={rule.id}>
+                                <AccordionTrigger className="text-sm hover:no-underline">
+                                    <div className="flex items-center gap-2">
+                                        <FileText className="w-4 h-4 text-slate-400" />
+                                        Versão {rule.version}
+                                        {rule.version === rulesQ.data?.[0]?.version && (
+                                            <span className="bg-indigo-100 text-indigo-700 text-[10px] px-2 py-0.5 rounded-full font-semibold ml-2">ATUAL</span>
+                                        )}
+                                        <span className="text-xs text-slate-400 font-normal ml-2">
+                                            {new Date(rule.created_at).toLocaleDateString("pt-BR")} as {new Date(rule.created_at).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
+                                        </span>
+                                    </div>
+                                </AccordionTrigger>
+                                <AccordionContent>
+                                    <div
+                                        className="prose prose-sm max-w-none prose-slate p-4 bg-slate-50 border rounded-md"
+                                        dangerouslySetInnerHTML={{ __html: rule.content_html }}
+                                    />
+                                </AccordionContent>
+                            </AccordionItem>
+                        ))}
+                    </Accordion>
+                </div>
+            )}
         </div>
     );
 }

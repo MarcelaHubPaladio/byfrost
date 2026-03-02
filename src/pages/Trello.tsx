@@ -101,10 +101,11 @@ export default function Trello() {
         queryFn: async () => {
             const { data, error } = await supabase
                 .from("tenant_journeys")
-                .select("journey_id, journeys(id,key,name,is_crm,default_state_machine_json)")
+                .select("journey_id, journeys!inner(id,key,name,is_crm,default_state_machine_json)")
                 .eq("tenant_id", activeTenantId!)
                 .eq("enabled", true)
                 .eq("journeys.key", "trello")
+                .limit(1)
                 .maybeSingle();
 
             if (error) throw error;
@@ -130,8 +131,8 @@ export default function Trello() {
     }, [selectedJourney]);
 
     const casesQ = useQuery({
-        queryKey: ["cases_by_tenant_trello", activeTenantId],
-        enabled: Boolean(activeTenantId),
+        queryKey: ["cases_by_tenant_trello", activeTenantId, selectedJourney?.id],
+        enabled: Boolean(activeTenantId && selectedJourney?.id),
         refetchInterval: 5000,
         refetchOnWindowFocus: true,
         queryFn: async () => {
@@ -141,7 +142,7 @@ export default function Trello() {
                     "id,journey_id,customer_id,title,status,state,created_at,updated_at,assigned_user_id,is_chat,users_profile:users_profile!fk_cases_users_profile(display_name,email),journeys:journeys!cases_journey_id_fkey(key,name,is_crm),meta_json"
                 )
                 .eq("tenant_id", activeTenantId!)
-                .eq("journeys.key", "trello")
+                .eq("journey_id", selectedJourney!.id)
                 .is("deleted_at", null)
                 .eq("is_chat", false)
                 .order("updated_at", { ascending: false })
@@ -153,7 +154,19 @@ export default function Trello() {
     });
 
     const filteredRows = useMemo(() => {
-        let base = casesQ.data ?? [];
+        const rows = casesQ.data ?? [];
+        if (!selectedJourney) return [] as CaseRow[];
+
+        let base = rows.filter((r) => {
+            const keyFromJoin = r.journeys?.key ?? null;
+            const keyFromMeta = (r.meta_json as any)?.journey_key ?? null;
+
+            if (keyFromJoin === "trello") return true;
+            if (keyFromMeta === "trello") return true;
+            if (r.journey_id === selectedJourney.id) return true;
+
+            return false;
+        });
 
         // Filtro de Responsável
         if (assigneeFilterId !== "all") {
@@ -167,7 +180,7 @@ export default function Trello() {
             const t = `${r.title ?? ""} ${(r.users_profile?.display_name ?? "")} ${(r.users_profile?.email ?? "")}`.toLowerCase();
             return t.includes(qq);
         });
-    }, [casesQ.data, q, assigneeFilterId]);
+    }, [casesQ.data, q, assigneeFilterId, selectedJourney]);
 
     const visibleCaseIds = useMemo(() => filteredRows.map((r) => r.id), [filteredRows]);
 

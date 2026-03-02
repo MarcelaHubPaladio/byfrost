@@ -263,6 +263,7 @@ function UserGoalsTab({ userData }: { userData: any }) {
                 .select("*")
                 .eq("tenant_id", activeTenantId)
                 .eq("role_key", userData.role)
+                .eq("status", "published")
                 .order("version", { ascending: false })
                 .limit(1)
                 .maybeSingle();

@@ -222,17 +222,18 @@ serve(async (req) => {
     const supabaseAdmin = createSupabaseAdmin();
 
     // 1. Encontrar a Regra Ativa
-    const { data: rule, error: rErr } = await supabaseAdmin
+    const { data: activeRule, error: ruleErr } = await supabaseAdmin
       .from("goal_role_rules")
       .select("*")
       .eq("tenant_id", activeTenantId)
       .eq("role_key", roleKey)
+      .eq("status", "published")
       .is("deleted_at", null)
       .order("version", { ascending: false })
       .limit(1)
       .maybeSingle();
 
-    if (rErr || !rule) return err("no_active_rule_found", 404);
+    if (ruleErr || !activeRule) return err("no_active_rule_found", 404);
 
     // 2. Verificar se o user já não assinou ELA especificamente
     const { data: existingSig } = await supabaseAdmin
@@ -240,7 +241,7 @@ serve(async (req) => {
       .select("*")
       .eq("tenant_id", activeTenantId)
       .eq("user_id", user.id)
-      .eq("goal_role_rule_id", rule.id)
+      .eq("goal_role_rule_id", activeRule.id)
       .maybeSingle();
 
     if (existingSig?.signing_link) {
@@ -266,14 +267,14 @@ serve(async (req) => {
     if (!signerEmail) return err("missing_user_email", 400);
 
     // 4. Gerar corpo do PDF
-    const textBody = stripHtml(rule.content_html);
+    const textBody = stripHtml(activeRule.content_html);
     const pdfBytes = await buildTextContractPdf({
-      title: `Regras de Metas - Cargo: ${roleKey} (v${rule.version})`,
+      title: `Regras de Metas - Cargo: ${roleKey} (v${activeRule.version})`,
       bodyText: `Termo gerado em: ${new Date().toLocaleString("pt-BR")}\n\n` + textBody
     });
 
-    const docName = `Diretrizes de Metas - ${roleKey} - v${rule.version}`;
-    const filename = `metas-${roleKey}-v${rule.version}.pdf`;
+    const docName = `Diretrizes de Metas - ${roleKey} - v${activeRule.version}`;
+    const filename = `metas-${roleKey}-v${activeRule.version}.pdf`;
 
     // 5. Enviar ao Autentique
     const created = await autentiqueCreateDocument({

@@ -366,6 +366,7 @@ function RoleRulesEditor({ roleKey }: { roleKey: string }) {
 
     const [editorHtml, setEditorHtml] = useState("");
     const [isSaving, setIsSaving] = useState(false);
+    const [isPublishing, setIsPublishing] = useState(false);
 
     const rulesQ = useQuery({
         queryKey: ["goal_role_rules", activeTenantId, roleKey],
@@ -391,11 +392,12 @@ function RoleRulesEditor({ roleKey }: { roleKey: string }) {
         }
     }, [rulesQ.data, rulesQ.isLoading]);
 
-    const handleSave = async () => {
+    const handleSaveDraft = async () => {
         if (!activeTenantId || !user) return;
         setIsSaving(true);
         try {
-            const currentVersion = rulesQ.data?.[0]?.version || 0;
+            const latestRule = rulesQ.data?.[0];
+            const isDraft = latestRule?.status === 'draft';
             const content = editorHtml.trim();
 
             if (!content) {
@@ -404,23 +406,66 @@ function RoleRulesEditor({ roleKey }: { roleKey: string }) {
                 return;
             }
 
-            // Insert new version
-            const { error } = await supabase.from("goal_role_rules").insert({
-                tenant_id: activeTenantId,
-                role_key: roleKey,
-                version: currentVersion + 1,
-                content_html: content,
-                created_by: user.id
-            });
+            if (isDraft) {
+                // Update existing draft
+                const { error } = await supabase.from("goal_role_rules").update({
+                    content_html: content,
+                    created_by: user.id
+                }).eq("id", latestRule.id);
+                if (error) throw error;
+                showSuccess("Rascunho atualizado!");
+            } else {
+                // Insert new draft (version + 1)
+                const nextVersion = (latestRule?.version || 0) + 1;
+                const { error } = await supabase.from("goal_role_rules").insert({
+                    tenant_id: activeTenantId,
+                    role_key: roleKey,
+                    version: nextVersion,
+                    content_html: content,
+                    status: 'draft',
+                    created_by: user.id
+                });
+                if (error) throw error;
+                showSuccess(`Rascunho criado (v${nextVersion})!`);
+            }
+
+            queryClient.invalidateQueries({ queryKey: ["goal_role_rules", activeTenantId, roleKey] });
+        } catch (e: any) {
+            showError(`Erro ao salvar rascunho: ${e.message}`);
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    const handlePublish = async () => {
+        const latestRule = rulesQ.data?.[0];
+        if (!latestRule || latestRule.status !== 'draft') return;
+
+        if (!confirm("Isso publicará esta versão do termo e exigirá que todos os usuários deste cargo assinem o aceite. Tem certeza?")) return;
+
+        setIsPublishing(true);
+        try {
+            const content = editorHtml.trim();
+            // Salvar rascunho invisivelmente se houver mudanças não salvas
+            if (content !== latestRule.content_html) {
+                const { error: updErr } = await supabase.from("goal_role_rules").update({
+                    content_html: content
+                }).eq("id", latestRule.id);
+                if (updErr) throw new Error("Erro ao salvar alterações antes de publicar: " + updErr.message);
+            }
+
+            const { error } = await supabase.from("goal_role_rules").update({
+                status: 'published'
+            }).eq("id", latestRule.id);
 
             if (error) throw error;
 
-            showSuccess(`Regras salvas! (v${currentVersion + 1})`);
+            showSuccess(`Termos da Versão ${latestRule.version} publicados aos usuários!`);
             queryClient.invalidateQueries({ queryKey: ["goal_role_rules", activeTenantId, roleKey] });
         } catch (e: any) {
-            showError(`Erro ao salvar regra: ${e.message}`);
+            showError(`Erro ao publicar: ${e.message}`);
         } finally {
-            setIsSaving(false);
+            setIsPublishing(false);
         }
     };
 
@@ -428,29 +473,40 @@ function RoleRulesEditor({ roleKey }: { roleKey: string }) {
         return <div className="p-8 text-center text-slate-500">Carregando regras do cargo...</div>;
     }
 
+    const latestRule = rulesQ.data?.[0];
+    const isDraft = latestRule?.status === 'draft';
+    const publishedRule = rulesQ.data?.find(r => r.status === 'published');
+
     return (
         <div className="flex flex-col h-full">
             <div className="flex justify-between items-center mb-4 pb-4 border-b">
                 <div>
                     <h2 className="font-semibold text-lg">Diretrizes e Regras do Cargo</h2>
                     <p className="text-sm text-slate-500">
-                        {rulesQ.data?.[0] ? `Versão atual ativa: v${rulesQ.data[0].version}` : 'Nenhuma regra configurada ainda para este cargo.'}
+                        {publishedRule ? `Versão atual ativa para os usuários: v${publishedRule.version}` : 'Nenhuma regra publicada ainda para este cargo.'}
                     </p>
                 </div>
-                <Button onClick={handleSave} disabled={isSaving || (rulesQ.data?.[0]?.content_html === editorHtml.trim())}>
-                    <Save className="w-4 h-4 mr-2" />
-                    Salvar Nova Versão
-                </Button>
+                <div className="flex gap-2">
+                    <Button variant="outline" onClick={handleSaveDraft} disabled={isSaving || isPublishing || (latestRule?.content_html === editorHtml.trim())}>
+                        <Save className="w-4 h-4 mr-2" />
+                        Salvar Rascunho
+                    </Button>
+                    <Button onClick={handlePublish} disabled={isSaving || isPublishing || !isDraft} className="bg-emerald-600 hover:bg-emerald-700">
+                        Publicar aos Usuários {isDraft ? `(v${latestRule.version})` : ''}
+                    </Button>
+                </div>
             </div>
 
             <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-4 text-sm text-amber-800">
-                <strong>Importante:</strong> Ao salvar uma nova versão aqui, todos os usuários deste cargo
-                receberão uma notificação para realizar a Assinatura Digital do termo atualizado no Autentique.
+                <strong>Ciclo de Edição:</strong> Você pode salvar múltiplos <b>Rascunhos</b> sem afetar os usuários. Ao clicar em <b>Publicar aos Usuários</b>, a versão do rascunho é congelada e todos no cargo serão notificados para assinar o novo termo no Autentique.
             </div>
 
             <div className="flex-1 min-h-[300px] border rounded-lg bg-slate-50 flex flex-col mb-4">
-                <div className="p-2 border-b bg-white">
-                    <span className="text-xs font-bold text-slate-500 uppercase">Editor de Texto Rico (Versão {rulesQ.data?.[0] ? rulesQ.data[0].version + 1 : 1} - Rascunho)</span>
+                <div className="p-2 border-b bg-white flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-500 uppercase">
+                        Editor de Regras {latestRule ? `(Editando v${isDraft ? latestRule.version : latestRule.version + 1})` : `(Criando v1)`}
+                    </span>
+                    {isDraft && <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-bold">RASCUNHO ABERTO</span>}
                 </div>
                 <div className="flex-1 overflow-auto p-4 bg-white prose prose-sm max-w-none prose-slate">
                     <RichTextEditor value={editorHtml} onChange={setEditorHtml} />
@@ -467,8 +523,14 @@ function RoleRulesEditor({ roleKey }: { roleKey: string }) {
                                     <div className="flex items-center gap-2">
                                         <FileText className="w-4 h-4 text-slate-400" />
                                         Versão {rule.version}
-                                        {rule.version === rulesQ.data?.[0]?.version && (
-                                            <span className="bg-indigo-100 text-indigo-700 text-[10px] px-2 py-0.5 rounded-full font-semibold ml-2">ATUAL</span>
+                                        {rule.status === 'published' && rule.version === publishedRule?.version && (
+                                            <span className="bg-emerald-100 text-emerald-700 text-[10px] px-2 py-0.5 rounded-full font-semibold ml-2">PÚBLICA (ATIVA)</span>
+                                        )}
+                                        {rule.status === 'published' && rule.version !== publishedRule?.version && (
+                                            <span className="bg-slate-100 text-slate-700 text-[10px] px-2 py-0.5 rounded-full font-semibold ml-2">PÚBLICA (ANTIGA)</span>
+                                        )}
+                                        {rule.status === 'draft' && (
+                                            <span className="bg-amber-100 text-amber-700 text-[10px] px-2 py-0.5 rounded-full font-semibold ml-2">RASCUNHO</span>
                                         )}
                                         <span className="text-xs text-slate-400 font-normal ml-2">
                                             {new Date(rule.created_at).toLocaleDateString("pt-BR")} as {new Date(rule.created_at).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
@@ -551,11 +613,12 @@ function MyGoalsDashboard() {
             }
 
             // Fetch active rule for the role
-            const { data: activeRule } = await supabase
+            const { data: activeRule, error: ruleErr } = await supabase
                 .from("goal_role_rules")
                 .select("*")
                 .eq("tenant_id", activeTenantId)
                 .eq("role_key", roleKey)
+                .eq("status", "published")
                 .order("version", { ascending: false })
                 .limit(1)
                 .maybeSingle();

@@ -19,6 +19,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { supabase } from "@/lib/supabase";
+import { useSession } from "@/providers/SessionProvider";
 import { showError, showSuccess } from "@/utils/toast";
 import { cn } from "@/lib/utils";
 import { Plus, UserRound } from "lucide-react";
@@ -41,6 +42,7 @@ function parseDateInput(v: string): string | null {
 }
 
 export function NewTrelloCardDialog(props: { tenantId: string; journeyId: string }) {
+  const { user } = useSession();
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState("");
   const [descriptionHtml, setDescriptionHtml] = useState("");
@@ -87,6 +89,7 @@ export function NewTrelloCardDialog(props: { tenantId: string; journeyId: string
         summary_text: normalizeRichTextHtmlOrNull(descriptionHtml),
         state: "BACKLOG",
         ...(assigned_user_id ? { assigned_user_id } : {}),
+        created_by_user_id: user?.id,
         meta_json: {
           due_at: dueAtIso,
         },

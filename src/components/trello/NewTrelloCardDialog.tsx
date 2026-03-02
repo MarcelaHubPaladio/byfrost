@@ -47,7 +47,7 @@ export function NewTrelloCardDialog(props: { tenantId: string; journeyId: string
   const [title, setTitle] = useState("");
   const [descriptionHtml, setDescriptionHtml] = useState("");
   const [dueDate, setDueDate] = useState("");
-  const [responsibleId, setResponsibleId] = useState<string>(user?.id ?? "__unassigned__");
+  const [responsibleId, setResponsibleId] = useState<string>("__unassigned__");
   const [creating, setCreating] = useState(false);
 
   const usersQ = useQuery({

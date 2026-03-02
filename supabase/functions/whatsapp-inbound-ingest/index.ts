@@ -31,9 +31,22 @@ function looksLikeWhatsAppGroupId(v: any) {
 }
 
 function pickInitialState(j: any, hint?: string | null) {
-    const states = j?.default_state_machine_json?.states ?? [];
-    if (hint && states.find((s: any) => s.key === hint)) return hint;
-    return states[0]?.key ?? "novo";
+    const statesRaw = j?.default_state_machine_json?.states ?? [];
+    const states = Array.isArray(statesRaw) ? statesRaw.map((s) => String(s)).filter(Boolean) : [];
+    const def = String(j?.default_state_machine_json?.default ?? "novo");
+    if (hint && states.includes(hint)) return hint;
+    if (states.includes(def)) return def;
+    return states[0] ?? def;
+}
+
+function readCfg(obj: any, path: string) {
+    const parts = path.split(".").filter(Boolean);
+    let cur: any = obj;
+    for (const p of parts) {
+        if (!cur || typeof cur !== "object") return undefined;
+        cur = cur[p];
+    }
+    return cur;
 }
 
 function normalizeInbound(payload: any) {
@@ -186,7 +199,7 @@ serve(async (req) => {
             try {
                 const { data: enabledTjRows } = await supabase
                     .from("tenant_journeys")
-                    .select("journey_id, journeys(id,key,name,is_crm,default_state_machine_json)")
+                    .select("journey_id, config_json, journeys(id,key,name,is_crm,default_state_machine_json)")
                     .eq("tenant_id", instance.tenant_id)
                     .eq("enabled", true)
                     .order("created_at", { ascending: true });
@@ -196,6 +209,8 @@ serve(async (req) => {
                 const firstCrmJourney = enabledJourneys.find((j: any) => j.is_crm) ?? null;
 
                 let targetJourney = null;
+                let targetJourneyConfig = null;
+
                 if (instance.default_journey_id) {
                     const { data: j } = await supabase.from("journeys").select("*").eq("id", instance.default_journey_id).maybeSingle();
                     if (j) targetJourney = j;
@@ -203,7 +218,27 @@ serve(async (req) => {
                 if (!targetJourney) targetJourney = firstCrmJourney ?? firstEnabledJourney;
 
                 if (targetJourney) {
-                    const initialState = pickInitialState(targetJourney);
+                    const row = (enabledTjRows ?? []).find((r: any) => r.journey_id === targetJourney.id);
+                    if (row) targetJourneyConfig = row.config_json;
+                }
+
+                if (targetJourney) {
+                    const cfg = targetJourneyConfig ?? {};
+                    const cfgInitialStateOnText = readCfg(cfg, "automation.on_text.initial_state") as string | undefined ?? null;
+                    const cfgInitialStateOnImage = readCfg(cfg, "automation.on_image.initial_state") as string | undefined ?? null;
+                    const cfgInitialStateOnLocation = readCfg(cfg, "automation.on_location.initial_state") as string | undefined ?? null;
+
+                    const initialHint = normalized.type === "image" ? cfgInitialStateOnImage :
+                        normalized.type === "location" ? cfgInitialStateOnLocation :
+                            cfgInitialStateOnText;
+
+                    const initialState = pickInitialState(targetJourney, initialHint);
+
+                    const cfgCreateCaseOnText = (readCfg(cfg, "automation.on_text.create_case") as boolean | undefined) ?? true;
+                    const cfgCreateCaseOnLocation = Boolean(readCfg(cfg, "automation.on_location.create_case"));
+                    const cfgOcrEnabled = Boolean(readCfg(cfg, "automation.ocr.enabled"));
+                    const cfgPendenciesOnImage = false; // Legacy fallback
+
                     const { data: rpcRes, error: rpcErr } = await supabase.rpc("process_zapi_inbound_message", {
                         p_tenant_id: instance.tenant_id,
                         p_instance_id: instance.id,
@@ -225,10 +260,10 @@ serve(async (req) => {
                         p_sender_is_vendor: false,
                         p_contact_label: normalized.from,
                         p_options: {
-                            create_case_on_text: true,
-                            create_case_on_location: true,
-                            pendencies_on_image: true,
-                            ocr_enabled: true
+                            create_case_on_text: cfgCreateCaseOnText,
+                            create_case_on_location: cfgCreateCaseOnLocation,
+                            pendencies_on_image: cfgPendenciesOnImage,
+                            ocr_enabled: cfgOcrEnabled
                         }
                     });
 

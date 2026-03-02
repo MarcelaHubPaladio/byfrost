@@ -100,8 +100,18 @@ export function NewLeadDialog({
 
     setSaving(true);
     try {
-      if (!tenantId || !actorUserId) throw new Error("Sessão inválida (sem usuário).");
-      const ownerUserId = actorUserId;
+      let ownerUserId: string | null = actorUserId;
+
+      if (ownerUserId) {
+        const { data: profile } = await supabase
+          .from("users_profile")
+          .select("user_id")
+          .eq("tenant_id", tenantId)
+          .eq("user_id", ownerUserId)
+          .is("deleted_at", null)
+          .maybeSingle();
+        if (!profile) ownerUserId = null;
+      }
 
       const phoneE164 = normalizeWhatsappOrThrow(whatsapp);
       const emailNorm = email.trim().toLowerCase() || null;

@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { useTenant } from "@/providers/TenantProvider";
 import { useSession } from "@/providers/SessionProvider";
+import { useTheme } from "@/providers/ThemeProvider";
 import { useChatInstanceAccess } from "@/hooks/useChatInstanceAccess";
 import {
   LayoutGrid,
@@ -472,6 +473,7 @@ export function AppShell({
   const loc = useLocation();
   const { activeTenant, isSuperAdmin, activeTenantId } = useTenant();
   const { user } = useSession();
+  const { prefs } = useTheme();
   const chatAccess = useChatInstanceAccess();
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -721,7 +723,7 @@ export function AppShell({
             {/* Top brand block */}
             <div className="bg-[hsl(var(--byfrost-accent))] px-2 pb-2 pt-1.5">
               <Link
-                to="/app"
+                to={prefs.startRoute || "/app"}
                 className="mx-auto flex w-fit flex-col items-center"
                 title={activeTenant?.name ?? "Byfrost"}
               >
@@ -746,7 +748,7 @@ export function AppShell({
 
             <div className="flex-1 overflow-y-auto p-3">
               <div className="grid justify-items-center gap-2">
-                <NavTile to="/app" icon={LayoutGrid} label="Dashboard" disabled={!can("app.dashboard")} />
+                <NavTile to={prefs.startRoute || "/app"} icon={LayoutGrid} label="Dashboard" disabled={!can("app.dashboard")} />
                 {showChatInNav && <NavTile to="/app/chat" icon={MessagesSquare} label="Chat" disabled={!can("app.chat")} />}
                 {hasTrello && <NavTile to="/app/j/trello" icon={KanbanSquare} label="Tarefas" disabled={!can("app.dashboard")} />}
                 {hasCrm && <NavTile to="/app/crm" icon={LayoutDashboard} label="CRM" disabled={!can("app.crm")} />}
@@ -864,7 +866,7 @@ export function AppShell({
                         <div className="border-b border-slate-200 bg-[hsl(var(--byfrost-accent))] px-4 pb-4 pt-5 text-white dark:border-slate-800">
                           <div className="flex items-start justify-between gap-3">
                             <Link
-                              to="/app"
+                              to={prefs.startRoute || "/app"}
                               onClick={() => setMobileNavOpen(false)}
                               className="flex min-w-0 items-center gap-3"
                             >
@@ -911,7 +913,7 @@ export function AppShell({
 
                           <div className="grid gap-2">
                             <MobileNavItem
-                              to="/app"
+                              to={prefs.startRoute || "/app"}
                               icon={LayoutGrid}
                               label="Dashboard"
                               disabled={!can("app.dashboard")}

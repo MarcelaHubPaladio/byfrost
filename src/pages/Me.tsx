@@ -229,7 +229,17 @@ export default function Me() {
                     <div className="mt-3">
                       <Select
                         value={prefs.startRoute || "/app"}
-                        onValueChange={(val) => setStartRoute(val)}
+                        onValueChange={async (val) => {
+                          try {
+                            setBusy(true);
+                            await setStartRoute(val);
+                            showSuccess("Sua tela inicial foi alterada!");
+                          } catch (e: any) {
+                            showError("Erro ao salvar tela inicial.");
+                          } finally {
+                            setBusy(false);
+                          }
+                        }}
                         disabled={busy}
                       >
                         <SelectTrigger className="h-10 rounded-2xl border-slate-200 bg-white text-sm dark:border-slate-800 dark:bg-slate-950">

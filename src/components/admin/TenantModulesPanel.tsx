@@ -25,7 +25,7 @@ function setModuleFlag(modulesJson: any, key: string, enabled: boolean) {
 
 export function TenantModulesPanel() {
   const qc = useQueryClient();
-  const { activeTenantId, isSuperAdmin } = useTenant();
+  const { activeTenantId, isSuperAdmin, refresh } = useTenant();
   const [saving, setSaving] = useState(false);
 
   const tenantQ = useQuery({
@@ -59,6 +59,7 @@ export function TenantModulesPanel() {
       await qc.invalidateQueries({ queryKey: ["nav_access", activeTenantId] });
       await qc.invalidateQueries({ queryKey: ["route_access", activeTenantId] });
       await qc.invalidateQueries({ queryKey: ["tenants"] });
+      await refresh();
     } catch (e: any) {
       showError(`Falha ao salvar módulos: ${e?.message ?? "erro"}`);
     } finally {

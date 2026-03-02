@@ -328,21 +328,65 @@ function TemplatesEditor({ roleKey }: { roleKey: string }) {
 }
 
 function MyGoalsDashboard() {
-    const { activeTenantId } = useTenant();
+    const { activeTenantId, activeTenant } = useTenant();
     const { user } = useSession();
 
+    const roleKey = activeTenant?.role ?? "";
+
     const goalsQ = useQuery({
-        queryKey: ["my_goals", activeTenantId, user?.id],
+        queryKey: ["my_goals_resolved", activeTenantId, user?.id, roleKey],
         queryFn: async () => {
             if (!activeTenantId || !user?.id) return null;
-            const { data, error } = await supabase
+
+            // Fetch user overrides/custom goals
+            const { data: userGoals, error: ugError } = await supabase
                 .from("user_goals")
                 .select("*")
                 .eq("tenant_id", activeTenantId)
-                .eq("user_id", user.id)
-                .order("created_at", { ascending: false });
-            if (error) throw error;
-            return data;
+                .eq("user_id", user.id);
+            if (ugError) throw ugError;
+
+            // Fetch standard templates for role
+            const { data: templates, error: tplError } = await supabase
+                .from("goal_templates")
+                .select("*")
+                .eq("tenant_id", activeTenantId)
+                .eq("role_key", roleKey);
+            if (tplError) throw tplError;
+
+            // Merge logic: user_goals override templates based on metric_key
+            const resolved = new Map<string, any>();
+
+            // Add templates first
+            for (const t of (templates || [])) {
+                resolved.set(t.metric_key, {
+                    ...t,
+                    is_template: true,
+                    is_override: false,
+                });
+            }
+
+            // Apply overrides or custom goals
+            for (const ug of (userGoals || [])) {
+                if (resolved.has(ug.metric_key)) {
+                    // Override existing template
+                    resolved.set(ug.metric_key, {
+                        ...ug,
+                        is_template: false,
+                        is_override: true,
+                        template_id: resolved.get(ug.metric_key).id
+                    });
+                } else {
+                    // Custom goal just for this user
+                    resolved.set(ug.metric_key, {
+                        ...ug,
+                        is_template: false,
+                        is_override: false,
+                    });
+                }
+            }
+
+            return Array.from(resolved.values()).sort((a, b) => a.name.localeCompare(b.name));
         },
         enabled: !!activeTenantId && !!user?.id,
     });
@@ -374,8 +418,13 @@ function MyGoalsDashboard() {
                     <div key={goal.id} className="border rounded-xl p-5 shadow-sm bg-white relative overflow-hidden flex flex-col justify-between min-h-[160px]">
                         <div className="absolute top-0 left-0 w-1 h-full bg-indigo-500 rounded-l-xl"></div>
                         <div>
-                            <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">
-                                {goal.frequency === 'monthly' ? 'Meta Mensal' : goal.frequency === 'weekly' ? 'Meta Semanal' : goal.frequency === 'daily' ? 'Meta Diária' : 'Meta Anual'}
+                            <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1 flex items-center justify-between">
+                                <span>
+                                    {goal.frequency === 'monthly' ? 'Meta Mensal' : goal.frequency === 'weekly' ? 'Meta Semanal' : goal.frequency === 'daily' ? 'Meta Diária' : 'Meta Anual'}
+                                </span>
+                                {!goal.is_template && (
+                                    <span className="text-[9px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded ml-2">Personalizada</span>
+                                )}
                             </div>
                             <h3 className="font-bold text-lg text-slate-800 leading-tight mb-2">{goal.name}</h3>
                         </div>

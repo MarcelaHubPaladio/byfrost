@@ -50,6 +50,13 @@ const DEFAULT_ROUTES: RouteRow[] = [
     path_pattern: "/app, /app/j/:journeyKey",
     description: "Tela principal com lista de cases por jornada",
   },
+  {
+    key: "app.trello",
+    name: "Tarefas (Trello)",
+    category: "App",
+    path_pattern: "/app/j/trello",
+    description: "Visão de quadros/trello para tarefas",
+  },
   { key: "app.chat", name: "Chat", category: "App", path_pattern: "/app/chat", description: "Chat do painel" },
   {
     key: "app.case_detail",

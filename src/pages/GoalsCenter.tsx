@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { useTenant } from "@/providers/TenantProvider";
 import { AppShell } from "@/components/AppShell";
@@ -13,70 +13,18 @@ import {
     DialogContent,
     DialogHeader,
     DialogTitle,
-    DialogTrigger,
 } from "@/components/ui/dialog";
 
+const ROLES = [
+    { id: "admin", name: "Admin", description: "Administrador do sistema" },
+    { id: "manager", name: "Gerente", description: "Gerente da operação" },
+    { id: "supervisor", name: "Supervisor", description: "Supervisor da equipe" },
+    { id: "leader", name: "Líder", description: "Líder de equipe" },
+    { id: "vendor", name: "Vendedor", description: "Atendimento e vendas" },
+];
+
 export default function GoalsCenter() {
-    const { activeTenantId } = useTenant();
-    const queryClient = useQueryClient();
-    const [isJobModalOpen, setIsJobModalOpen] = useState(false);
-    const [editingJob, setEditingJob] = useState<any>(null);
-    const [jobName, setJobName] = useState("");
-    const [jobDesc, setJobDesc] = useState("");
-
-    const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
-
-    const jobsQuery = useQuery({
-        queryKey: ["tenant_job_titles", activeTenantId],
-        queryFn: async () => {
-            if (!activeTenantId) return [];
-            const { data, error } = await supabase
-                .from("tenant_job_titles")
-                .select("*")
-                .eq("tenant_id", activeTenantId)
-                .order("name");
-            if (error) throw error;
-            return data;
-        },
-        enabled: !!activeTenantId,
-    });
-
-    const saveJob = async () => {
-        if (!jobName.trim()) return;
-        try {
-            if (editingJob) {
-                const { error } = await supabase
-                    .from("tenant_job_titles")
-                    .update({ name: jobName, description: jobDesc })
-                    .eq("id", editingJob.id);
-                if (error) throw error;
-                showSuccess("Cargo atualizado!");
-            } else {
-                const { error } = await supabase
-                    .from("tenant_job_titles")
-                    .insert({ tenant_id: activeTenantId, name: jobName, description: jobDesc });
-                if (error) throw error;
-                showSuccess("Cargo criado!");
-            }
-            setIsJobModalOpen(false);
-            queryClient.invalidateQueries({ queryKey: ["tenant_job_titles"] });
-        } catch (e: any) {
-            showError(e.message);
-        }
-    };
-
-    const deleteJob = async (id: string) => {
-        if (!confirm("Tem certeza que deseja excluir este cargo?")) return;
-        try {
-            const { error } = await supabase.from("tenant_job_titles").delete().eq("id", id);
-            if (error) throw error;
-            showSuccess("Cargo excluído!");
-            queryClient.invalidateQueries({ queryKey: ["tenant_job_titles"] });
-            if (selectedJobId === id) setSelectedJobId(null);
-        } catch (e: any) {
-            showError(e.message);
-        }
-    };
+    const [selectedRole, setSelectedRole] = useState<string | null>(null);
 
     return (
         <RequireAuth>
@@ -93,73 +41,30 @@ export default function GoalsCenter() {
                         <div className="border bg-white rounded-lg p-4 shadow-sm h-full max-h-[70vh] flex flex-col">
                             <div className="flex justify-between items-center mb-4">
                                 <h2 className="font-semibold text-lg">Cargos</h2>
-                                <Button
-                                    size="sm"
-                                    onClick={() => {
-                                        setEditingJob(null);
-                                        setJobName("");
-                                        setJobDesc("");
-                                        setIsJobModalOpen(true);
-                                    }}
-                                >
-                                    <Plus className="w-4 h-4 mr-1" /> Novo
-                                </Button>
                             </div>
 
                             <div className="flex-1 overflow-y-auto space-y-2">
-                                {jobsQuery.data?.map((job) => (
+                                {ROLES.map((role) => (
                                     <div
-                                        key={job.id}
-                                        onClick={() => setSelectedJobId(job.id)}
-                                        className={`p-3 rounded-md cursor-pointer border flex justify-between items-center transition-colors ${selectedJobId === job.id
-                                                ? "border-indigo-600 bg-indigo-50"
-                                                : "hover:bg-slate-50 border-slate-200"
+                                        key={role.id}
+                                        onClick={() => setSelectedRole(role.id)}
+                                        className={`p-3 rounded-md cursor-pointer border flex justify-between items-center transition-colors ${selectedRole === role.id
+                                            ? "border-indigo-600 bg-indigo-50"
+                                            : "hover:bg-slate-50 border-slate-200"
                                             }`}
                                     >
                                         <div>
-                                            <div className="font-medium text-sm text-slate-800">{job.name}</div>
-                                            <div className="text-xs text-slate-500 truncate mt-0.5">{job.description}</div>
-                                        </div>
-                                        <div className="flex gap-1">
-                                            <Button
-                                                variant="ghost"
-                                                size="icon"
-                                                className="h-8 w-8 text-slate-400 hover:text-indigo-600"
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    setEditingJob(job);
-                                                    setJobName(job.name);
-                                                    setJobDesc(job.description || "");
-                                                    setIsJobModalOpen(true);
-                                                }}
-                                            >
-                                                <Pencil className="w-4 h-4" />
-                                            </Button>
-                                            <Button
-                                                variant="ghost"
-                                                size="icon"
-                                                className="h-8 w-8 text-slate-400 hover:text-red-600"
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    deleteJob(job.id);
-                                                }}
-                                            >
-                                                <Trash2 className="w-4 h-4" />
-                                            </Button>
+                                            <div className="font-medium text-sm text-slate-800">{role.name}</div>
+                                            <div className="text-xs text-slate-500 truncate mt-0.5">{role.description}</div>
                                         </div>
                                     </div>
                                 ))}
-                                {jobsQuery.data?.length === 0 && (
-                                    <div className="text-sm text-center text-slate-500 py-4">
-                                        Nenhum cargo cadastrado.
-                                    </div>
-                                )}
                             </div>
                         </div>
 
                         <div className="md:col-span-2 border bg-white rounded-lg p-4 shadow-sm max-h-[70vh] flex flex-col">
-                            {selectedJobId ? (
-                                <TemplatesEditor jobId={selectedJobId} />
+                            {selectedRole ? (
+                                <TemplatesEditor roleKey={selectedRole} />
                             ) : (
                                 <div className="flex-1 flex flex-col items-center justify-center text-slate-400">
                                     <Target className="w-12 h-12 mb-2 opacity-50" />
@@ -168,37 +73,13 @@ export default function GoalsCenter() {
                             )}
                         </div>
                     </div>
-
-                    <Dialog open={isJobModalOpen} onOpenChange={setIsJobModalOpen}>
-                        <DialogContent>
-                            <DialogHeader>
-                                <DialogTitle>{editingJob ? "Editar Cargo" : "Novo Cargo"}</DialogTitle>
-                            </DialogHeader>
-                            <div className="space-y-4 py-4">
-                                <div className="space-y-2">
-                                    <label className="text-sm font-medium">Nome</label>
-                                    <Input value={jobName} onChange={(e) => setJobName(e.target.value)} />
-                                </div>
-                                <div className="space-y-2">
-                                    <label className="text-sm font-medium">Descrição</label>
-                                    <Input value={jobDesc} onChange={(e) => setJobDesc(e.target.value)} />
-                                </div>
-                            </div>
-                            <div className="flex justify-end gap-2">
-                                <Button variant="outline" onClick={() => setIsJobModalOpen(false)}>
-                                    Cancelar
-                                </Button>
-                                <Button onClick={saveJob}>Salvar</Button>
-                            </div>
-                        </DialogContent>
-                    </Dialog>
                 </div>
             </AppShell>
         </RequireAuth>
     );
 }
 
-function TemplatesEditor({ jobId }: { jobId: string }) {
+function TemplatesEditor({ roleKey }: { roleKey: string }) {
     const { activeTenantId } = useTenant();
     const queryClient = useQueryClient();
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -210,17 +91,17 @@ function TemplatesEditor({ jobId }: { jobId: string }) {
     const [frequency, setFrequency] = useState("monthly");
 
     const tplQuery = useQuery({
-        queryKey: ["goal_templates", activeTenantId, jobId],
+        queryKey: ["goal_templates", activeTenantId, roleKey],
         queryFn: async () => {
             const { data, error } = await supabase
                 .from("goal_templates")
                 .select("*")
-                .eq("job_title_id", jobId)
+                .eq("role_key", roleKey)
                 .order("name");
             if (error) throw error;
             return data;
         },
-        enabled: !!jobId,
+        enabled: !!roleKey,
     });
 
     const saveTpl = async () => {
@@ -241,7 +122,7 @@ function TemplatesEditor({ jobId }: { jobId: string }) {
             } else {
                 const { error } = await supabase.from("goal_templates").insert({
                     tenant_id: activeTenantId,
-                    job_title_id: jobId,
+                    role_key: roleKey,
                     name,
                     metric_key: metricKey,
                     target_value: Number(targetValue),

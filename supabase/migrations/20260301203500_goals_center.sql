@@ -1,26 +1,9 @@
 -- Migration for Goals Center
 
-create table if not exists public.tenant_job_titles (
-    id uuid primary key default gen_random_uuid(),
-    tenant_id uuid not null references public.tenants(id) on delete cascade,
-    name text not null,
-    description text,
-    created_at timestamptz not null default now()
-);
-
-alter table public.tenant_job_titles enable row level security;
-create policy "Tenant users can view job titles" 
-    on public.tenant_job_titles for select using (public.has_tenant_access(tenant_id));
-create policy "Tenant admins can manage job titles" 
-    on public.tenant_job_titles for all using (public.has_tenant_access(tenant_id)); -- we can refine to check role='admin' but typically UI handles it, or we rely on the function. Let's keep it simple or use has_tenant_access
-
--- Add job_title_id to users_profile
-alter table public.users_profile add column if not exists job_title_id uuid references public.tenant_job_titles(id) on delete set null;
-
 create table if not exists public.goal_templates (
     id uuid primary key default gen_random_uuid(),
     tenant_id uuid not null references public.tenants(id) on delete cascade,
-    job_title_id uuid not null references public.tenant_job_titles(id) on delete cascade,
+    role_key text not null,
     name text not null,
     description text,
     metric_key text not null, -- e.g., 'tarefas_concluidas', 'vendas_realizadas'

@@ -29,10 +29,7 @@ export default function AdminUserDetail() {
             if (!activeTenantId || !id) return null;
             const { data, error } = await supabase
                 .from("users_profile")
-                .select(`
-          *,
-          tenant_job_titles (id, name)
-        `)
+                .select("*")
                 .eq("tenant_id", activeTenantId)
                 .eq("user_id", id)
                 .single();
@@ -92,20 +89,10 @@ function UserDataTab({ userData }: { userData: any }) {
     const [email, setEmail] = useState(userData.email || "");
     const [phone, setPhone] = useState(userData.phone_e164 || "");
     const [role, setRole] = useState(userData.role || "member");
-    const [jobId, setJobId] = useState(userData.job_title_id || "");
 
     const [resetModalOpen, setResetModalOpen] = useState(false);
     const [tempPassword, setTempPassword] = useState("");
     const [isResetting, setIsResetting] = useState(false);
-
-    const jobsQuery = useQuery({
-        queryKey: ["tenant_job_titles", activeTenantId],
-        queryFn: async () => {
-            const { data, error } = await supabase.from("tenant_job_titles").select("*").eq("tenant_id", activeTenantId);
-            if (error) throw error;
-            return data;
-        },
-    });
 
     const save = async () => {
         try {
@@ -115,7 +102,6 @@ function UserDataTab({ userData }: { userData: any }) {
                     display_name: name,
                     phone_e164: phone,
                     role,
-                    job_title_id: jobId || null,
                 })
                 .eq("tenant_id", activeTenantId)
                 .eq("user_id", userData.user_id);
@@ -188,19 +174,6 @@ function UserDataTab({ userData }: { userData: any }) {
                         <option value="member">Membro</option>
                     </select>
                 </div>
-                <div className="space-y-2">
-                    <label className="text-sm font-medium">Cargo (Central de Metas)</label>
-                    <select
-                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                        value={jobId}
-                        onChange={(e) => setJobId(e.target.value)}
-                    >
-                        <option value="">Sem cargo vinculado</option>
-                        {jobsQuery.data?.map((j) => (
-                            <option key={j.id} value={j.id}>{j.name}</option>
-                        ))}
-                    </select>
-                </div>
             </div>
 
             <div className="flex justify-between items-center pt-4 border-t">
@@ -246,7 +219,7 @@ function UserGoalsTab({ userData }: { userData: any }) {
     return (
         <div className="bg-white p-6 rounded-lg border shadow-sm">
             <h2 className="text-lg font-bold mb-4">Metas do Usuário</h2>
-            <p className="text-sm text-slate-500 mb-6">Em breve: Listagem e CRUD de metas individuais baseadas no cargo '{userData.tenant_job_titles?.name || "Nenhum"}'.</p>
+            <p className="text-sm text-slate-500 mb-6">Em breve: Listagem e CRUD de metas individuais baseadas na role '{userData.role}'.</p>
         </div>
     );
 }

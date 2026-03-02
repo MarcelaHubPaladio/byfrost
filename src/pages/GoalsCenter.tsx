@@ -226,7 +226,19 @@ function TemplatesEditor({ roleKey }: { roleKey: string }) {
                             <Input
                                 placeholder="Ex: Vender 20 itens"
                                 value={name}
-                                onChange={(e) => setName(e.target.value)}
+                                onChange={(e) => {
+                                    setName(e.target.value);
+                                    if (!editingTpl) {
+                                        // Auto-generate slug when creating new
+                                        const slug = e.target.value
+                                            .toLowerCase()
+                                            .normalize("NFD")
+                                            .replace(/[\u0300-\u036f]/g, "")
+                                            .replace(/[^a-z0-9]+/g, "_")
+                                            .replace(/^_+|_+$/g, "");
+                                        setMetricKey(slug);
+                                    }
+                                }}
                             />
                         </div>
                         <div className="space-y-2">

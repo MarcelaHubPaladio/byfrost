@@ -21,6 +21,7 @@ import TenantSelect from "@/pages/TenantSelect";
 import AuthCallback from "@/pages/AuthCallback";
 import ResetPassword from "@/pages/ResetPassword";
 import Dashboard from "@/pages/Dashboard";
+import Trello from "@/pages/Trello";
 import CaseDetail from "@/pages/CaseDetail";
 import Simulator from "@/pages/Simulator";
 import Settings from "@/pages/Settings";
@@ -173,10 +174,18 @@ const App = () => (
                   }
                 />
                 <Route
+                  path="/app/trello"
+                  element={
+                    <RequireRouteAccess routeKey="app.trello">
+                      <Trello />
+                    </RequireRouteAccess>
+                  }
+                />
+                <Route
                   path="/app/j/trello"
                   element={
                     <RequireRouteAccess routeKey="app.trello">
-                      <Dashboard />
+                      <Trello />
                     </RequireRouteAccess>
                   }
                 />

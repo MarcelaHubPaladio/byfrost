@@ -109,7 +109,7 @@ export default function Me() {
 
       const enabledList = journeysEnabledQ.data ?? [];
 
-      if (r.path === "/app/j/trello") {
+      if (r.path === "/app/trello") {
         return enabledList.some(j => j.journeys?.key === "trello");
       }
       if (r.path === "/app/crm") {

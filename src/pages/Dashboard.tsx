@@ -33,7 +33,6 @@ import {
   Download,
 } from "lucide-react";
 import { NewSalesOrderDialog } from "@/components/case/NewSalesOrderDialog";
-import { NewTrelloCardDialog } from "@/components/trello/NewTrelloCardDialog";
 import { getStateLabel } from "@/lib/journeyLabels";
 import { useJourneyTransition } from "@/hooks/useJourneyTransition";
 import { StateMachine } from "@/lib/journeys/types"
@@ -164,7 +163,6 @@ export default function Dashboard() {
 
   // Filtros jornada Auditoria
   const [instanceFilterId, setInstanceFilterId] = useState<string>("all");
-  const [assigneeFilterId, setAssigneeFilterId] = useState<string>("all");
 
   // Redireção para Home configurada
   useEffect(() => {
@@ -245,7 +243,7 @@ export default function Dashboard() {
       const opts: JourneyOpt[] = (data ?? [])
         .map((r: any) => r.journeys)
         .filter(Boolean)
-        .filter((j: any) => !j.is_crm)
+        .filter((j: any) => !j.is_crm && j.key !== "trello")
         .map((j: any) => ({
           id: j.id,
           key: j.key,
@@ -267,7 +265,6 @@ export default function Dashboard() {
   }, [journeyQ.data, selectedKey]);
 
   const isSalesOrderJourney = selectedKey === "sales_order";
-  const isTrelloJourney = selectedKey === "trello";
 
   const isCrm = Boolean(selectedJourney?.is_crm);
 
@@ -573,10 +570,6 @@ export default function Dashboard() {
       });
     }
 
-    // Filtro de Responsável
-    if (assigneeFilterId !== "all") {
-      base = base.filter((r) => r.assigned_user_id === assigneeFilterId);
-    }
 
     // Filtro de Datas
     if (startDate) {
@@ -919,9 +912,6 @@ export default function Dashboard() {
                 </Button>
               ) : null}
 
-              {isTrelloJourney && activeTenantId && selectedJourney?.id ? (
-                <NewTrelloCardDialog tenantId={activeTenantId} journeyId={selectedJourney.id} />
-              ) : null}
 
               {canChooseListView ? (
                 <div className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white/70 p-1 shadow-sm">
@@ -1058,24 +1048,6 @@ export default function Dashboard() {
                 />
               </div>
             </div>
-
-            {isTrelloJourney && (
-              <div className="flex flex-col gap-1">
-                <div className="text-[11px] font-semibold text-slate-700">Responsável</div>
-                <select
-                  value={assigneeFilterId}
-                  onChange={(e) => setAssigneeFilterId(e.target.value)}
-                  className="h-11 rounded-2xl border border-slate-200 bg-white px-3 text-sm text-slate-800 outline-none focus:border-[hsl(var(--byfrost-accent)/0.45)]"
-                >
-                  <option value="all">Todos os responsáveis</option>
-                  {(tenantUsersQ.data ?? []).map((u) => (
-                    <option key={u.user_id} value={u.user_id}>
-                      {u.display_name || u.email || u.user_id.slice(0, 8)}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
 
             {(selectedKey === "ff_flow_20260129200457" || selectedKey === "auditoria-de-whatsapp") && (
               <>

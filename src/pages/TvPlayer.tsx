@@ -68,7 +68,7 @@ export default function TvPlayer() {
             // 1. Get all active entity plans for this tenant
             const { data: activePlans, error: plansErr } = await supabase
                 .from("tv_entity_plans")
-                .select("entity_id, default_frame_url, tv_plans(video_duration_seconds, frame_layout)")
+                .select("entity_id, default_frame_url, tv_plans(video_duration_seconds, frame_layout), core_entities(display_name)")
                 .eq("tenant_id", pointQ.data!.tenant_id)
                 .eq("is_active", true)
                 .is("deleted_at", null);
@@ -93,9 +93,11 @@ export default function TvPlayer() {
                 const ep = activePlans.find(ap => ap.entity_id === m.entity_id);
                 // Handle Supabase join returning array or object
                 const planData = Array.isArray(ep?.tv_plans) ? ep.tv_plans[0] : ep?.tv_plans;
+                const entityData = Array.isArray(ep?.core_entities) ? ep.core_entities[0] : ep?.core_entities;
                 return {
                     ...m,
                     duration: (planData as any)?.video_duration_seconds || 15,
+                    entity_name: (entityData as any)?.display_name || "Cliente",
                     default_frame_url: ep?.default_frame_url,
                 };
             });
@@ -327,8 +329,14 @@ export default function TvPlayer() {
             {/* Frame / Overlay Dinâmico */}
             <div className="absolute bottom-0 left-0 right-0 h-24 bg-gradient-to-t from-black/80 to-transparent flex flex-col justify-end opacity-0 group-hover:opacity-100 transition-opacity duration-500">
                 <div className="p-6 pb-4">
-                    <h2 className="text-white font-bold text-2xl truncate">{(pointQ.data.tenants as any)?.name ?? "Tenant"}</h2>
-                    <p className="text-slate-300 text-sm">{pointQ.data.name}</p>
+                    <div className="flex items-center gap-2 mb-1">
+                        <span className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20">
+                            {currentMedia.entity_name}
+                        </span>
+                        <span className="text-white/40 text-[10px] uppercase font-bold tracking-widest">•</span>
+                        <span className="text-white/40 text-[10px] uppercase font-bold tracking-widest">{(pointQ.data.tenants as any)?.name ?? "Tenant"}</span>
+                    </div>
+                    <h2 className="text-white font-bold text-2xl truncate">{pointQ.data.name}</h2>
                 </div>
                 {/* Progress Bar (Only animating if loaded) */}
                 <div className="w-full h-1 bg-white/20">

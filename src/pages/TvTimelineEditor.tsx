@@ -290,14 +290,26 @@ export default function TvTimelineEditor() {
             {/* Main Editor Section */}
             <main className="flex-1 flex flex-col min-h-0 bg-slate-900/30">
                 {/* Preview Area */}
-                <div className="flex-1 relative bg-black flex items-center justify-center overflow-hidden p-8">
+                <div className="flex-1 relative bg-black flex items-center justify-center overflow-hidden p-12">
                     <div
-                        className={`max-w-full max-h-full shadow-2xl transition-all duration-500 ring-1 ring-white/10 overflow-hidden ${timelineQ.data?.tv_points?.orientation === 'portrait'
-                                ? 'h-full aspect-[9/16]'
-                                : 'w-full aspect-video'
+                        className={`shadow-2xl transition-all duration-500 ring-1 ring-white/10 overflow-hidden relative ${timelineQ.data?.tv_points?.orientation === 'portrait'
+                            ? 'h-full aspect-[9/16]'
+                            : 'w-full max-w-5xl aspect-video'
                             }`}
                     >
                         {renderPreview()}
+
+                        {/* Preview Overlay Info */}
+                        <div className="absolute top-4 left-4 z-20 pointer-events-none">
+                            <div className="bg-black/60 backdrop-blur-md px-3 py-1.5 rounded-xl border border-white/10">
+                                <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest leading-none mb-1">
+                                    {orderedMedias[selectedMediaIdx]?.entity_name || "Cliente"}
+                                </p>
+                                <p className="text-white text-xs font-bold leading-none">
+                                    {orderedMedias[selectedMediaIdx]?.name || "Vídeo sem nome"}
+                                </p>
+                            </div>
+                        </div>
                     </div>
                 </div>
 

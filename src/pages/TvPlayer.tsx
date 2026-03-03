@@ -189,49 +189,39 @@ export default function TvPlayer() {
     return (
         <div className={`relative flex bg-black overflow-hidden ${isPortrait ? 'h-screen w-screen flex-row' : 'h-screen w-screen flex-col'}`}>
             <style>{`
-                /* Wrapper styles so that portrait content plays natively rotated or fit within vertical displays */
-                .portrait-player {
-                    transform: rotate(-90deg);
-                    transform-origin: top left;
-                    width: 100vh;
-                    height: 100vw;
-                    position: absolute;
-                    top: 100%;
-                    left: 0;
-                }
-                
-                    }
-                }
-
                 .stage-container {
-                    width: 100%;
-                    height: 100%;
+                    width: 100vw;
+                    height: 100vh;
                     display: flex;
                     align-items: center;
                     justify-content: center;
+                    background: black;
                 }
 
                 .stage-content {
                     background: black;
                     box-shadow: 0 0 50px rgba(0,0,0,0.5);
+                    position: relative;
+                    overflow: hidden;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
                 }
 
                 .aspect-portrait {
+                    height: 95vh;
                     aspect-ratio: 9 / 16;
-                    height: 100%;
-                    max-width: 100%;
                 }
 
                 .aspect-landscape {
+                    width: 95vw;
                     aspect-ratio: 16 / 9;
-                    width: 100%;
-                    max-height: 100%;
                 }
             `}</style>
 
             {/* Player de Fundo */}
             <div className="stage-container">
-                <div className={`stage-content ${isPortrait ? 'aspect-portrait' : 'aspect-landscape'} ${isPortrait ? 'portrait-player' : ''}`}>
+                <div className={`stage-content ${isPortrait ? 'aspect-portrait' : 'aspect-landscape'}`}>
                     {currentMedia.media_type === "supabase_storage" || currentMedia.url.endsWith(".mp4") ? (
                         <video
                             src={currentMedia.url}

@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Trash2, Loader2, UploadCloud, Link as LinkIcon, Youtube } from "lucide-react";
+import { Trash2, Loader2, UploadCloud, Link as LinkIcon, Youtube, Pencil, Check, X } from "lucide-react";
 import { showError, showSuccess } from "@/utils/toast";
 
 export function EntityTvCorporativaTab({ tenantId, entityId }: { tenantId: string; entityId: string; }) {
@@ -17,6 +17,8 @@ export function EntityTvCorporativaTab({ tenantId, entityId }: { tenantId: strin
     const [mediaUrl, setMediaUrl] = useState("");
     const [mediaFile, setMediaFile] = useState<File | null>(null);
     const [mediaName, setMediaName] = useState("");
+    const [editingMediaId, setEditingMediaId] = useState<string | null>(null);
+    const [editingName, setEditingName] = useState("");
 
     const mediaQ = useQuery({
         queryKey: ["tv_media", tenantId, entityId],
@@ -124,6 +126,22 @@ export function EntityTvCorporativaTab({ tenantId, entityId }: { tenantId: strin
             qc.invalidateQueries({ queryKey: ["tv_media", tenantId, entityId] });
         } catch (e: any) {
             showError("Erro ao remover");
+        }
+    };
+
+    const handleUpdateMediaName = async (id: string) => {
+        if (!editingName.trim()) return;
+        try {
+            const { error } = await supabase
+                .from("tv_media")
+                .update({ name: editingName.trim() })
+                .eq("id", id);
+            if (error) throw error;
+            showSuccess("Nome da mídia atualizado!");
+            setEditingMediaId(null);
+            qc.invalidateQueries({ queryKey: ["tv_media", tenantId, entityId] });
+        } catch (e: any) {
+            showError("Erro ao atualizar nome");
         }
     };
 
@@ -242,13 +260,47 @@ export function EntityTvCorporativaTab({ tenantId, entityId }: { tenantId: strin
                         <div className="flex flex-col gap-3">
                             {mediaQ.data?.map(m => (
                                 <div key={m.id} className="flex items-center justify-between rounded-xl border border-slate-200 p-3">
-                                    <div className="flex items-center gap-3 overflow-hidden">
+                                    <div className="flex items-center gap-3 overflow-hidden flex-1">
                                         {m.media_type === 'youtube_link' ? <Youtube className="h-5 w-5 text-rose-500 shrink-0" /> : <LinkIcon className="h-5 w-5 text-indigo-500 shrink-0" />}
-                                        <div className="truncate">
-                                            <p className="text-sm font-medium text-slate-900 truncate">{m.name || "Sem nome"}</p>
-                                            <a href={m.url} target="_blank" rel="noreferrer" className="text-[10px] text-slate-400 hover:text-blue-600 hover:underline truncate block">
-                                                {m.url}
-                                            </a>
+                                        <div className="truncate flex-1">
+                                            {editingMediaId === m.id ? (
+                                                <div className="flex items-center gap-2">
+                                                    <Input
+                                                        size={1}
+                                                        className="h-8 rounded-lg text-sm"
+                                                        value={editingName}
+                                                        onChange={e => setEditingName(e.target.value)}
+                                                        onKeyDown={e => e.key === "Enter" && handleUpdateMediaName(m.id)}
+                                                        autoFocus
+                                                    />
+                                                    <Button size="icon" variant="ghost" className="h-8 w-8 text-green-600 hover:bg-green-50" onClick={() => handleUpdateMediaName(m.id)}>
+                                                        <Check className="h-4 w-4" />
+                                                    </Button>
+                                                    <Button size="icon" variant="ghost" className="h-8 w-8 text-slate-400 hover:bg-slate-100" onClick={() => setEditingMediaId(null)}>
+                                                        <X className="h-4 w-4" />
+                                                    </Button>
+                                                </div>
+                                            ) : (
+                                                <>
+                                                    <div className="flex items-center gap-2 group/title">
+                                                        <p className="text-sm font-medium text-slate-900 truncate">{m.name || "Sem nome"}</p>
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="icon"
+                                                            className="h-6 w-6 text-slate-300 hover:text-indigo-600 hover:bg-indigo-50 opacity-0 group-hover/title:opacity-100 transition-opacity"
+                                                            onClick={() => {
+                                                                setEditingMediaId(m.id);
+                                                                setEditingName(m.name || "");
+                                                            }}
+                                                        >
+                                                            <Pencil className="h-3 w-3" />
+                                                        </Button>
+                                                    </div>
+                                                    <a href={m.url} target="_blank" rel="noreferrer" className="text-[10px] text-slate-400 hover:text-blue-600 hover:underline truncate block">
+                                                        {m.url}
+                                                    </a>
+                                                </>
+                                            )}
                                         </div>
                                     </div>
                                     <Button variant="ghost" size="icon" onClick={() => handleDeleteMedia(m.id)} className="shrink-0 text-slate-400 hover:text-rose-600">

@@ -27,6 +27,7 @@ export default function TvPlayer() {
     const { pointId } = useParams();
     const [currentIndex, setCurrentIndex] = useState(0);
     const [mediaLoaded, setMediaLoaded] = useState(false);
+    const [retryCount, setRetryCount] = useState(0);
     const [effectiveDuration, setEffectiveDuration] = useState(15);
     const timeoutRef = useRef<NodeJS.Timeout | null>(null);
     const fallbackTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -121,6 +122,7 @@ export default function TvPlayer() {
     // Reset load state when media changes
     useEffect(() => {
         setMediaLoaded(false);
+        setRetryCount(0);
         setEffectiveDuration(medias[currentIndex]?.duration || 15);
     }, [currentIndex, medias]);
 
@@ -140,18 +142,23 @@ export default function TvPlayer() {
                 setCurrentIndex((prev) => (prev + 1) % medias.length);
             }, durationMs);
         } else {
-            // 2. Fallback timeout: if media takes too long to load (e.g. 30 seconds), skip it
+            // 2. Fallback timeout: if media takes too long to load (10 seconds)
             fallbackTimeoutRef.current = setTimeout(() => {
-                console.warn(`[TvPlayer] Media timeout to load (${currentIndex}/${medias.length}): ${currentMedia.url}. Skipping.`);
-                setCurrentIndex((prev) => (prev + 1) % medias.length);
-            }, 30000);
+                if (retryCount < 1) {
+                    console.warn(`[TvPlayer] Media timeout (Attempt 1) (${currentIndex}/${medias.length}): ${currentMedia.url}. Retrying...`);
+                    setRetryCount(1);
+                } else {
+                    console.error(`[TvPlayer] Media timeout (Attempt 2) (${currentIndex}/${medias.length}): ${currentMedia.url}. Skipping.`);
+                    setCurrentIndex((prev) => (prev + 1) % medias.length);
+                }
+            }, 10000); // 10 seconds per attempt
         }
 
         return () => {
             if (timeoutRef.current) clearTimeout(timeoutRef.current);
             if (fallbackTimeoutRef.current) clearTimeout(fallbackTimeoutRef.current);
         };
-    }, [currentIndex, medias, mediaLoaded, effectiveDuration]);
+    }, [currentIndex, medias, mediaLoaded, effectiveDuration, retryCount]);
 
     if (pointQ.isLoading || timelineQ.isLoading || activeMediasQ.isLoading) {
         return (
@@ -253,7 +260,7 @@ export default function TvPlayer() {
                                 console.error("Erro ao carregar video da TV:", currentMedia.url, e);
                                 setCurrentIndex((prev) => (prev + 1) % medias.length);
                             }}
-                            key={currentMedia.id} // forces reload
+                            key={currentMedia.id + retryCount} // forces reload on retry
                         />
                     ) : currentMedia.media_type === "youtube_link" ? (
                         <iframe
@@ -262,7 +269,7 @@ export default function TvPlayer() {
                             allow="autoplay"
                             onLoad={() => { console.log("[TvPlayer] YouTube Iframe Loaded"); setMediaLoaded(true); }}
                             onError={() => { console.error("[TvPlayer] YouTube Iframe Error"); setCurrentIndex((prev) => (prev + 1) % medias.length); }}
-                            key={currentMedia.id}
+                            key={currentMedia.id + retryCount}
                         />
                     ) : currentMedia.media_type === "google_drive_link" && getDriveFileId(currentMedia.url) ? (
                         <iframe
@@ -271,7 +278,7 @@ export default function TvPlayer() {
                             allow="autoplay"
                             onLoad={() => { console.log("[TvPlayer] Google Drive Iframe Loaded"); setMediaLoaded(true); }}
                             onError={() => { console.error("[TvPlayer] Google Drive Iframe Error"); setCurrentIndex((prev) => (prev + 1) % medias.length); }}
-                            key={currentMedia.id}
+                            key={currentMedia.id + retryCount}
                         />
                     ) : (
                         <div className="flex h-full w-full items-center justify-center text-slate-500 bg-slate-900" ref={() => {

@@ -10,6 +10,19 @@ function getDriveFileId(url: string) {
     return match ? match[1] : null;
 }
 
+// Helper to format YouTube URLs for embed
+function getYouTubeEmbedUrl(url: string) {
+    let videoId = "";
+    if (url.includes("watch?v=")) {
+        videoId = url.split("watch?v=")[1].split("&")[0];
+    } else if (url.includes("/shorts/")) {
+        videoId = url.split("/shorts/")[1].split("?")[0];
+    } else if (url.includes("youtu.be/")) {
+        videoId = url.split("youtu.be/")[1].split("?")[0];
+    }
+    return videoId ? `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&controls=0&loop=1&playlist=${videoId}` : url;
+}
+
 export default function TvPlayer() {
     const { pointId } = useParams();
     const [currentIndex, setCurrentIndex] = useState(0);
@@ -147,7 +160,7 @@ export default function TvPlayer() {
                 />
             ) : currentMedia.media_type === "youtube_link" ? (
                 <iframe
-                    src={`${currentMedia.url.replace("watch?v=", "embed/")}?autoplay=1&mute=1&controls=0`}
+                    src={getYouTubeEmbedUrl(currentMedia.url)}
                     className="h-full w-full border-0 pointer-events-none"
                     allow="autoplay"
                     key={currentMedia.id}

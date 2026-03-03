@@ -8,10 +8,13 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { ExternalLink, Plus, Trash2 } from "lucide-react";
 import { showError, showSuccess } from "@/utils/toast";
 
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+
 export function TvPointsManage({ tenantId }: { tenantId: string }) {
     const qc = useQueryClient();
     const [loading, setLoading] = useState(false);
     const [newName, setNewName] = useState("");
+    const [newOrientation, setNewOrientation] = useState<"landscape" | "portrait">("landscape");
 
     const pointsQ = useQuery({
         queryKey: ["tv_points", tenantId],
@@ -34,10 +37,11 @@ export function TvPointsManage({ tenantId }: { tenantId: string }) {
         try {
             const { error } = await supabase
                 .from("tv_points")
-                .insert({ tenant_id: tenantId, name: newName.trim() });
+                .insert({ tenant_id: tenantId, name: newName.trim(), orientation: newOrientation });
             if (error) throw error;
             showSuccess("Ponto de TV adicionado");
             setNewName("");
+            setNewOrientation("landscape");
             qc.invalidateQueries({ queryKey: ["tv_points", tenantId] });
         } catch (e: any) {
             showError(e?.message ?? "Erro ao adicionar");
@@ -62,6 +66,21 @@ export function TvPointsManage({ tenantId }: { tenantId: string }) {
         }
     };
 
+    const handleUpdateOrientation = async (id: string, orientation: "landscape" | "portrait") => {
+        try {
+            const { error } = await supabase
+                .from("tv_points")
+                .update({ orientation })
+                .eq("id", id)
+                .eq("tenant_id", tenantId);
+            if (error) throw error;
+            showSuccess("Orientação atualizada");
+            qc.invalidateQueries({ queryKey: ["tv_points", tenantId] });
+        } catch (e: any) {
+            showError("Erro ao atualizar orientação");
+        }
+    };
+
     return (
         <Card className="rounded-2xl border-slate-200 p-6">
             <div className="mb-4 flex items-end justify-between gap-4">
@@ -69,14 +88,23 @@ export function TvPointsManage({ tenantId }: { tenantId: string }) {
                     <h3 className="text-sm font-semibold text-slate-900">Pontos de TV</h3>
                     <p className="mt-1 text-xs text-slate-500">Crie os pontos físicos onde as TVs ficarão (ex: Recepção, Refeitório).</p>
                 </div>
-                <div className="flex w-full max-w-sm items-center gap-2">
+                <div className="flex w-full max-w-lg items-center gap-2">
                     <Input
                         value={newName}
                         onChange={e => setNewName(e.target.value)}
                         placeholder="Nome do novo ponto"
-                        className="rounded-xl"
+                        className="rounded-xl flex-1"
                         onKeyDown={e => e.key === "Enter" && handleAdd()}
                     />
+                    <Select value={newOrientation} onValueChange={(v: "landscape" | "portrait") => setNewOrientation(v)}>
+                        <SelectTrigger className="w-[140px] rounded-xl">
+                            <SelectValue placeholder="Orientação" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="landscape">Horizontal</SelectItem>
+                            <SelectItem value="portrait">Vertical</SelectItem>
+                        </SelectContent>
+                    </Select>
                     <Button onClick={handleAdd} disabled={loading || !newName.trim()} className="rounded-xl shrink-0">
                         <Plus className="mr-2 h-4 w-4" />
                         Adicionar
@@ -89,6 +117,7 @@ export function TvPointsManage({ tenantId }: { tenantId: string }) {
                     <TableHeader>
                         <TableRow className="bg-slate-50 hover:bg-slate-50">
                             <TableHead className="w-[30%] font-semibold text-slate-900">Nome do Ponto</TableHead>
+                            <TableHead className="w-[150px] font-semibold text-slate-900">Orientação</TableHead>
                             <TableHead className="font-semibold text-slate-900">Link do Player</TableHead>
                             <TableHead className="w-[100px] text-right font-semibold text-slate-900">Ações</TableHead>
                         </TableRow>
@@ -108,6 +137,17 @@ export function TvPointsManage({ tenantId }: { tenantId: string }) {
                                 return (
                                     <TableRow key={p.id}>
                                         <TableCell className="font-semibold">{p.name}</TableCell>
+                                        <TableCell>
+                                            <Select value={p.orientation ?? "landscape"} onValueChange={(v: "landscape" | "portrait") => handleUpdateOrientation(p.id, v)}>
+                                                <SelectTrigger className="h-8 w-[120px] rounded-lg text-xs">
+                                                    <SelectValue />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="landscape">Horizontal</SelectItem>
+                                                    <SelectItem value="portrait">Vertical</SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                        </TableCell>
                                         <TableCell>
                                             <div className="flex items-center gap-2">
                                                 <code className="rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-600 truncate max-w-[200px] lg:max-w-none">

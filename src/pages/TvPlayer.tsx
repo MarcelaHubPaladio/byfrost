@@ -145,38 +145,64 @@ export default function TvPlayer() {
     }
 
     const currentMedia = medias[currentIndex];
+    const isPortrait = pointQ.data.orientation === "portrait";
 
     return (
-        <div className="relative flex h-screen w-screen bg-black overflow-hidden">
+        <div className={`relative flex bg-black overflow-hidden ${isPortrait ? 'h-screen w-screen flex-row' : 'h-screen w-screen flex-col'}`}>
+            <style>{`
+                /* Wrapper styles so that portrait content plays natively rotated or fit within vertical displays */
+                .portrait-player {
+                    transform: rotate(-90deg);
+                    transform-origin: top left;
+                    width: 100vh;
+                    height: 100vw;
+                    position: absolute;
+                    top: 100%;
+                    left: 0;
+                }
+                
+                @media (orientation: portrait) {
+                   .portrait-player {
+                       transform: none;
+                       width: 100vw;
+                       height: 100vh;
+                       position: relative;
+                       top: 0;
+                   }
+                }
+            `}</style>
+
             {/* Player de Fundo */}
-            {currentMedia.media_type === "supabase_storage" || currentMedia.url.endsWith(".mp4") ? (
-                <video
-                    src={currentMedia.url}
-                    autoPlay
-                    muted
-                    className="h-full w-full object-cover"
-                    onEnded={() => setCurrentIndex((prev) => (prev + 1) % medias.length)}
-                    key={currentMedia.id} // forces reload
-                />
-            ) : currentMedia.media_type === "youtube_link" ? (
-                <iframe
-                    src={getYouTubeEmbedUrl(currentMedia.url)}
-                    className="h-full w-full border-0 pointer-events-none"
-                    allow="autoplay"
-                    key={currentMedia.id}
-                />
-            ) : currentMedia.media_type === "google_drive_link" && getDriveFileId(currentMedia.url) ? (
-                <iframe
-                    src={`https://drive.google.com/file/d/${getDriveFileId(currentMedia.url)}/preview?autoplay=1&mute=1`}
-                    className="h-full w-full border-0 pointer-events-none"
-                    allow="autoplay"
-                    key={currentMedia.id}
-                />
-            ) : (
-                <div className="flex h-full w-full items-center justify-center text-slate-500 bg-slate-900">
-                    <p>Mídia não suportada ou URL inválida.</p>
-                </div>
-            )}
+            <div className={`absolute inset-0 ${isPortrait ? 'portrait-player' : ''}`}>
+                {currentMedia.media_type === "supabase_storage" || currentMedia.url.endsWith(".mp4") ? (
+                    <video
+                        src={currentMedia.url}
+                        autoPlay
+                        muted
+                        className="h-full w-full object-cover"
+                        onEnded={() => setCurrentIndex((prev) => (prev + 1) % medias.length)}
+                        key={currentMedia.id} // forces reload
+                    />
+                ) : currentMedia.media_type === "youtube_link" ? (
+                    <iframe
+                        src={getYouTubeEmbedUrl(currentMedia.url)}
+                        className="h-full w-full border-0 pointer-events-none"
+                        allow="autoplay"
+                        key={currentMedia.id}
+                    />
+                ) : currentMedia.media_type === "google_drive_link" && getDriveFileId(currentMedia.url) ? (
+                    <iframe
+                        src={`https://drive.google.com/file/d/${getDriveFileId(currentMedia.url)}/preview?autoplay=1&mute=1`}
+                        className="h-full w-full border-0 pointer-events-none"
+                        allow="autoplay"
+                        key={currentMedia.id}
+                    />
+                ) : (
+                    <div className="flex h-full w-full items-center justify-center text-slate-500 bg-slate-900">
+                        <p>Mídia não suportada ou URL inválida.</p>
+                    </div>
+                )}
+            </div>
 
             {/* Frame / Overlay Dinâmico */}
             <div className="absolute bottom-0 left-0 right-0 h-24 bg-gradient-to-t from-black/80 to-transparent flex flex-col justify-end">

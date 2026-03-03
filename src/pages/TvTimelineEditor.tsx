@@ -33,7 +33,7 @@ export default function TvTimelineEditor() {
         queryFn: async () => {
             const { data, error } = await supabase
                 .from("tv_timelines")
-                .select("*, tv_points(name, tenant_id, orientation)")
+                .select("*, tv_points(*)")
                 .eq("id", timelineId!)
                 .single();
             if (error) throw error;
@@ -50,7 +50,7 @@ export default function TvTimelineEditor() {
             // 1. Get all active entity plans with their plan details
             const { data: activePlans, error: plansErr } = await supabase
                 .from("tv_entity_plans")
-                .select("entity_id, tv_plans(name, video_duration_seconds), core_entities(name)")
+                .select("entity_id, tv_plans(*), core_entities(*)")
                 .eq("tenant_id", tenantId)
                 .eq("is_active", true)
                 .is("deleted_at", null);

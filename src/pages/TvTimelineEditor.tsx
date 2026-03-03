@@ -63,7 +63,7 @@ export default function TvTimelineEditor() {
             // 2. Get active media
             const { data: medias, error: mediaErr } = await supabase
                 .from("tv_media")
-                .select("id, entity_id, media_type, url, name")
+                .select("*")
                 .eq("tenant_id", tenantId)
                 .in("entity_id", entityIds)
                 .eq("status", "active")

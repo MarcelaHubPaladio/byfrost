@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Trash2, Loader2, UploadCloud, Link as LinkIcon, Youtube, Pencil, Check, X, Image as ImageIcon } from "lucide-react";
+import { Trash2, Loader2, UploadCloud, Link as LinkIcon, Youtube, Pencil, Check, X, Image as ImageIcon, Share2, RefreshCw, Copy } from "lucide-react";
 import { showError, showSuccess } from "@/utils/toast";
 
 export function EntityTvCorporativaTab({ tenantId, entityId }: { tenantId: string; entityId: string; }) {
@@ -20,6 +20,20 @@ export function EntityTvCorporativaTab({ tenantId, entityId }: { tenantId: strin
     const [editingMediaId, setEditingMediaId] = useState<string | null>(null);
     const [editingName, setEditingName] = useState("");
     const [uploadingFrameId, setUploadingFrameId] = useState<string | null>(null); // 'default' or mediaId
+
+    const entityQ = useQuery({
+        queryKey: ["tv_entity_core", tenantId, entityId],
+        enabled: Boolean(tenantId && entityId),
+        queryFn: async () => {
+            const { data, error } = await supabase
+                .from("core_entities")
+                .select("display_name, magic_token")
+                .eq("id", entityId)
+                .maybeSingle();
+            if (error) throw error;
+            return data;
+        },
+    });
 
     const mediaQ = useQuery({
         queryKey: ["tv_media", tenantId, entityId],
@@ -238,13 +252,61 @@ export function EntityTvCorporativaTab({ tenantId, entityId }: { tenantId: strin
         }
     };
 
+    const handleGenerateMagicToken = async () => {
+        try {
+            const token = crypto.randomUUID();
+            const { error } = await supabase
+                .from("core_entities")
+                .update({ magic_token: token })
+                .eq("id", entityId);
+
+            if (error) throw error;
+            showSuccess("Link de acesso gerado!");
+            qc.invalidateQueries({ queryKey: ["tv_entity_core", tenantId, entityId] });
+        } catch (e: any) {
+            showError("Erro ao gerar link: " + e.message);
+        }
+    };
+
+    const copyMagicLink = () => {
+        if (!entityQ.data?.magic_token) return;
+        const url = `${window.location.origin}/tv-upload/${entityQ.data.magic_token}`;
+        navigator.clipboard.writeText(url);
+        showSuccess("Link de upload copiado!");
+    };
+
     return (
         <div className="grid gap-6 lg:grid-cols-2">
             <Card className="rounded-2xl border-slate-200 p-6">
-                <h3 className="text-lg font-semibold text-slate-900">Mídias do Cliente</h3>
-                <p className="mt-2 text-sm text-slate-600 mb-6">
-                    Adicione os vídeos que serão exibidos nas TVs. Você pode colar links ou fazer upload.
-                </p>
+                <div className="flex items-center justify-between mb-6">
+                    <div>
+                        <h3 className="text-lg font-semibold text-slate-900">Mídias do Cliente</h3>
+                        <p className="mt-1 text-sm text-slate-600">
+                            Adicione vídeos ou links para exibição.
+                        </p>
+                    </div>
+                    <div>
+                        {entityQ.data?.magic_token ? (
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                className="rounded-xl border-indigo-200 text-indigo-700 bg-indigo-50 hover:bg-indigo-100"
+                                onClick={copyMagicLink}
+                            >
+                                <Copy className="mr-2 h-4 w-4" /> Copiar Link de Upload
+                            </Button>
+                        ) : (
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                className="rounded-xl"
+                                onClick={handleGenerateMagicToken}
+                            >
+                                <Share2 className="mr-2 h-4 w-4" /> Ativar Link de Upload
+                            </Button>
+                        )}
+                    </div>
+                </div>
 
                 <div className="space-y-4 rounded-xl border border-slate-200 bg-slate-50 p-4 mb-6">
                     <div>

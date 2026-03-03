@@ -62,6 +62,7 @@ import ContractTemplates from "@/pages/ContractTemplates";
 import TvCorporativaAdmin from "@/pages/TvCorporativaAdmin";
 import TvPlayer from "@/pages/TvPlayer";
 import TvTimelineEditor from "@/pages/TvTimelineEditor";
+import PublicEntityTvUpload from "@/pages/PublicEntityTvUpload";
 
 const queryClient = new QueryClient();
 
@@ -86,6 +87,7 @@ const App = () => (
 
                 {/* TV Player (no protection initially, just specific route) */}
                 <Route path="/tv/:pointId" element={<TvPlayer />} />
+                <Route path="/tv-upload/:token" element={<PublicEntityTvUpload />} />
 
                 {/* Public screen (no protection) */}
                 <Route path="/screen" element={<Screen />} />

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
@@ -26,6 +26,9 @@ function getYouTubeEmbedUrl(url: string) {
 export default function TvPlayer() {
     const { pointId } = useParams();
     const [currentIndex, setCurrentIndex] = useState(0);
+    const [mediaLoaded, setMediaLoaded] = useState(false);
+    const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+    const fallbackTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
     const pointQ = useQuery({
         queryKey: ["tv_point_player", pointId],
@@ -111,18 +114,39 @@ export default function TvPlayer() {
 
     const medias = activeMediasQ.data || [];
 
+    // Reset load state when media changes
+    useEffect(() => {
+        setMediaLoaded(false);
+    }, [currentIndex]);
+
     useEffect(() => {
         if (medias.length === 0) return;
 
         const currentMedia = medias[currentIndex];
         const durationMs = currentMedia.duration * 1000;
 
-        const timer = setTimeout(() => {
-            setCurrentIndex((prev) => (prev + 1) % medias.length);
-        }, durationMs);
+        // Clear any previous timeouts
+        if (timeoutRef.current) clearTimeout(timeoutRef.current);
+        if (fallbackTimeoutRef.current) clearTimeout(fallbackTimeoutRef.current);
 
-        return () => clearTimeout(timer);
-    }, [currentIndex, medias]);
+        // 1. Normal duration timer (starts ONLY after media is loaded)
+        if (mediaLoaded) {
+            timeoutRef.current = setTimeout(() => {
+                setCurrentIndex((prev) => (prev + 1) % medias.length);
+            }, durationMs);
+        } else {
+            // 2. Fallback timeout: if media takes too long to load (e.g. 15 seconds), skip it
+            fallbackTimeoutRef.current = setTimeout(() => {
+                console.warn(`Media timeout to load: ${currentMedia.url}. Skipping.`);
+                setCurrentIndex((prev) => (prev + 1) % medias.length);
+            }, 10000); // 10 seconds max to load any media
+        }
+
+        return () => {
+            if (timeoutRef.current) clearTimeout(timeoutRef.current);
+            if (fallbackTimeoutRef.current) clearTimeout(fallbackTimeoutRef.current);
+        };
+    }, [currentIndex, medias, mediaLoaded]);
 
     if (pointQ.isLoading || timelineQ.isLoading || activeMediasQ.isLoading) {
         return (
@@ -195,6 +219,7 @@ export default function TvPlayer() {
                         autoPlay
                         muted
                         className="h-full w-full object-cover"
+                        onPlay={() => setMediaLoaded(true)}
                         onEnded={() => setCurrentIndex((prev) => (prev + 1) % medias.length)}
                         onError={(e) => {
                             console.error("Erro ao carregar video da TV:", currentMedia.url, e);
@@ -207,6 +232,7 @@ export default function TvPlayer() {
                         src={getYouTubeEmbedUrl(currentMedia.url)}
                         className="h-full w-full border-0 pointer-events-none"
                         allow="autoplay"
+                        onLoad={() => setMediaLoaded(true)}
                         key={currentMedia.id}
                     />
                 ) : currentMedia.media_type === "google_drive_link" && getDriveFileId(currentMedia.url) ? (
@@ -214,6 +240,7 @@ export default function TvPlayer() {
                         src={`https://drive.google.com/file/d/${getDriveFileId(currentMedia.url)}/preview?autoplay=1&mute=1`}
                         className="h-full w-full border-0 pointer-events-none"
                         allow="autoplay"
+                        onLoad={() => setMediaLoaded(true)}
                         key={currentMedia.id}
                     />
                 ) : (
@@ -229,15 +256,17 @@ export default function TvPlayer() {
                     <h2 className="text-white font-bold text-2xl truncate">{(pointQ.data.tenants as any)?.name ?? "Tenant"}</h2>
                     <p className="text-slate-300 text-sm">{pointQ.data.name}</p>
                 </div>
-                {/* Progress Bar */}
+                {/* Progress Bar (Only animating if loaded) */}
                 <div className="w-full h-1 bg-white/20">
-                    <div
-                        key={currentMedia.id + currentIndex} // Forces animation restart
-                        className="h-full bg-primary"
-                        style={{
-                            animation: `progressBar ${currentMedia.duration}s linear forwards`
-                        }}
-                    />
+                    {mediaLoaded && (
+                        <div
+                            key={currentMedia.id + currentIndex} // Forces animation restart
+                            className="h-full bg-primary"
+                            style={{
+                                animation: `progressBar ${currentMedia.duration}s linear forwards`
+                            }}
+                        />
+                    )}
                 </div>
             </div>
 

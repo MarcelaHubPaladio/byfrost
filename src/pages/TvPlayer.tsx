@@ -181,6 +181,10 @@ export default function TvPlayer() {
                         muted
                         className="h-full w-full object-cover"
                         onEnded={() => setCurrentIndex((prev) => (prev + 1) % medias.length)}
+                        onError={(e) => {
+                            console.error("Erro ao carregar video da TV:", currentMedia.url, e);
+                            setCurrentIndex((prev) => (prev + 1) % medias.length);
+                        }}
                         key={currentMedia.id} // forces reload
                     />
                 ) : currentMedia.media_type === "youtube_link" ? (

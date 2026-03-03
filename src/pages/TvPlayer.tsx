@@ -200,55 +200,75 @@ export default function TvPlayer() {
                     left: 0;
                 }
                 
-                @media (orientation: portrait) {
-                   .portrait-player {
-                       transform: none;
-                       width: 100vw;
-                       height: 100vh;
-                       position: relative;
-                       top: 0;
-                   }
+                    }
+                }
+
+                .stage-container {
+                    width: 100%;
+                    height: 100%;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                }
+
+                .stage-content {
+                    background: black;
+                    box-shadow: 0 0 50px rgba(0,0,0,0.5);
+                }
+
+                .aspect-portrait {
+                    aspect-ratio: 9 / 16;
+                    height: 100%;
+                    max-width: 100%;
+                }
+
+                .aspect-landscape {
+                    aspect-ratio: 16 / 9;
+                    width: 100%;
+                    max-height: 100%;
                 }
             `}</style>
 
             {/* Player de Fundo */}
-            <div className={`absolute inset-0 ${isPortrait ? 'portrait-player' : ''}`}>
-                {currentMedia.media_type === "supabase_storage" || currentMedia.url.endsWith(".mp4") ? (
-                    <video
-                        src={currentMedia.url}
-                        autoPlay
-                        muted
-                        className="h-full w-full object-cover"
-                        onPlay={() => setMediaLoaded(true)}
-                        onEnded={() => setCurrentIndex((prev) => (prev + 1) % medias.length)}
-                        onError={(e) => {
-                            console.error("Erro ao carregar video da TV:", currentMedia.url, e);
-                            setCurrentIndex((prev) => (prev + 1) % medias.length);
-                        }}
-                        key={currentMedia.id} // forces reload
-                    />
-                ) : currentMedia.media_type === "youtube_link" ? (
-                    <iframe
-                        src={getYouTubeEmbedUrl(currentMedia.url)}
-                        className="h-full w-full border-0 pointer-events-none"
-                        allow="autoplay"
-                        onLoad={() => setMediaLoaded(true)}
-                        key={currentMedia.id}
-                    />
-                ) : currentMedia.media_type === "google_drive_link" && getDriveFileId(currentMedia.url) ? (
-                    <iframe
-                        src={`https://drive.google.com/file/d/${getDriveFileId(currentMedia.url)}/preview?autoplay=1&mute=1`}
-                        className="h-full w-full border-0 pointer-events-none"
-                        allow="autoplay"
-                        onLoad={() => setMediaLoaded(true)}
-                        key={currentMedia.id}
-                    />
-                ) : (
-                    <div className="flex h-full w-full items-center justify-center text-slate-500 bg-slate-900">
-                        <p>Mídia não suportada ou URL inválida.</p>
-                    </div>
-                )}
-            </div>
+            <div className="stage-container">
+                <div className={`stage-content ${isPortrait ? 'aspect-portrait' : 'aspect-landscape'} ${isPortrait ? 'portrait-player' : ''}`}>
+                    {currentMedia.media_type === "supabase_storage" || currentMedia.url.endsWith(".mp4") ? (
+                        <video
+                            src={currentMedia.url}
+                            autoPlay
+                            muted
+                            className="h-full w-full object-contain"
+                            onPlay={() => setMediaLoaded(true)}
+                            onEnded={() => setCurrentIndex((prev) => (prev + 1) % medias.length)}
+                            onError={(e) => {
+                                console.error("Erro ao carregar video da TV:", currentMedia.url, e);
+                                setCurrentIndex((prev) => (prev + 1) % medias.length);
+                            }}
+                            key={currentMedia.id} // forces reload
+                        />
+                    ) : currentMedia.media_type === "youtube_link" ? (
+                        <iframe
+                            src={getYouTubeEmbedUrl(currentMedia.url)}
+                            className="h-full w-full border-0 pointer-events-none"
+                            allow="autoplay"
+                            onLoad={() => setMediaLoaded(true)}
+                            key={currentMedia.id}
+                        />
+                    ) : currentMedia.media_type === "google_drive_link" && getDriveFileId(currentMedia.url) ? (
+                        <iframe
+                            src={`https://drive.google.com/file/d/${getDriveFileId(currentMedia.url)}/preview?autoplay=1&mute=1`}
+                            className="h-full w-full border-0 pointer-events-none"
+                            allow="autoplay"
+                            onLoad={() => setMediaLoaded(true)}
+                            key={currentMedia.id}
+                        />
+                    ) : (
+                        <div className="flex h-full w-full items-center justify-center text-slate-500 bg-slate-900">
+                            <p>Mídia não suportada ou URL inválida.</p>
+                        </div>
+                    )}
+                </div>
+            </div> {/* Closing the stage-container div */}
 
             {/* Frame / Overlay Dinâmico */}
             <div className="absolute bottom-0 left-0 right-0 h-24 bg-gradient-to-t from-black/80 to-transparent flex flex-col justify-end">

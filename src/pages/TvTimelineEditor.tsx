@@ -33,7 +33,7 @@ export default function TvTimelineEditor() {
         queryFn: async () => {
             const { data, error } = await supabase
                 .from("tv_timelines")
-                .select("*, tv_points(name, tenant_id)")
+                .select("*, tv_points(name, tenant_id, orientation)")
                 .eq("id", timelineId!)
                 .single();
             if (error) throw error;
@@ -50,7 +50,7 @@ export default function TvTimelineEditor() {
             // 1. Get all active entity plans with their plan details
             const { data: activePlans, error: plansErr } = await supabase
                 .from("tv_entity_plans")
-                .select("entity_id, tv_plans(name, video_duration_seconds)")
+                .select("entity_id, tv_plans(name, video_duration_seconds), core_entities(name)")
                 .eq("tenant_id", tenantId)
                 .eq("is_active", true)
                 .is("deleted_at", null);
@@ -76,6 +76,7 @@ export default function TvTimelineEditor() {
                 const planInfo = activePlans.find(ap => ap.entity_id === m.entity_id);
                 return {
                     ...m,
+                    entity_name: (planInfo?.core_entities as any)?.name || "Cliente sem nome",
                     plan_name: (planInfo?.tv_plans as any)?.name || "Plano Padrão",
                     duration: (planInfo?.tv_plans as any)?.video_duration_seconds || 15
                 };
@@ -239,7 +240,9 @@ export default function TvTimelineEditor() {
             <main className="flex-1 flex flex-col min-h-0 bg-slate-900/30">
                 {/* Preview Area */}
                 <div className="flex-1 relative bg-black flex items-center justify-center overflow-hidden py-10">
-                    <div className="w-full h-full max-w-[80%] max-h-[90%] aspect-video">
+                    <div
+                        className={`w-full h-full max-w-[90%] max-h-[90%] ${timelineQ.data?.tv_points?.orientation === 'portrait' ? 'aspect-[9/16]' : 'aspect-video'}`}
+                    >
                         {renderPreview()}
                     </div>
                 </div>
@@ -319,7 +322,10 @@ export default function TvTimelineEditor() {
                                             </div>
 
                                             <div className="min-w-0">
-                                                <h3 className={`text-xs font-bold truncate ${isSelected ? 'text-indigo-400' : 'text-slate-200'}`}>
+                                                <h3 className={`text-[10px] font-bold truncate uppercase tracking-tight ${isSelected ? 'text-indigo-300' : 'text-slate-400'}`}>
+                                                    {media.entity_name}
+                                                </h3>
+                                                <h3 className={`text-xs font-bold truncate ${isSelected ? 'text-white' : 'text-slate-200'}`}>
                                                     {media.name || "Vídeo sem nome"}
                                                 </h3>
                                                 <div className="flex items-center gap-1.5 mt-1">

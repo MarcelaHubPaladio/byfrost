@@ -7,7 +7,7 @@ import { AppShell } from "@/components/AppShell";
 import { RequireAuth } from "@/components/RequireAuth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Plus, Pencil, Trash2, Target, FileText, Save, Library } from "lucide-react";
+import { Plus, Pencil, Trash2, Target, FileText, Save, Library, Users, ChevronRight } from "lucide-react";
 import { RichTextEditor } from "@/components/RichTextEditor";
 import { showSuccess, showError } from "@/utils/toast";
 import {
@@ -97,12 +97,22 @@ export default function GoalsCenter() {
                                 Minhas Metas
                             </TabsTrigger>
                             {isAuthorized && (
+                                <TabsTrigger value="team" className="flex items-center gap-2">
+                                    <Users className="w-4 h-4" />
+                                    Liderança
+                                </TabsTrigger>
+                            )}
+                            {isAuthorized && (
                                 <TabsTrigger value="manage" className="flex items-center gap-2">
                                     <Target className="w-4 h-4" />
                                     Configuração
                                 </TabsTrigger>
                             )}
                         </TabsList>
+
+                        <TabsContent value="team">
+                            <TeamGoalsTab />
+                        </TabsContent>
 
                         <TabsContent value="my-goals">
                             <MyGoalsDashboard />
@@ -801,6 +811,66 @@ function MyGoalsDashboard() {
         enabled: !!activeTenantId && !!user?.id,
     });
 
+    const progressQ = useQuery({
+        queryKey: ["my_goals_progress", activeTenantId, user?.id],
+        queryFn: async () => {
+            if (!activeTenantId || !user?.id) return {};
+
+            const startOfMonth = new Date();
+            startOfMonth.setDate(1);
+            startOfMonth.setHours(0, 0, 0, 0);
+
+            // Fetch participant
+            const { data: participant } = await supabase
+                .from("incentive_participants")
+                .select("id")
+                .eq("tenant_id", activeTenantId)
+                .eq("user_id", user.id)
+                .maybeSingle();
+
+            if (!participant) return {};
+
+            const { data: events } = await supabase
+                .from("incentive_events")
+                .select("event_type, value")
+                .eq("tenant_id", activeTenantId)
+                .eq("participant_id", participant.id)
+                .gte("created_at", startOfMonth.toISOString());
+
+            const progress: Record<string, number> = {};
+            for (const event of (events || [])) {
+                const key = event.event_type;
+                if (!progress[key]) progress[key] = 0;
+                progress[key] += 1; // Default count
+            }
+
+            // For money types, we need to sum value. But we don't know the type here yet easily.
+            // Let's return structured data.
+            return events || [];
+        },
+        enabled: !!activeTenantId && !!user?.id,
+    });
+
+    const goalsWithProgress = useMemo(() => {
+        const goals = goalsQ.data?.goals || [];
+        const events = progressQ.data || [];
+
+        return goals.map(g => {
+            const relevantEvents = (events as any[]).filter(e => e.event_type === g.metric_key);
+            let achieved = 0;
+            if (g.target_type === 'money') {
+                achieved = relevantEvents.reduce((acc, curr) => acc + (Number(curr.value) || 0), 0);
+            } else {
+                achieved = relevantEvents.length;
+            }
+            return {
+                ...g,
+                achieved,
+                remaining: Math.max(0, (g.target_value || 0) - achieved)
+            };
+        });
+    }, [goalsQ.data, progressQ.data]);
+
     const { activeRule, existingSig, showSignatureBanner } = useMemo(() => {
         const activeRule = goalsQ.data?.activeRule;
         const existingSig = goalsQ.data?.existingSig;
@@ -887,7 +957,7 @@ function MyGoalsDashboard() {
             <h2 className="text-lg font-bold mb-6">Minhas Metas</h2>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {goalsQ.data.goals.map((goal: any) => (
+                {goalsWithProgress.map((goal: any) => (
                     <div key={goal.id} className="border rounded-xl p-5 shadow-sm bg-white relative overflow-hidden flex flex-col justify-between min-h-[160px]">
                         <div className="absolute top-0 left-0 w-1 h-full bg-indigo-500 rounded-l-xl"></div>
                         <div>
@@ -911,11 +981,279 @@ function MyGoalsDashboard() {
                             </div>
                             <div className="text-right">
                                 <div className="text-xs text-slate-500 mb-0.5">Progresso</div>
-                                <div className="text-lg font-bold text-slate-300">--</div>
+                                <div className="text-lg font-bold text-indigo-600">
+                                    {goal.target_type === 'money' ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(goal.achieved) : goal.achieved}
+                                </div>
                             </div>
                         </div>
+                        {goal.target_value > 0 && (
+                            <div className="mt-4">
+                                <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
+                                    <div
+                                        className="h-full bg-indigo-500 rounded-full transition-all duration-500"
+                                        style={{ width: `${Math.min(100, (goal.achieved / goal.target_value) * 100)}%` }}
+                                    />
+                                </div>
+                                <div className="flex justify-between items-center mt-1.5">
+                                    <span className="text-[10px] font-bold text-slate-400">
+                                        {Math.round((goal.achieved / goal.target_value) * 100)}%
+                                    </span>
+                                    {goal.remaining > 0 ? (
+                                        <span className="text-[10px] font-bold text-amber-600">
+                                            Faltam {goal.target_type === 'money' ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(goal.remaining) : goal.remaining}
+                                        </span>
+                                    ) : (
+                                        <span className="text-[10px] font-bold text-emerald-600">Atingida!</span>
+                                    )}
+                                </div>
+                            </div>
+                        )}
                     </div>
                 ))}
+            </div>
+        </div>
+    );
+}
+
+function TeamGoalsTab() {
+    const { activeTenantId } = useTenant();
+    const [selectedUserId, setSelectedUserId] = useState<string>("");
+
+    // Fetch users with hierarchy
+    const usersQ = useQuery({
+        queryKey: ["team_goals_users", activeTenantId],
+        queryFn: async () => {
+            if (!activeTenantId) return [];
+
+            // Fetch users with their profiles and org nodes
+            const { data: profiles, error: pErr } = await supabase
+                .from("users_profile")
+                .select("user_id, display_name, email, role")
+                .eq("tenant_id", activeTenantId)
+                .is("deleted_at", null);
+            if (pErr) throw pErr;
+
+            const { data: nodes, error: nErr } = await supabase
+                .from("org_nodes")
+                .select("user_id, parent_user_id")
+                .eq("tenant_id", activeTenantId);
+            if (nErr) throw nErr;
+
+            const nodeMap = new Map(nodes?.map(n => [n.user_id, n.parent_user_id]));
+
+            const list = (profiles || []).map(p => ({
+                id: p.user_id,
+                name: p.display_name || p.email || p.user_id,
+                role: p.role,
+                parentId: nodeMap.get(p.user_id) || null
+            }));
+
+            // Sort: Admin first, then by parent hierarchy
+            const admins = list.filter(u => u.role === 'admin').sort((a, b) => a.name.localeCompare(b.name));
+            const others = list.filter(u => u.role !== 'admin');
+
+            // Simple tree sort for others
+            const sortedOthers: any[] = [];
+            const visit = (pid: string | null, depth: number) => {
+                const candidates = others
+                    .filter(u => u.parentId === pid)
+                    .sort((a, b) => a.name.localeCompare(b.name));
+                for (const c of candidates) {
+                    sortedOthers.push({ ...c, depth });
+                    visit(c.id, depth + 1);
+                }
+            };
+            visit(null, 0);
+
+            // Add remaining (orphans not in tree)
+            const addedIds = new Set(sortedOthers.map(u => u.id));
+            const orphans = others.filter(u => !addedIds.has(u.id));
+
+            return [
+                ...admins.map(a => ({ ...a, depth: 0 })),
+                ...sortedOthers,
+                ...orphans.map(o => ({ ...o, depth: 0 }))
+            ];
+        },
+        enabled: !!activeTenantId
+    });
+
+    const selectedUser = usersQ.data?.find(u => u.id === selectedUserId);
+
+    const goalsQ = useQuery({
+        queryKey: ["team_user_goals", activeTenantId, selectedUserId],
+        queryFn: async () => {
+            if (!activeTenantId || !selectedUserId || !selectedUser) return null;
+
+            // Fetch user goals
+            const { data: userGoals, error: ugError } = await supabase
+                .from("user_goals")
+                .select("*")
+                .eq("tenant_id", activeTenantId)
+                .eq("user_id", selectedUserId);
+            if (ugError) throw ugError;
+
+            // Fetch role templates
+            const { data: templates, error: tplError } = await supabase
+                .from("goal_templates")
+                .select("*")
+                .eq("tenant_id", activeTenantId)
+                .eq("role_key", selectedUser.role);
+            if (tplError) throw tplError;
+
+            // Merge
+            const resolved = new Map<string, any>();
+            for (const t of (templates || [])) resolved.set(t.metric_key, { ...t, is_template: true });
+            for (const ug of (userGoals || [])) resolved.set(ug.metric_key, { ...ug, is_template: false });
+
+            const goals = Array.from(resolved.values());
+
+            // Calculate progress for each goal from incentive_events
+            const startOfMonth = new Date();
+            startOfMonth.setDate(1);
+            startOfMonth.setHours(0, 0, 0, 0);
+
+            const { data: participant } = await supabase
+                .from("incentive_participants")
+                .select("id")
+                .eq("tenant_id", activeTenantId)
+                .eq("user_id", selectedUserId)
+                .maybeSingle();
+
+            if (!participant) return goals.map(g => ({ ...g, achieved: 0, remaining: g.target_value || 0 }));
+
+            const { data: userEvents, error: eErr } = await supabase
+                .from("incentive_events")
+                .select("event_type, value, points")
+                .eq("tenant_id", activeTenantId)
+                .eq("participant_id", participant.id)
+                .gte("created_at", startOfMonth.toISOString());
+
+            if (eErr) throw eErr;
+
+            const goalsWithProgress = goals.map(g => {
+                const relevantEvents = userEvents.filter(e => e.event_type === g.metric_key);
+                let achieved = 0;
+                if (g.target_type === 'money') {
+                    achieved = relevantEvents.reduce((acc, curr) => acc + (Number(curr.value) || 0), 0);
+                } else {
+                    achieved = relevantEvents.length;
+                    // Some events might have a value even if quantity, but usually 1 event = 1 count
+                    // unless we use sum(points) or sum(value).
+                    // For now, let's stick to COUNT for quantity.
+                }
+
+                return {
+                    ...g,
+                    achieved,
+                    remaining: Math.max(0, (g.target_value || 0) - achieved)
+                };
+            });
+
+            return goalsWithProgress;
+        },
+        enabled: !!activeTenantId && !!selectedUserId && !!selectedUser
+    });
+
+    return (
+        <div className="space-y-6">
+            <div className="bg-white p-6 rounded-lg border shadow-sm">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+                    <div>
+                        <h2 className="text-lg font-bold">Gestão de Metas da Equipe</h2>
+                        <p className="text-sm text-slate-500 text-balance">Visualize o desempenho dos seus liderados em tempo real.</p>
+                    </div>
+                    <div className="w-full md:w-80">
+                        <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">Selecionar Usuário</label>
+                        <select
+                            className="w-full h-10 px-3 py-2 bg-slate-50 border border-slate-200 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                            value={selectedUserId}
+                            onChange={(e) => setSelectedUserId(e.target.value)}
+                        >
+                            <option value="">Escolha um liderado...</option>
+                            {usersQ.data?.map(u => (
+                                <option key={u.id} value={u.id}>
+                                    {"\u00A0\u00A0".repeat(u.depth)}{u.name} ({u.role})
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+                </div>
+
+                {!selectedUserId ? (
+                    <div className="flex flex-col items-center justify-center py-16 text-slate-400 border-2 border-dashed rounded-xl bg-slate-50">
+                        <Users className="w-12 h-12 mb-3 opacity-20" />
+                        <p>Selecione um usuário acima para ver suas metas.</p>
+                    </div>
+                ) : goalsQ.isLoading ? (
+                    <div className="py-12 text-center text-slate-500 italic">Carregando desempenho...</div>
+                ) : !goalsQ.data || goalsQ.data.length === 0 ? (
+                    <div className="py-12 text-center text-slate-500 bg-slate-50 rounded-xl border border-dashed">
+                        O usuário <strong>{selectedUser?.name}</strong> não possui metas configuradas.
+                    </div>
+                ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {goalsQ.data.map((goal: any) => (
+                            <div key={goal.id} className="border rounded-xl p-5 shadow-sm bg-white border-slate-200">
+                                <div className="flex justify-between items-start mb-4">
+                                    <div>
+                                        <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">
+                                            {goal.frequency}
+                                        </div>
+                                        <h3 className="font-bold text-slate-800 leading-tight">{goal.name}</h3>
+                                    </div>
+                                    <div className="bg-indigo-50 text-indigo-700 p-2 rounded-lg">
+                                        <Target className="w-4 h-4" />
+                                    </div>
+                                </div>
+
+                                <div className="space-y-4">
+                                    <div>
+                                        <div className="flex justify-between text-xs mb-1.5">
+                                            <span className="text-slate-500">Progresso</span>
+                                            <span className="font-bold text-slate-700">
+                                                {Math.round((goal.achieved / (goal.target_value || 1)) * 100)}%
+                                            </span>
+                                        </div>
+                                        <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
+                                            <div
+                                                className="h-full bg-indigo-500 rounded-full transition-all duration-500"
+                                                style={{ width: `${Math.min(100, (goal.achieved / (goal.target_value || 1)) * 100)}%` }}
+                                            />
+                                        </div>
+                                    </div>
+
+                                    <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-50">
+                                        <div>
+                                            <div className="text-[10px] text-slate-400 font-bold uppercase uppercase">Alvo</div>
+                                            <div className="text-sm font-bold text-slate-600">
+                                                {goal.target_type === 'money' ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(goal.target_value) : goal.target_value}
+                                            </div>
+                                        </div>
+                                        <div className="text-right">
+                                            <div className="text-[10px] text-slate-400 font-bold uppercase uppercase">Atingido</div>
+                                            <div className="text-sm font-bold text-indigo-600">
+                                                {goal.target_type === 'money' ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(goal.achieved) : goal.achieved}
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {goal.remaining > 0 ? (
+                                        <div className="flex items-center gap-2 text-xs text-amber-600 bg-amber-50 p-2 rounded-md font-medium">
+                                            <AlertCircle className="w-3 h-3" />
+                                            Faltam {goal.target_type === 'money' ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(goal.remaining) : goal.remaining}
+                                        </div>
+                                    ) : (
+                                        <div className="flex items-center gap-2 text-xs text-emerald-600 bg-emerald-50 p-2 rounded-md font-medium">
+                                            <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                                            Meta Atingida! 🚀
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
             </div>
         </div>
     );

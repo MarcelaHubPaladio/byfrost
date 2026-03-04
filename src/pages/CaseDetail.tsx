@@ -34,6 +34,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { CaseTimeline, type CaseTimelineEvent } from "@/components/case/CaseTimeline";
 import { CaseTechnicalReportDialog } from "@/components/case/CaseTechnicalReportDialog";
 import { CaseCustomerDataEditorCard } from "@/components/case/CaseCustomerDataEditorCard";
+import { CaseCustomerCard } from "@/components/crm/CaseCustomerCard";
 import { SalesOrderItemsEditorCard } from "@/components/case/SalesOrderItemsEditorCard";
 import { SalesOrderReviewDialog } from "@/components/case/SalesOrderReviewDialog";
 import { SalesOrderAddAttachmentExtractDialog } from "@/components/case/SalesOrderAddAttachmentExtractDialog";
@@ -656,8 +657,15 @@ export default function CaseDetail() {
         </div>
 
         {/* Editáveis: apenas sales_order */}
-        {id && isSalesOrder ? (
+        {id && isSalesOrder && activeTenantId ? (
           <>
+            <CaseCustomerCard
+              tenantId={activeTenantId}
+              caseId={id}
+              customerId={caseQ.data?.customer_id ?? null}
+              assignedUserId={caseQ.data?.assigned_user_id ?? null}
+              suggestedPhone={extractedCustomerPhone}
+            />
             <CaseCustomerDataEditorCard caseId={id} fields={fieldsQ.data as any} />
             <SalesOrderItemsEditorCard caseId={id} />
           </>

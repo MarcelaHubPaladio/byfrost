@@ -49,7 +49,7 @@ serve(async (req: Request) => {
 
     // Customer info transfer
     const customerName = crmCase.customer_accounts?.name || crmCase.meta_json?.name || crmCase.title || "Novo Lead";
-    const customerPhone = crmCase.customer_accounts?.phone || crmCase.meta_json?.phone || "";
+    const customerPhone = crmCase.customer_accounts?.phone_e164 || crmCase.meta_json?.phone || "";
     const customerEmail = crmCase.customer_accounts?.email || crmCase.meta_json?.email || "";
 
     // 3. Create the Sales Order Case
@@ -121,30 +121,28 @@ serve(async (req: Request) => {
     const { data: existingFields } = await supabase
       .from("case_fields")
       .select("*")
-      .eq("tenant_id", tenantId)
       .eq("case_id", caseId);
 
     const fieldsToInsert = (existingFields || []).map((f: any) => ({
-      tenant_id: tenantId,
       case_id: orderCase.id,
       key: f.key,
       value_text: f.value_text,
       value_number: f.value_number,
       value_date: f.value_date,
-      confidence: f.confidence,
-      source: f.source,
-      last_updated_by: f.last_updated_by
+      confidence: f.confidence || 1,
+      source: f.source || "crm_generation",
+      last_updated_by: f.last_updated_by || "system"
     }));
 
     const hasField = (k: string) => fieldsToInsert.some((f: any) => f.key === k);
     if (customerName && customerName !== "Novo Lead" && !hasField("name")) {
-      fieldsToInsert.push({ tenant_id: tenantId, case_id: orderCase.id, key: "name", value_text: customerName, source: "crm_generation" });
+      fieldsToInsert.push({ case_id: orderCase.id, key: "name", value_text: customerName, source: "crm_generation", confidence: 1, last_updated_by: "system" });
     }
     if (customerPhone && !hasField("phone")) {
-      fieldsToInsert.push({ tenant_id: tenantId, case_id: orderCase.id, key: "phone", value_text: customerPhone, source: "crm_generation" });
+      fieldsToInsert.push({ case_id: orderCase.id, key: "phone", value_text: customerPhone, source: "crm_generation", confidence: 1, last_updated_by: "system" });
     }
     if (customerEmail && !hasField("email")) {
-      fieldsToInsert.push({ tenant_id: tenantId, case_id: orderCase.id, key: "email", value_text: customerEmail, source: "crm_generation" });
+      fieldsToInsert.push({ case_id: orderCase.id, key: "email", value_text: customerEmail, source: "crm_generation", confidence: 1, last_updated_by: "system" });
     }
 
     if (fieldsToInsert.length > 0) {

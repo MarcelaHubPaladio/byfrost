@@ -130,12 +130,11 @@ function UserDataTab({ userData }: { userData: any }) {
                 body: JSON.stringify({ targetUserId: userData.user_id })
             });
 
+            const json = await res.json().catch(() => ({}));
             if (!res.ok) {
-                const errJson = await res.json().catch(() => ({}));
-                throw new Error(errJson.error || "Falha ao resetar senha");
+                throw new Error(json.error || "Falha ao resetar senha");
             }
 
-            const json = await res.json();
             setTempPassword(json.tempPassword);
         } catch (e: any) {
             showError(e.message);

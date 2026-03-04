@@ -179,9 +179,12 @@ serve(async (req) => {
         const isGroup = normalized.isGroup || looksLikeWhatsAppGroupId(rawChatId);
         const groupId = isGroup ? String(rawChatId) : null;
 
+        // Fix for outbound missing `to` (common in Z-API `on-message-send` where it only has `phone`)
+        const counterpartPhone = normalized.to || normalized.from;
+
         const participantPhone = isGroup
             ? null
-            : (fromMe ? normalized.to : normalized.from);
+            : (fromMe ? counterpartPhone : normalized.from);
 
         const msgParticipantPhone = isGroup
             ? (fromMe ? instPhone : normalized.participant || normalized.from)
@@ -292,8 +295,10 @@ serve(async (req) => {
 
         // 5. Audit Fallback (V2) or Outbound
         if (instance.enable_v2_audit && looksLikeChatEvent && (direction === "outbound" || !crmResult?.ok)) {
-            const fromPhone = instPhone;
-            const toPhone = isGroup ? groupId : normalized.to;
+            const fromPhone = direction === "outbound" ? instPhone : msgParticipantPhone;
+            const toPhone = direction === "outbound"
+                ? (isGroup ? groupId : counterpartPhone)
+                : (isGroup ? groupId : instPhone);
 
             const { data: rpcResult, error: rpcError } = await supabase.rpc("ingest_whatsapp_audit_message", {
                 p_tenant_id: instance.tenant_id,
@@ -332,7 +337,7 @@ serve(async (req) => {
                 direction: direction,
                 wa_type: normalized.type,
                 from_phone: direction === "inbound" ? msgParticipantPhone : instPhone,
-                to_phone: direction === "outbound" ? (isGroup ? groupId : normalized.to) : (isGroup ? groupId : instPhone),
+                to_phone: direction === "outbound" ? (isGroup ? groupId : counterpartPhone) : (isGroup ? groupId : instPhone),
                 ok: ingestOk !== false,
                 http_status: ingestOk !== false ? 200 : 500,
                 reason: ingestEvent || (looksLikeChatEvent ? (ingestOk !== false ? "ingested" : "failed") : "event_received"),

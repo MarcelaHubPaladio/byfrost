@@ -105,7 +105,7 @@ export default function CrmCaseDetail() {
       const { data, error } = await supabase
         .from("cases")
         .select(
-          "id,tenant_id,customer_id,customer_entity_id,title,status,state,created_at,updated_at,assigned_user_id,meta_json,is_chat,users_profile:users_profile!fk_cases_users_profile(display_name,email),journeys:journeys!cases_journey_id_fkey(key,name,is_crm,default_state_machine_json)"
+          "id,tenant_id,customer_id,customer_entity_id,title,status,state,created_at,updated_at,assigned_user_id,meta_json,is_chat,users_profile:users_profile!fk_cases_users_profile(display_name,email),journeys:journeys!cases_journey_id_fkey(key,name,is_crm,default_state_machine_json),customer_accounts:customer_accounts(name)"
         )
         .eq("tenant_id", activeTenantId!)
         .eq("id", id!)
@@ -359,9 +359,10 @@ export default function CrmCaseDetail() {
   }, [fieldsQ.data, caseQ.data?.meta_json]);
 
   const displayTitle = useMemo(() => {
-    const c = caseQ.data;
+    const c = caseQ.data as any;
     if (!c) return "Case";
     return (
+      c.customer_accounts?.name ??
       c.title ??
       suggestedPhone ??
       c.users_profile?.display_name ??

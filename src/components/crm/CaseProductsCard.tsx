@@ -20,8 +20,9 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { BadgeDollarSign, Check, ChevronsUpDown, ExternalLink, Plus, Trash2 } from "lucide-react";
+import { BadgeDollarSign, Check, ChevronsUpDown, ExternalLink, Plus, Trash2, PackagePlus, Loader2 } from "lucide-react";
 import { useSession } from "@/providers/SessionProvider";
+import { LinkedOrdersAccordion } from "./LinkedOrdersAccordion";
 
 type CaseItemRow = {
   id: string;
@@ -63,6 +64,7 @@ export function CaseProductsCard(props: { tenantId: string; caseId: string }) {
   const [openOffering, setOpenOffering] = useState(false);
   const [searchOffering, setSearchOffering] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [generatingOrder, setGeneratingOrder] = useState(false);
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(searchOffering), 300);
@@ -209,6 +211,28 @@ export function CaseProductsCard(props: { tenantId: string; caseId: string }) {
     }
   };
 
+  const generateOrder = async () => {
+    if (generatingOrder) return;
+    setGeneratingOrder(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("crm-generate-sales-order", {
+        body: { tenantId: props.tenantId, caseId: props.caseId },
+      });
+      if (error) throw error;
+      if (!data?.ok) throw new Error(data?.error || "Unknown error");
+
+      showSuccess("Pedido de Venda gerado com sucesso!");
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["crm_linked_orders", props.tenantId, props.caseId] }),
+        qc.invalidateQueries({ queryKey: ["timeline", props.tenantId, props.caseId] }),
+      ]);
+    } catch (e: any) {
+      showError(`Falha ao gerar pedido: ${e?.message ?? "erro"}`);
+    } finally {
+      setGeneratingOrder(false);
+    }
+  };
+
   return (
     <Card className="rounded-[22px] border-slate-200 bg-white p-4">
       <div className="flex items-start justify-between gap-3">
@@ -223,6 +247,19 @@ export function CaseProductsCard(props: { tenantId: string; caseId: string }) {
             </div>
           </div>
         </div>
+        <Button
+          variant="secondary"
+          className="h-9 rounded-xl text-xs font-semibold bg-indigo-50 text-indigo-700 hover:bg-indigo-100 hover:text-indigo-800"
+          onClick={generateOrder}
+          disabled={generatingOrder}
+        >
+          {generatingOrder ? (
+            <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <PackagePlus className="mr-2 h-3.5 w-3.5" />
+          )}
+          Gerar Pedido
+        </Button>
       </div>
 
       {itemsQ.isError && (
@@ -389,6 +426,8 @@ export function CaseProductsCard(props: { tenantId: string; caseId: string }) {
       <div className="mt-3 text-[11px] text-slate-500">
         Observação: cada item do CRM também é sincronizado com o módulo Entidades (core_entities) como offering.
       </div>
+
+      <LinkedOrdersAccordion tenantId={props.tenantId} caseId={props.caseId} />
     </Card>
   );
 }

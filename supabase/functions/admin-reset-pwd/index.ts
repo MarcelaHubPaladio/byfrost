@@ -12,6 +12,7 @@ function randomTempPassword() {
 }
 
 serve(async (req) => {
+    console.log(`[admin-reset-pwd] request received`, { method: req.method });
     if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
     if (req.method !== "POST") return new Response("Method not allowed", { status: 405, headers: corsHeaders });
 
@@ -29,6 +30,7 @@ serve(async (req) => {
 
         const { data: authData, error: authErr } = await supabase.auth.getUser(token);
         if (authErr || !authData?.user) {
+            console.error(`[admin-reset-pwd] auth.getUser failed`, { authErr, tokenPrefix: token.slice(0, 10) });
             return new Response(JSON.stringify({ ok: false, error: "Unauthorized" }), {
                 status: 401,
                 headers: { ...corsHeaders, "Content-Type": "application/json" },

@@ -22,18 +22,37 @@ export default function Login() {
   const origin = useMemo(() => window.location.origin, []);
 
   const signInWithGoogle = async () => {
+    console.log("[Login] signInWithGoogle triggered", { origin });
     setBusy(true);
+
+    const timeout = setTimeout(() => {
+      console.warn("[Login] signInWithGoogle hanging? Resetting busy state.");
+      setBusy(false);
+    }, 15000);
+
     try {
-      const { error } = await supabase.auth.signInWithOAuth({
+      const { data, error } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {
           redirectTo: `${origin}/auth/callback`,
         },
       });
+
+      console.log("[Login] signInWithOAuth response:", { data, error });
+
       if (error) throw error;
+
+      // In some environments, it might be necessary to manually redirect if the client doesn't.
+      if (data?.url) {
+        console.log("[Login] Redirecting manually to:", data.url);
+        window.location.assign(data.url);
+      }
     } catch (e: any) {
+      console.error("[Login] Error during signInWithGoogle:", e);
       showError(`Não foi possível entrar com Google. (${e?.message ?? "erro"})`);
       setBusy(false);
+    } finally {
+      clearTimeout(timeout);
     }
   };
 

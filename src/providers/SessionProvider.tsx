@@ -23,13 +23,19 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     let mounted = true;
 
-    supabase.auth.getSession().then(({ data }) => {
+    console.log("[SessionProvider] Initializing session...");
+    supabase.auth.getSession().then(({ data, error }) => {
       if (!mounted) return;
+      console.log("[SessionProvider] getSession result:", { hasSession: !!data.session, error });
       setSession(data.session ?? null);
       setLoading(false);
+    }).catch(err => {
+      console.error("[SessionProvider] getSession crash:", err);
+      if (mounted) setLoading(false);
     });
 
-    const { data } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+    const { data } = supabase.auth.onAuthStateChange((event, nextSession) => {
+      console.log("[SessionProvider] onAuthStateChange event:", event, { hasSession: !!nextSession });
       setSession(nextSession);
       setLoading(false);
     });

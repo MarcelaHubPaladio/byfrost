@@ -91,18 +91,23 @@ export default function AuthCallback() {
       try {
         // Support PKCE-style redirects
         if (urlInfo.code) {
+          console.log("[AuthCallback] Exchanging code for session...", { code: urlInfo.code.slice(0, 5) + "..." });
           const { error } = await supabase.auth.exchangeCodeForSession(urlInfo.code);
           if (error) {
+            console.error("[AuthCallback] exchangeCodeForSession error:", error);
             setDiag((d) => ({ ...d, stage: "exchanged", lastError: error.message }));
           } else {
+            console.log("[AuthCallback] code exchange success");
             setDiag((d) => ({ ...d, stage: "exchanged" }));
           }
         }
 
         // Sync provider state
+        console.log("[AuthCallback] Refreshing session provider...");
         await refresh();
 
         const { data } = await supabase.auth.getSession();
+        console.log("[AuthCallback] getSession result:", { hasSession: !!data.session });
         setDiag((d) => ({
           ...d,
           stage: "checked",
@@ -111,9 +116,13 @@ export default function AuthCallback() {
           sessionEmail: data.session?.user?.email ?? null,
         }));
       } catch (e: any) {
+        console.error("[AuthCallback] Crash in auth callback loop:", e);
         setDiag((d) => ({ ...d, lastError: String(e?.message ?? "erro") }));
       } finally {
-        if (mounted) setBootDone(true);
+        if (mounted) {
+          console.log("[AuthCallback] Bootstrap done");
+          setBootDone(true);
+        }
       }
     })();
 

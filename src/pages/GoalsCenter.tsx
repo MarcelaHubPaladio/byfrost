@@ -28,13 +28,7 @@ import { AlertCircle, FileSignature } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { checkRouteAccess } from "@/lib/access";
 
-const ROLES = [
-    { id: "admin", name: "Admin", description: "Administrador do sistema" },
-    { id: "manager", name: "Gerente", description: "Gerente da operação" },
-    { id: "supervisor", name: "Supervisor", description: "Supervisor da equipe" },
-    { id: "leader", name: "Líder", description: "Líder de equipe" },
-    { id: "vendor", name: "Vendedor", description: "Atendimento e vendas" },
-];
+// ROLES are now fetched dynamically from tenant_roles
 
 export default function GoalsCenter() {
     const { activeTenantId } = useTenant();
@@ -53,7 +47,37 @@ export default function GoalsCenter() {
         },
     });
 
-    const canManage = Boolean(manageAccessQ.data);
+    const tenantRolesQ = useQuery({
+        queryKey: ["tenant_roles_goals", activeTenantId],
+        enabled: Boolean(activeTenantId),
+        queryFn: async () => {
+            const { data, error } = await supabase
+                .from("tenant_roles")
+                .select("roles(key, name)")
+                .eq("tenant_id", activeTenantId!)
+                .eq("enabled", true);
+            if (error) throw error;
+            const list = (data || [])
+                .map((r: any) => ({
+                    id: String(r.roles?.key ?? ""),
+                    name: String(r.roles?.name ?? ""),
+                    description: ""
+                }))
+                .filter(r => !!r.id);
+
+            // Sort to keep a consistent order, admin first then by name
+            list.sort((a, b) => {
+                if (a.id === 'admin') return -1;
+                if (b.id === 'admin') return 1;
+                return a.name.localeCompare(b.name);
+            });
+
+            return list;
+        }
+    });
+
+    const isAuthorized = Boolean(manageAccessQ.data);
+    const roles = tenantRolesQ.data || [];
 
     return (
         <RequireAuth>
@@ -72,7 +96,7 @@ export default function GoalsCenter() {
                                 <Target className="w-4 h-4" />
                                 Minhas Metas
                             </TabsTrigger>
-                            {canManage && (
+                            {isAuthorized && (
                                 <TabsTrigger value="manage" className="flex items-center gap-2">
                                     <Target className="w-4 h-4" />
                                     Configuração
@@ -84,7 +108,7 @@ export default function GoalsCenter() {
                             <MyGoalsDashboard />
                         </TabsContent>
 
-                        {canManage && (
+                        {isAuthorized && (
                             <TabsContent value="manage">
                                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-4">
                                     <div className="border bg-white rounded-lg p-4 shadow-sm h-full max-h-[70vh] flex flex-col">
@@ -93,7 +117,9 @@ export default function GoalsCenter() {
                                         </div>
 
                                         <div className="flex-1 overflow-y-auto space-y-2">
-                                            {ROLES.map((role) => (
+                                            {tenantRolesQ.isLoading ? (
+                                                <div className="text-center py-8 text-sm text-slate-400 italic">Carregando cargos...</div>
+                                            ) : roles.map((role) => (
                                                 <div
                                                     key={role.id}
                                                     onClick={() => setSelectedRole(role.id)}
@@ -104,10 +130,13 @@ export default function GoalsCenter() {
                                                 >
                                                     <div>
                                                         <div className="font-medium text-sm text-slate-800">{role.name}</div>
-                                                        <div className="text-xs text-slate-500 truncate mt-0.5">{role.description}</div>
+                                                        <div className="text-[10px] text-slate-500 font-mono mt-0.5 uppercase tracking-wider">{role.id}</div>
                                                     </div>
                                                 </div>
                                             ))}
+                                            {!tenantRolesQ.isLoading && roles.length === 0 && (
+                                                <div className="text-center py-8 text-sm text-slate-400">Nenhum cargo ativo encontrado.</div>
+                                            )}
                                         </div>
                                     </div>
 

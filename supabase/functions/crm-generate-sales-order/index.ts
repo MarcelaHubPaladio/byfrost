@@ -17,7 +17,7 @@ serve(async (req: Request) => {
     const body = await req.json().catch(() => null);
     if (!body) return new Response("Invalid JSON", { status: 400, headers: corsHeaders });
 
-    const { tenantId, caseId } = body;
+    const { tenantId, caseId, linked_goal_metric } = body;
     if (!tenantId || !caseId) return new Response("Missing tenantId or caseId", { status: 400, headers: corsHeaders });
 
     // 1. Get the CRM Case
@@ -47,6 +47,11 @@ serve(async (req: Request) => {
       });
     }
 
+    // Customer info transfer
+    const customerName = crmCase.customer_accounts?.name || crmCase.meta_json?.name || crmCase.title || "Novo Lead";
+    const customerPhone = crmCase.customer_accounts?.phone || crmCase.meta_json?.phone || "";
+    const customerEmail = crmCase.customer_accounts?.email || crmCase.meta_json?.email || "";
+
     // 3. Create the Sales Order Case
     const { data: orderCase, error: insertErr } = await supabase
       .from("cases")
@@ -57,11 +62,15 @@ serve(async (req: Request) => {
         status: "open",
         state: "new",
         case_type: "order",
-        title: `Pedido: ${crmCase.title || crmCase.customer_accounts?.name || 'Novo Lead'}`,
+        title: `Pedido: ${customerName}`,
         created_by_channel: "panel",
         meta_json: {
           parent_case_id: caseId,
-          source: "crm_generation"
+          source: "crm_generation",
+          customer_name: customerName,
+          customer_phone: customerPhone,
+          customer_email: customerEmail,
+          linked_goal_metric: linked_goal_metric || null
         }
       })
       .select("id")
@@ -96,6 +105,16 @@ serve(async (req: Request) => {
 
       const { error: itemsErr } = await supabase.from("case_items").insert(itemsToInsert);
       if (itemsErr) console.error(`[${fn}] Failed to copy case items:`, itemsErr);
+
+      // 4.1. Clean CRM Items (Reset the bucket)
+      const idsToDelete = existingItems.map((item: any) => item.id);
+      if (idsToDelete.length > 0) {
+        const { error: delErr } = await supabase
+          .from("case_items")
+          .delete()
+          .in("id", idsToDelete);
+        if (delErr) console.error(`[${fn}] Failed to delete original CRM items:`, delErr);
+      }
     }
 
     // 5. Audit & Timeline

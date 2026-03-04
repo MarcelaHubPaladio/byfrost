@@ -20,8 +20,24 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { BadgeDollarSign, Check, ChevronsUpDown, ExternalLink, Plus, Trash2, PackagePlus, Loader2 } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { BadgeDollarSign, Check, ChevronsUpDown, ExternalLink, Plus, Trash2, PackagePlus, Loader2, Target } from "lucide-react";
 import { useSession } from "@/providers/SessionProvider";
+import { useTenant } from "@/providers/TenantProvider";
 import { LinkedOrdersAccordion } from "./LinkedOrdersAccordion";
 
 type CaseItemRow = {
@@ -60,11 +76,18 @@ export function CaseProductsCard(props: { tenantId: string; caseId: string }) {
   const [price, setPrice] = useState("");
   const [adding, setAdding] = useState(false);
 
+  const { activeTenant } = useTenant();
+  const roleKey = activeTenant?.role ?? "";
+
   const [entityId, setEntityId] = useState<string | null>(null);
   const [openOffering, setOpenOffering] = useState(false);
   const [searchOffering, setSearchOffering] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
+
+  // Generation state
   const [generatingOrder, setGeneratingOrder] = useState(false);
+  const [confirmOrderOpen, setConfirmOrderOpen] = useState(false);
+  const [selectedGoal, setSelectedGoal] = useState<string>("none");
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(searchOffering), 300);
@@ -110,6 +133,32 @@ export function CaseProductsCard(props: { tenantId: string; caseId: string }) {
       if (error) throw error;
       return (data ?? []) as CaseItemRow[];
     },
+  });
+
+  const myGoalsQ = useQuery({
+    queryKey: ["crm_my_goals", props.tenantId, user?.id, roleKey],
+    enabled: Boolean(props.tenantId && user?.id && confirmOrderOpen),
+    queryFn: async () => {
+      // 1. Fetch user specific goals
+      const { data: userGoals } = await supabase
+        .from("user_goals")
+        .select("*")
+        .eq("tenant_id", props.tenantId)
+        .eq("user_id", user!.id);
+
+      // 2. Fetch role templates
+      const { data: templates } = await supabase
+        .from("goal_templates")
+        .select("*")
+        .eq("tenant_id", props.tenantId)
+        .eq("role_key", roleKey);
+
+      const resolved = new Map<string, any>();
+      for (const t of (templates || [])) resolved.set(t.metric_key, t);
+      for (const ug of (userGoals || [])) resolved.set(ug.metric_key, ug);
+
+      return Array.from(resolved.values()).sort((a, b) => a.name.localeCompare(b.name));
+    }
   });
 
   const sum = useMemo(() => {
@@ -215,14 +264,23 @@ export function CaseProductsCard(props: { tenantId: string; caseId: string }) {
     if (generatingOrder) return;
     setGeneratingOrder(true);
     try {
+      const payload: any = { tenantId: props.tenantId, caseId: props.caseId };
+      if (selectedGoal && selectedGoal !== "none") {
+        payload.linked_goal_metric = selectedGoal;
+      }
+
       const { data, error } = await supabase.functions.invoke("crm-generate-sales-order", {
-        body: { tenantId: props.tenantId, caseId: props.caseId },
+        body: payload,
       });
       if (error) throw error;
       if (!data?.ok) throw new Error(data?.error || "Unknown error");
 
       showSuccess("Pedido de Venda gerado com sucesso!");
+      setConfirmOrderOpen(false);
+      setSelectedGoal("none");
+
       await Promise.all([
+        qc.invalidateQueries({ queryKey: ["crm_case_items", props.tenantId, props.caseId] }), // Items were deleted!
         qc.invalidateQueries({ queryKey: ["crm_linked_orders", props.tenantId, props.caseId] }),
         qc.invalidateQueries({ queryKey: ["timeline", props.tenantId, props.caseId] }),
       ]);
@@ -250,8 +308,8 @@ export function CaseProductsCard(props: { tenantId: string; caseId: string }) {
         <Button
           variant="secondary"
           className="h-9 rounded-xl text-xs font-semibold bg-indigo-50 text-indigo-700 hover:bg-indigo-100 hover:text-indigo-800"
-          onClick={generateOrder}
-          disabled={generatingOrder}
+          onClick={() => setConfirmOrderOpen(true)}
+          disabled={generatingOrder || itemsQ.data?.length === 0}
         >
           {generatingOrder ? (
             <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
@@ -424,10 +482,57 @@ export function CaseProductsCard(props: { tenantId: string; caseId: string }) {
       </div>
 
       <div className="mt-3 text-[11px] text-slate-500">
-        Observação: cada item do CRM também é sincronizado com o módulo Entidades (core_entities) como offering.
+        Observação: Os produtos inseridos aqui serão removidos desta listagem ao gerar o Pedido, sendo transferidos para lá.
       </div>
 
       <LinkedOrdersAccordion tenantId={props.tenantId} caseId={props.caseId} />
+
+      <Dialog open={confirmOrderOpen} onOpenChange={setConfirmOrderOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <PackagePlus className="w-5 h-5 text-indigo-600" />
+              Gerar Pedido de Venda
+            </DialogTitle>
+            <DialogDescription>
+              Você está prestes a converter os produtos em um Pedido Oficial. A sacola do prospect será esvaziada.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="py-4 space-y-4">
+            <div className="space-y-2">
+              <Label className="flex items-center gap-2">
+                <Target className="w-4 h-4 text-slate-500" />
+                Vincular à Meta do Cargo (Opcional)
+              </Label>
+              <Select value={selectedGoal} onValueChange={setSelectedGoal} disabled={myGoalsQ.isLoading}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Selecione uma meta..." />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Nenhuma meta / Não contabilizar</SelectItem>
+                  {myGoalsQ.data?.map(g => (
+                    <SelectItem key={g.metric_key} value={g.metric_key}>
+                      {g.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-slate-500">O valor total vai contribuir para a meta escolhida quando a venda for concluída.</p>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmOrderOpen(false)} disabled={generatingOrder}>
+              Cancelar
+            </Button>
+            <Button onClick={generateOrder} disabled={generatingOrder} className="bg-indigo-600 hover:bg-indigo-700">
+              {generatingOrder ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+              Confirmar Geração
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }

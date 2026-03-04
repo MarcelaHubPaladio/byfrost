@@ -20,6 +20,7 @@ import { EntityHistory } from "@/components/core/EntityHistory";
 import { EntityFinanceTab } from "@/components/finance/EntityFinanceTab";
 import { isTvCorporativaEnabled } from "@/components/RequireTvCorporativaEnabled";
 import { EntityTvCorporativaTab } from "@/components/entities/EntityTvCorporativaTab";
+import { EntitySalesOrdersTab } from "@/components/entities/EntitySalesOrdersTab";
 
 type EntityRow = {
   id: string;
@@ -165,6 +166,7 @@ export default function EntityDetail() {
                   <TabsTrigger value="overview">Visão geral</TabsTrigger>
                   {entityQ.data?.entity_type === "party" ? <TabsTrigger value="customer">Cliente</TabsTrigger> : null}
                   {entityQ.data?.entity_type === "party" ? <TabsTrigger value="proposal">Proposta</TabsTrigger> : null}
+                  {entityQ.data?.entity_type === "party" ? <TabsTrigger value="orders">Pedidos</TabsTrigger> : null}
                   {tvCorporativaEnabled ? <TabsTrigger value="tv_corporativa">TV Corporativa</TabsTrigger> : null}
                   <TabsTrigger value="finance">Financeiro</TabsTrigger>
                   <TabsTrigger value="timeline">Linha do tempo</TabsTrigger>
@@ -220,6 +222,14 @@ export default function EntityDetail() {
                         partyId={entityId}
                         tenantSlug={String(activeTenant?.slug ?? "tenant")}
                       />
+                    ) : null}
+                  </TabsContent>
+                ) : null}
+
+                {entityQ.data?.entity_type === "party" ? (
+                  <TabsContent value="orders">
+                    {activeTenantId && entityQ.data ? (
+                      <EntitySalesOrdersTab tenantId={activeTenantId} entityId={entityId} />
                     ) : null}
                   </TabsContent>
                 ) : null}

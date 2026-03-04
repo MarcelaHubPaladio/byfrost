@@ -170,6 +170,7 @@ function TemplatesEditor({ roleKey }: { roleKey: string }) {
             const { data, error } = await supabase
                 .from("goal_templates")
                 .select("*")
+                .eq("tenant_id", activeTenantId)
                 .eq("role_key", roleKey)
                 .order("name");
             if (error) throw error;
@@ -190,6 +191,7 @@ function TemplatesEditor({ roleKey }: { roleKey: string }) {
                         target_value: Number(targetValue),
                         frequency,
                     })
+                    .eq("tenant_id", activeTenantId)
                     .eq("id", editingTpl.id);
                 if (error) throw error;
                 showSuccess("Template atualizado!");
@@ -215,7 +217,7 @@ function TemplatesEditor({ roleKey }: { roleKey: string }) {
     const deleteTpl = async (id: string) => {
         if (!confirm("Excluir este template? Isso não afetará metas de usuários já criadas baseado nele.")) return;
         try {
-            const { error } = await supabase.from("goal_templates").delete().eq("id", id);
+            const { error } = await supabase.from("goal_templates").delete().eq("tenant_id", activeTenantId).eq("id", id);
             if (error) throw error;
             showSuccess("Template excluído!");
             queryClient.invalidateQueries({ queryKey: ["goal_templates"] });

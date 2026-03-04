@@ -10,8 +10,8 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Plus, Search, Package, Image as ImageIcon, LayoutGrid, List as ListIcon } from "lucide-react";
-import { InventoryUpsertDialog } from "@/components/core/InventoryUpsertDialog";
 import { cn } from "@/lib/utils";
+import { useNavigate } from "react-router-dom";
 
 type InventoryItem = {
     id: string;
@@ -31,10 +31,9 @@ type InventoryItem = {
 
 export default function Inventory() {
     const { activeTenantId } = useTenant();
+    const nav = useNavigate();
     const [q, setQ] = useState("");
     const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
-    const [upsertOpen, setUpsertOpen] = useState(false);
-    const [selectedItem, setSelectedItem] = useState<InventoryItem | null>(null);
 
     const listQ = useQuery({
         queryKey: ["inventory", activeTenantId, q],
@@ -61,13 +60,11 @@ export default function Inventory() {
     const items = listQ.data ?? [];
 
     const handleEdit = (item: InventoryItem) => {
-        setSelectedItem(item);
-        setUpsertOpen(true);
+        nav(`/app/inventory/${item.id}`);
     };
 
     const handleCreate = () => {
-        setSelectedItem(null);
-        setUpsertOpen(true);
+        nav("/app/inventory/new");
     };
 
     return (
@@ -214,7 +211,7 @@ export default function Inventory() {
                                                             : "—"}
                                                     </td>
                                                     <td className="px-6 py-3 text-right">
-                                                        <Button variant="ghost" size="sm" className="text-indigo-600 font-bold">Editar</Button>
+                                                        <Button variant="ghost" size="sm" className="text-indigo-600 font-bold" onClick={() => handleEdit(item)}>Editar</Button>
                                                     </td>
                                                 </tr>
                                             ))}
@@ -222,15 +219,6 @@ export default function Inventory() {
                                     </table>
                                 </div>
                             </Card>
-                        )}
-
-                        {activeTenantId && (
-                            <InventoryUpsertDialog
-                                open={upsertOpen}
-                                onOpenChange={setUpsertOpen}
-                                item={selectedItem}
-                                onSaved={() => listQ.refetch()}
-                            />
                         )}
                     </div>
                 </AppShell>

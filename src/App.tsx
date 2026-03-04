@@ -64,6 +64,7 @@ import TvPlayer from "@/pages/TvPlayer";
 import TvTimelineEditor from "@/pages/TvTimelineEditor";
 import PublicEntityTvUpload from "@/pages/PublicEntityTvUpload";
 import Inventory from "@/pages/Inventory";
+import InventoryDetail from "@/pages/InventoryDetail";
 
 const queryClient = new QueryClient();
 
@@ -282,6 +283,22 @@ const App = () => (
                   element={
                     <RequireRouteAccess routeKey="app.entities">
                       <Inventory />
+                    </RequireRouteAccess>
+                  }
+                />
+                <Route
+                  path="/app/inventory/new"
+                  element={
+                    <RequireRouteAccess routeKey="app.entities">
+                      <InventoryDetail />
+                    </RequireRouteAccess>
+                  }
+                />
+                <Route
+                  path="/app/inventory/:id"
+                  element={
+                    <RequireRouteAccess routeKey="app.entities">
+                      <InventoryDetail />
                     </RequireRouteAccess>
                   }
                 />

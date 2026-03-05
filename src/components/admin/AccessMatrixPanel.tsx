@@ -108,6 +108,13 @@ const DEFAULT_ROUTES: RouteRow[] = [
     path_pattern: "/app/goals",
     description: "Permite configurar templates e cargos na Central de Metas",
   },
+  {
+    key: "app.inventory",
+    name: "Inventário",
+    category: "App",
+    path_pattern: "/app/inventory",
+    description: "Lista e gestão de inventário/estoque",
+  },
 ];
 
 const DEFAULT_ROLES = [

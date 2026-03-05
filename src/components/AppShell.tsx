@@ -63,7 +63,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import { checkRouteAccess } from "@/lib/access";
+import { checkRouteAccess, checkRoutesAccess } from "@/lib/access";
 
 function hexToRgb(hex: string) {
   const h = hex.replace("#", "").trim();
@@ -528,17 +528,16 @@ export function AppShell({
         "app.tv_corporativa",
       ];
 
-      const map: Record<string, boolean> = {};
-      for (const k of keys) {
-        try {
-          map[k] = await checkRouteAccess({ tenantId: activeTenantId!, roleKey, routeKey: k });
-        } catch {
-          // On error, fail-closed for the menu.
-          map[k] = false;
-        }
+      try {
+        return await checkRoutesAccess({
+          tenantId: activeTenantId!,
+          roleKey,
+          routeKeys: keys,
+        });
+      } catch (err) {
+        console.error("[nav_access] Bulk check failed:", err);
+        return {};
       }
-
-      return map;
     },
   });
 
@@ -573,55 +572,18 @@ export function AppShell({
 
   const showChatInNav = isSuperAdmin ? true : chatAccess.isLoading ? false : chatAccess.hasAccess;
 
-  const crmEnabledQ = useQuery({
-    queryKey: ["nav_has_crm", activeTenantId],
+  const tenantJourneysQ = useQuery({
+    queryKey: ["nav_tenant_journeys", activeTenantId],
     enabled: Boolean(activeTenantId),
     staleTime: 30_000,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("tenant_journeys")
-        .select("id, journeys(is_crm)")
+        .select("config_json, journeys!inner(key, is_crm)")
         .eq("tenant_id", activeTenantId!)
-        .eq("enabled", true)
-        .limit(50);
+        .eq("enabled", true);
       if (error) throw error;
-      return Boolean((data ?? []).some((r: any) => Boolean(r?.journeys?.is_crm)));
-    },
-  });
-
-  const presenceEnabledQ = useQuery({
-    queryKey: ["nav_presence_enabled", activeTenantId],
-    enabled: Boolean(activeTenantId),
-    staleTime: 30_000,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("tenant_journeys")
-        .select("config_json, journeys!inner(key)")
-        .eq("tenant_id", activeTenantId!)
-        .eq("enabled", true)
-        .eq("journeys.key", "presence")
-        .limit(1)
-        .maybeSingle();
-      if (error) throw error;
-      return Boolean((data as any)?.config_json?.flags?.presence_enabled === true);
-    },
-  });
-
-  const metaContentEnabledQ = useQuery({
-    queryKey: ["nav_meta_content_enabled", activeTenantId],
-    enabled: Boolean(activeTenantId),
-    staleTime: 30_000,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("tenant_journeys")
-        .select("config_json, journeys!inner(key)")
-        .eq("tenant_id", activeTenantId!)
-        .eq("enabled", true)
-        .eq("journeys.key", "meta_content")
-        .limit(1)
-        .maybeSingle();
-      if (error) throw error;
-      return Boolean((data as any)?.config_json?.meta_content_enabled === true);
+      return data as any[];
     },
   });
 
@@ -640,28 +602,16 @@ export function AppShell({
     },
   });
 
-  const trelloEnabledQ = useQuery({
-    queryKey: ["nav_has_trello", activeTenantId],
-    enabled: Boolean(activeTenantId),
-    staleTime: 30_000,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("tenant_journeys")
-        .select("id, journeys(key)")
-        .eq("tenant_id", activeTenantId!)
-        .eq("enabled", true)
-        .eq("journeys.key", "trello")
-        .limit(1);
-      if (error) throw error;
-      return (data ?? []).length > 0;
-    },
-  });
+  const journeys = tenantJourneysQ.data ?? [];
+  const hasCrm = journeys.some((r) => Boolean(r.journeys?.is_crm));
+  const hasPresence = journeys.some(
+    (r) => r.journeys?.key === "presence" && r.config_json?.flags?.presence_enabled === true
+  );
+  const hasMetaContent = journeys.some(
+    (r) => r.journeys?.key === "meta_content" && r.config_json?.meta_content_enabled === true
+  );
+  const hasTrello = journeys.some((r) => r.journeys?.key === "trello");
 
-  const hasTrello = Boolean(trelloEnabledQ.data);
-
-  const hasCrm = Boolean(crmEnabledQ.data);
-  const hasPresence = Boolean(presenceEnabledQ.data);
-  const hasMetaContent = Boolean(metaContentEnabledQ.data);
   const hasIncentivesCampaigns = Boolean(incentivesHasCampaignsQ.data);
   const isPresenceManager = isSuperAdmin || isPresenceManagerRole(activeTenant?.role);
 

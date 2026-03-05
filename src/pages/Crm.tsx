@@ -20,7 +20,7 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { showError, showSuccess } from "@/utils/toast";
-import { Check, Clock, MapPin, RefreshCw, Search, Tags, UsersRound } from "lucide-react";
+import { Check, Clock, Download, MapPin, RefreshCw, Search, Tags, UsersRound } from "lucide-react";
 import { ImportLeadsDialog } from "@/components/crm/ImportLeadsDialog";
 import { NewLeadDialog } from "@/components/crm/NewLeadDialog";
 import { getStateLabel } from "@/lib/journeyLabels";
@@ -123,21 +123,33 @@ export default function Crm() {
   const [userQuery, setUserQuery] = useState("");
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
 
+  const [instanceFilterId, setInstanceFilterId] = useState<string>("all");
+  const [exportingCsv, setExportingCsv] = useState(false);
+
+  const allInstancesQ = useQuery({
+    queryKey: ["wa_instances_all", activeTenantId],
+    enabled: Boolean(activeTenantId),
+    staleTime: 60_000,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("wa_instances")
+        .select("id,name,phone_number")
+        .eq("tenant_id", activeTenantId!)
+        .eq("status", "active")
+        .is("deleted_at", null)
+        .order("name", { ascending: true });
+      if (error) throw error;
+      return (data ?? []) as Array<{ id: string; name: string; phone_number: string | null }>;
+    },
+  });
+
   const instanceQ = useQuery({
     queryKey: ["wa_instance_active_first", activeTenantId],
     enabled: Boolean(activeTenantId),
     staleTime: 30_000,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("wa_instances")
-        .select("id,phone_number")
-        .eq("tenant_id", activeTenantId!)
-        .eq("status", "active")
-        .order("created_at", { ascending: true })
-        .limit(1)
-        .maybeSingle();
-      if (error) throw error;
-      return (data ?? null) as WaInstanceRow | null;
+      const data = allInstancesQ.data?.[0] ?? null;
+      return data as WaInstanceRow | null;
     },
   });
 
@@ -365,7 +377,7 @@ export default function Crm() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("wa_messages")
-        .select("case_id,occurred_at,from_phone")
+        .select("case_id,occurred_at,from_phone,instance_id")
         .eq("tenant_id", activeTenantId!)
         .eq("direction", "inbound")
         .in("case_id", caseIdsForLookup)
@@ -396,6 +408,16 @@ export default function Crm() {
     }
     return m;
   }, [lastInboundQ.data, instanceQ.data?.phone_number]);
+
+  const instanceIdByCase = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const row of lastInboundQ.data ?? []) {
+      const cid = String((row as any).case_id ?? "");
+      const iid = String((row as any).instance_id ?? "");
+      if (cid && iid && !m.has(cid)) m.set(cid, iid);
+    }
+    return m;
+  }, [lastInboundQ.data]);
 
   const unreadByCase = useMemo(() => {
     const s = new Set<string>();
@@ -451,6 +473,15 @@ export default function Crm() {
     const userSel = selectedUserIds;
 
     return journeyRows.filter((r) => {
+      // Filtro de Instância
+      if (instanceFilterId !== "all") {
+        const meta = r.meta_json as any;
+        const metaInstId = meta?.instance_id || meta?.wa_instance_id || meta?.monitoring?.wa_instance_id || meta?.monitoring?.instance_id;
+        const msgInstId = instanceIdByCase.get(r.id);
+
+        if (metaInstId !== instanceFilterId && msgInstId !== instanceFilterId) return false;
+      }
+
       if (userSel.length) {
         const uid = r.assigned_user_id;
         if (!uid || !userSel.includes(uid)) return false;
@@ -470,7 +501,97 @@ export default function Crm() {
       const t = `${r.title ?? ""} ${(r.users_profile?.display_name ?? "")} ${(r.users_profile?.email ?? "")} ${cust?.name ?? ""} ${cust?.phone_e164 ?? ""} ${cust?.email ?? ""} ${metaPhone ?? ""} ${fieldPhone ?? ""}`.toLowerCase();
       return t.includes(qq);
     });
-  }, [journeyRows, q, selectedTags, selectedUserIds, customersQ.data, casePhoneQ.data, tagsByCase]);
+  }, [journeyRows, q, selectedTags, selectedUserIds, instanceFilterId, instanceIdByCase, customersQ.data, casePhoneQ.data, tagsByCase]);
+
+  function csvCell(v: any) {
+    const s = String(v ?? "");
+    const escaped = s.replace(/\"/g, '""');
+    if (/[\n\r",]/.test(escaped)) return `"${escaped}"`;
+    return escaped;
+  }
+
+  function downloadTextFile(filename: string, content: string, mime = "text/plain;charset=utf-8") {
+    const blob = new Blob([content], { type: mime });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  const exportConversationsCsv = async () => {
+    if (!activeTenantId) return;
+    if (exportingCsv) return;
+
+    const rowsToExport = filteredRows;
+    const caseIds = rowsToExport.map((r) => r.id);
+
+    if (caseIds.length === 0) {
+      showError("Nenhum caso para exportar.");
+      return;
+    }
+
+    setExportingCsv(true);
+    try {
+      const msgs: any[] = [];
+      const chunkSize = 50;
+      for (let i = 0; i < caseIds.length; i += chunkSize) {
+        const chunk = caseIds.slice(i, i + chunkSize);
+        const { data, error } = await supabase
+          .from("wa_messages")
+          .select("case_id,occurred_at,direction,from_phone,to_phone,type,body_text,media_url")
+          .eq("tenant_id", activeTenantId)
+          .in("case_id", chunk)
+          .order("occurred_at", { ascending: true })
+          .limit(10000);
+        if (error) throw error;
+        msgs.push(...(data ?? []));
+      }
+
+      const msgsByCase = new Map<string, any[]>();
+      for (const m of msgs) {
+        const cid = String(m.case_id ?? "");
+        if (!cid) continue;
+        const arr = msgsByCase.get(cid) ?? [];
+        arr.push(m);
+        msgsByCase.set(cid, arr);
+      }
+
+      const headers = ["nome", "numero", "case_id", "conversa"];
+      const out: string[] = [headers.map(csvCell).join(",")];
+
+      const casePhoneMap = casePhoneQ.data || new Map();
+      const customersMap = customersQ.data || new Map();
+
+      for (const c of rowsToExport) {
+        const cust = customersMap.get(String((c as any).customer_id ?? ""));
+        const name = cust?.name || c.title || "Caso";
+        const phone = cust?.phone_e164 || casePhoneMap.get(c.id) || getMetaPhone(c.meta_json) || "";
+
+        const transcript = (msgsByCase.get(c.id) ?? [])
+          .map((m) => {
+            const ts = new Date(m.occurred_at).toISOString();
+            const body = (m.body_text ?? "").trim() || `[${m.type}]${m.media_url ? " " + m.media_url : ""}`;
+            return `${ts} ${m.direction}: ${body}`;
+          })
+          .join("\n");
+
+        out.push([name, phone, c.id, transcript].map(csvCell).join(","));
+      }
+
+      const csv = out.join("\n");
+      const fname = `crm_conversas_${selectedJourney?.key || "export"}_${new Date().toISOString().slice(0, 10)}.csv`;
+      downloadTextFile(fname, csv, "text/csv;charset=utf-8");
+      showSuccess("CSV exportado.");
+    } catch (e: any) {
+      showError(`Falha ao exportar: ${e.message}`);
+    } finally {
+      setExportingCsv(false);
+    }
+  };
 
   const pendQ = useQuery({
     queryKey: ["crm_pendencies_open", activeTenantId, filteredRows.map((c) => c.id).join(",")],
@@ -746,6 +867,66 @@ export default function Crm() {
                   </div>
                 </PopoverContent>
               </Popover>
+
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="secondary" className="h-11 rounded-2xl">
+                    <MapPin className="mr-2 h-4 w-4" /> Instância
+                    {instanceFilterId !== "all" ? (
+                      <span className="ml-2 rounded-full bg-white/70 px-2 py-0.5 text-[11px] font-semibold text-slate-700">
+                        1
+                      </span>
+                    ) : null}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent align="end" className="w-[320px] rounded-2xl border-slate-200 bg-white p-2">
+                  <Command className="rounded-2xl border border-slate-200">
+                    <CommandInput placeholder="Filtrar instâncias…" className="h-11" />
+                    <CommandList className="max-h-[240px]">
+                      <CommandEmpty>Nenhuma instância encontrada</CommandEmpty>
+                      <CommandGroup heading="Instâncias do WhatsApp">
+                        <CommandItem
+                          onSelect={() => setInstanceFilterId("all")}
+                          className={cn("rounded-xl", instanceFilterId === "all" ? "bg-[hsl(var(--byfrost-accent)/0.10)]" : "")}
+                        >
+                          <div className={cn("mr-2 grid h-5 w-5 place-items-center rounded-md border", instanceFilterId === "all" ? "border-[hsl(var(--byfrost-accent)/0.35)] bg-[hsl(var(--byfrost-accent))] text-white" : "border-slate-200 bg-white")}>
+                            {instanceFilterId === "all" ? <Check className="h-3.5 w-3.5" /> : null}
+                          </div>
+                          <span className="truncate text-sm font-medium">Todas as Instâncias</span>
+                        </CommandItem>
+                        {(allInstancesQ.data ?? []).map((inst) => {
+                          const checked = instanceFilterId === inst.id;
+                          return (
+                            <CommandItem
+                              key={inst.id}
+                              onSelect={() => setInstanceFilterId(inst.id)}
+                              className={cn("rounded-xl", checked ? "bg-[hsl(var(--byfrost-accent)/0.10)]" : "")}
+                            >
+                              <div className={cn("mr-2 grid h-5 w-5 place-items-center rounded-md border", checked ? "border-[hsl(var(--byfrost-accent)/0.35)] bg-[hsl(var(--byfrost-accent))] text-white" : "border-slate-200 bg-white")}>
+                                {checked ? <Check className="h-3.5 w-3.5" /> : null}
+                              </div>
+                              <div className="flex flex-col min-w-0">
+                                <span className="truncate text-sm font-bold">{inst.name}</span>
+                                <span className="truncate text-[10px] text-slate-500">{inst.phone_number || "Sem número"}</span>
+                              </div>
+                            </CommandItem>
+                          );
+                        })}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+
+              <Button
+                variant="secondary"
+                className="h-11 rounded-2xl"
+                onClick={exportConversationsCsv}
+                disabled={exportingCsv || filteredRows.length === 0}
+              >
+                {exportingCsv ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
+                Exportar
+              </Button>
 
               {activeTenantId && selectedJourney ? (
                 <NewLeadDialog tenantId={activeTenantId} journey={selectedJourney as any} actorUserId={user?.id ?? null} />

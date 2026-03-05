@@ -41,6 +41,8 @@ export async function findFirstAllowedRoute(params: {
 }) {
   const { tenantId, roleKey, excludeRouteKey } = params;
 
+  // Use the bulk helper if available, or stay with sequential for now since this is used less often.
+  // Optimization later: use checkRoutesAccess here too.
   for (const r of CANDIDATE_ROUTES) {
     if (excludeRouteKey && r.key === excludeRouteKey) continue;
     const allowed = await checkRouteAccess({ tenantId, roleKey, routeKey: r.key });
@@ -48,4 +50,24 @@ export async function findFirstAllowedRoute(params: {
   }
 
   return null;
+}
+
+export async function checkRoutesAccess(params: {
+  tenantId: string;
+  roleKey: string;
+  routeKeys: string[];
+}) {
+  const { tenantId, roleKey, routeKeys } = params;
+  const { data, error } = await supabase.rpc("check_routes_access", {
+    p_tenant_id: tenantId,
+    p_role_key: roleKey,
+    p_route_keys: routeKeys,
+  });
+  if (error) throw error;
+
+  const map: Record<string, boolean> = {};
+  (data as any[]).forEach((row: any) => {
+    map[row.route_key] = Boolean(row.allowed);
+  });
+  return map;
 }

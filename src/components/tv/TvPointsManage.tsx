@@ -118,6 +118,7 @@ export function TvPointsManage({ tenantId }: { tenantId: string }) {
                         <TableRow className="bg-slate-50 hover:bg-slate-50">
                             <TableHead className="w-[30%] font-semibold text-slate-900">Nome do Ponto</TableHead>
                             <TableHead className="w-[150px] font-semibold text-slate-900">Orientação</TableHead>
+                            <TableHead className="w-[120px] font-semibold text-slate-900">Cód. TV</TableHead>
                             <TableHead className="font-semibold text-slate-900">Link do Player</TableHead>
                             <TableHead className="w-[100px] text-right font-semibold text-slate-900">Ações</TableHead>
                         </TableRow>
@@ -147,6 +148,15 @@ export function TvPointsManage({ tenantId }: { tenantId: string }) {
                                                     <SelectItem value="portrait">Vertical</SelectItem>
                                                 </SelectContent>
                                             </Select>
+                                        </TableCell>
+                                        <TableCell>
+                                            {p.pairing_code ? (
+                                                <div className="flex items-center gap-1.5 font-mono text-sm tracking-widest text-indigo-600 font-bold bg-indigo-50 px-2 py-1 rounded w-max border border-indigo-100">
+                                                    {p.pairing_code}
+                                                </div>
+                                            ) : (
+                                                <span className="text-xs text-slate-400 italic">...</span>
+                                            )}
                                         </TableCell>
                                         <TableCell>
                                             <div className="flex items-center gap-2">

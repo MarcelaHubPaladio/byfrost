@@ -2436,18 +2436,18 @@ function TenantEditDialog({
   const [name, setName] = useState(tenant.name);
   const [status, setStatus] = useState(tenant.status);
   const [planId, setPlanId] = useState<string>(currentTp?.plan_id || "");
-  const [overridesStr, setOverridesStr] = useState(
-    JSON.stringify(currentTp?.overrides_json || {}, null, 2)
-  );
+
+  // Overrides states
+  const [ovUsers, setOvUsers] = useState<string>(currentTp?.overrides_json?.max_users?.toString() || "");
+  const [ovWa, setOvWa] = useState<string>(currentTp?.overrides_json?.max_wa_instances?.toString() || "");
+  const [ovAi, setOvAi] = useState<string>(currentTp?.overrides_json?.max_ai_tokens?.toString() || "");
 
   const handleSave = () => {
-    let ovs = {};
-    try {
-      ovs = JSON.parse(overridesStr);
-    } catch {
-      showError("JSON de overrides inválido.");
-      return;
-    }
+    const ovs: any = {};
+    if (ovUsers !== "") ovs.max_users = Number(ovUsers);
+    if (ovWa !== "") ovs.max_wa_instances = Number(ovWa);
+    if (ovAi !== "") ovs.max_ai_tokens = Number(ovAi);
+
     onSave(tenant.id, { name, status }, planId || null, ovs);
   };
 
@@ -2459,64 +2459,95 @@ function TenantEditDialog({
           <DialogDescription>Configure as informações básicas e o plano deste cliente.</DialogDescription>
         </DialogHeader>
 
-        <div className="grid gap-4 py-4">
+        <div className="grid gap-5 py-4">
           <div className="grid gap-2">
-            <Label className="text-xs">Nome do Tenant</Label>
-            <Input value={name} onChange={(e) => setName(e.target.value)} className="rounded-2xl" />
+            <Label className="text-xs font-bold uppercase text-slate-400">Nome do Tenant</Label>
+            <Input value={name} onChange={(e) => setName(e.target.value)} className="rounded-2xl h-11" />
           </div>
 
-          <div className="grid gap-2">
-            <Label className="text-xs">Status</Label>
-            <Select value={status} onValueChange={setStatus}>
-              <SelectTrigger className="rounded-2xl">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent className="rounded-2xl">
-                <SelectItem value="active" className="rounded-xl">Ativo</SelectItem>
-                <SelectItem value="paused" className="rounded-xl">Pausado</SelectItem>
-                <SelectItem value="disabled" className="rounded-xl">Desativado</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="grid gap-2">
-            <Label className="text-xs">Plano de Assinatura</Label>
-            <Select value={planId} onValueChange={setPlanId}>
-              <SelectTrigger className="rounded-2xl">
-                <SelectValue placeholder="Selecionar plano" />
-              </SelectTrigger>
-              <SelectContent className="rounded-2xl">
-                <SelectItem value="none" className="rounded-xl">Sem plano</SelectItem>
-                {plans.map((p) => (
-                  <SelectItem key={p.id} value={p.id} className="rounded-xl">
-                    {p.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="grid gap-2">
-            <div className="flex items-center justify-between">
-              <Label className="text-xs">Overrides de Limites (JSON)</Label>
-              <div className="text-[10px] text-slate-500 italic">Ex: {"{ \"max_users\": 10 }"}</div>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="grid gap-2">
+              <Label className="text-xs font-bold uppercase text-slate-400">Status</Label>
+              <Select value={status} onValueChange={setStatus}>
+                <SelectTrigger className="rounded-2xl h-11">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="rounded-2xl">
+                  <SelectItem value="active" className="rounded-xl">Ativo</SelectItem>
+                  <SelectItem value="paused" className="rounded-xl">Pausado</SelectItem>
+                  <SelectItem value="disabled" className="rounded-xl">Desativado</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
-            <textarea
-              className="min-h-[100px] w-full rounded-2xl border border-slate-200 bg-slate-50 p-3 font-mono text-xs outline-none focus:border-indigo-300"
-              value={overridesStr}
-              onChange={(e) => setOverridesStr(e.target.value)}
-            />
+
+            <div className="grid gap-2">
+              <Label className="text-xs font-bold uppercase text-slate-400">Pacote/Plano</Label>
+              <Select value={planId} onValueChange={setPlanId}>
+                <SelectTrigger className="rounded-2xl h-11">
+                  <SelectValue placeholder="Sem plano" />
+                </SelectTrigger>
+                <SelectContent className="rounded-2xl">
+                  <SelectItem value="none" className="rounded-xl">Nenhum</SelectItem>
+                  {plans.map((p) => (
+                    <SelectItem key={p.id} value={p.id} className="rounded-xl">
+                      {p.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="pt-4 border-t border-slate-100 mt-2">
+            <h4 className="text-xs font-black uppercase text-indigo-600 mb-4 flex items-center gap-2">
+              <Zap className="h-3 w-3" /> Overrides de Limites
+            </h4>
+            <div className="grid grid-cols-2 gap-4 mb-4">
+              <div className="grid gap-2">
+                <Label className="text-[10px] font-bold uppercase text-slate-400 tracking-wider">Usuários Máx.</Label>
+                <Input
+                  type="number"
+                  value={ovUsers}
+                  placeholder="Do plano"
+                  onChange={(e) => setOvUsers(e.target.value)}
+                  className="rounded-xl h-10 border-indigo-100 focus:ring-indigo-500"
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label className="text-[10px] font-bold uppercase text-slate-400 tracking-wider">Whats Máx.</Label>
+                <Input
+                  type="number"
+                  value={ovWa}
+                  placeholder="Do plano"
+                  onChange={(e) => setOvWa(e.target.value)}
+                  className="rounded-xl h-10 border-indigo-100 focus:ring-indigo-500"
+                />
+              </div>
+            </div>
+            <div className="grid gap-2">
+              <Label className="text-[10px] font-bold uppercase text-slate-400 tracking-wider">Tokens de IA (Override)</Label>
+              <Input
+                type="number"
+                value={ovAi}
+                placeholder="Valor do plano (mensal)"
+                onChange={(e) => setOvAi(e.target.value)}
+                className="rounded-xl h-10 border-indigo-100 focus:ring-indigo-500"
+              />
+              <p className="text-[9px] text-slate-400 italic mt-1 leading-tight">
+                Deixe em branco para usar o limite padrão do plano. Use -1 para ilimitado.
+              </p>
+            </div>
           </div>
         </div>
 
-        <DialogFooter>
-          <Button variant="secondary" onClick={onClose} className="rounded-2xl">
+        <DialogFooter className="gap-2 sm:gap-0 mt-2">
+          <Button variant="outline" onClick={onClose} className="rounded-2xl h-11 border-slate-200">
             Cancelar
           </Button>
           <Button
             onClick={handleSave}
             disabled={loading || !name}
-            className="rounded-2xl bg-indigo-600 text-white hover:bg-indigo-700"
+            className="rounded-2xl h-11 bg-indigo-600 text-white hover:bg-indigo-700 shadow-lg shadow-indigo-100"
           >
             {loading ? "Salvando..." : "Salvar Alterações"}
           </Button>

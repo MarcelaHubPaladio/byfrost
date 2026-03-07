@@ -145,15 +145,17 @@ export function PlansPanel() {
 
 function PlanEditDialog({ plan, onClose, onSave, loading }: { plan: Plan | null, onClose: () => void, onSave: (id: string | null, payload: any) => void, loading: boolean }) {
     const [name, setName] = useState(plan?.name || "");
-    const [limitsStr, setLimitsStr] = useState(JSON.stringify(plan?.limits_json || { max_users: 5, max_wa_instances: 1, max_ai_tokens: 100000 }, null, 2));
+    const [maxUsers, setMaxUsers] = useState<number>(plan?.limits_json?.max_users ?? 5);
+    const [maxWa, setMaxWa] = useState<number>(plan?.limits_json?.max_wa_instances ?? 1);
+    const [maxAi, setMaxAi] = useState<number>(plan?.limits_json?.max_ai_tokens ?? 100000);
 
     const handleSave = () => {
-        try {
-            const limits = JSON.parse(limitsStr);
-            onSave(plan?.id || null, { name, limits_json: limits });
-        } catch {
-            showError("JSON de limites inválido.");
-        }
+        const limits = {
+            max_users: Number(maxUsers),
+            max_wa_instances: Number(maxWa),
+            max_ai_tokens: Number(maxAi)
+        };
+        onSave(plan?.id || null, { name, limits_json: limits });
     };
 
     return (
@@ -164,31 +166,36 @@ function PlanEditDialog({ plan, onClose, onSave, loading }: { plan: Plan | null,
                     <DialogDescription>Configure o nome e os limites padrão para este pacote.</DialogDescription>
                 </DialogHeader>
 
-                <div className="grid gap-4 py-4">
+                <div className="grid gap-6 py-4">
                     <div className="grid gap-2">
-                        <Label className="text-xs">Nome do Plano</Label>
-                        <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Ex: Profissional" className="rounded-2xl" />
+                        <Label className="text-xs font-bold uppercase text-slate-400">Nome do Plano</Label>
+                        <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Ex: Profissional" className="rounded-2xl h-11" />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                        <div className="grid gap-2">
+                            <Label className="text-xs font-bold uppercase text-slate-400">Usuários Máx.</Label>
+                            <Input type="number" value={maxUsers} onChange={(e) => setMaxUsers(Number(e.target.value))} className="rounded-xl h-11" />
+                        </div>
+                        <div className="grid gap-2">
+                            <Label className="text-xs font-bold uppercase text-slate-400">Instâncias WhatsApp</Label>
+                            <Input type="number" value={maxWa} onChange={(e) => setMaxWa(Number(e.target.value))} className="rounded-xl h-11" />
+                        </div>
                     </div>
 
                     <div className="grid gap-2">
-                        <div className="flex items-center justify-between">
-                            <Label className="text-xs">Limites do Plano (JSON)</Label>
-                        </div>
-                        <textarea
-                            className="min-h-[150px] w-full rounded-2xl border border-slate-200 bg-slate-50 p-3 font-mono text-xs outline-none focus:border-indigo-300"
-                            value={limitsStr}
-                            onChange={(e) => setLimitsStr(e.target.value)}
-                        />
+                        <Label className="text-xs font-bold uppercase text-slate-400">Tokens de IA (Mensal)</Label>
+                        <Input type="number" value={maxAi} onChange={(e) => setMaxAi(Number(e.target.value))} className="rounded-xl h-11" />
                         <p className="text-[10px] text-slate-500 italic">
-                            Chaves comuns: max_users, max_wa_instances, max_ai_tokens. Use -1 para ilimitado.
+                            Use -1 para conceder acesso ilimitado ao recurso.
                         </p>
                     </div>
                 </div>
 
-                <DialogFooter>
-                    <Button variant="secondary" onClick={onClose} className="rounded-2xl">Cancelar</Button>
-                    <Button onClick={handleSave} disabled={loading || !name} className="rounded-2xl bg-indigo-600 text-white hover:bg-indigo-700">
-                        {loading ? "Salvando..." : "Salvar Plano"}
+                <DialogFooter className="gap-2 sm:gap-0">
+                    <Button variant="outline" onClick={onClose} className="rounded-2xl h-11 border-slate-200">Cancelar</Button>
+                    <Button onClick={handleSave} disabled={loading || !name} className="rounded-2xl h-11 bg-indigo-600 text-white hover:bg-indigo-700 shadow-lg shadow-indigo-100">
+                        {loading ? "Salvando..." : "Confirmar e Salvar"}
                     </Button>
                 </DialogFooter>
             </DialogContent>

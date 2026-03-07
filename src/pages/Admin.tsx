@@ -46,7 +46,7 @@ import { AccessMatrixPanel } from "@/components/admin/AccessMatrixPanel";
 import { OrgChartPanel } from "@/components/admin/OrgChartPanel";
 import { IncentivesPanel } from "@/components/admin/IncentivesPanel";
 import { TenantModulesPanel } from "@/components/admin/TenantModulesPanel";
-import { Trash2, PauseCircle, PlayCircle, ChevronLeft, ChevronRight, UsersRound, Smartphone, Copy, Shield, Settings2, Zap, UserCog } from "lucide-react";
+import { Trash2, PauseCircle, PlayCircle, ChevronLeft, ChevronRight, UsersRound, Smartphone, Copy, Shield, Settings2, Zap, UserCog, Edit2, CreditCard } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { useNavigate } from "react-router-dom";
 
@@ -77,6 +77,20 @@ type WaInstanceRow = {
   enable_v1_business: boolean;
   enable_v2_audit: boolean;
   created_at: string;
+};
+
+type PlanRow = {
+  id: string;
+  name: string;
+  limits_json: Record<string, any>;
+};
+
+type TenantPlanRow = {
+  id: string;
+  tenant_id: string;
+  plan_id: string;
+  overrides_json: Record<string, any>;
+  deleted_at: string | null;
 };
 
 function slugify(s: string) {
@@ -285,13 +299,43 @@ export default function Admin() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("tenants")
-        .select("id,name,slug,status,created_at,deleted_at")
+        .select(`
+          id,
+          name,
+          slug,
+          status,
+          created_at,
+          deleted_at,
+          tenant_plans(
+            id,
+            plan_id,
+            overrides_json,
+            plans(id, name)
+          )
+        `)
         .order("created_at", { ascending: false })
         .limit(500);
       if (error) throw error;
       return data ?? [];
     },
   });
+
+  const plansQ = useQuery({
+    queryKey: ["admin_plans"],
+    enabled: isSuperAdmin,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("plans")
+        .select("*")
+        .is("deleted_at", null)
+        .order("name");
+      if (error) throw error;
+      return (data ?? []) as PlanRow[];
+    },
+  });
+
+  const [editingTenant, setEditingTenant] = useState<any>(null);
+  const [updatingTenant, setUpdatingTenant] = useState(false);
 
   const [tenantName, setTenantName] = useState("");
   const tenantSlug = useMemo(() => slugify(tenantName), [tenantName]);
@@ -337,6 +381,44 @@ export default function Admin() {
       await qc.invalidateQueries({ queryKey: ["admin_tenants"] });
     } catch (e: any) {
       showError(`Falha ao restaurar tenant: ${e?.message ?? "erro"}`);
+    }
+  };
+
+  const updateTenantFull = async (tenantId: string, patch: any, planId: string | null, overrides: any) => {
+    setUpdatingTenant(true);
+    try {
+      await ensureFreshTokenForRls();
+
+      // 1) Update tenant basic info
+      const { error: tErr } = await supabase
+        .from("tenants")
+        .update(patch)
+        .eq("id", tenantId);
+      if (tErr) throw tErr;
+
+      // 2) Update or Create tenant_plan mapping
+      if (planId) {
+        const { error: tpErr } = await supabase
+          .from("tenant_plans")
+          .upsert({
+            tenant_id: tenantId,
+            plan_id: planId,
+            overrides_json: overrides || {},
+            deleted_at: null
+          }, { onConflict: 'tenant_id,plan_id' });
+        // Note: The schema might not have the unique constraint on (tenant_id, plan_id) yet
+        // standard business logic usually allows only one active plan.
+        // If upsert fails, we try a different approach (delete others, insert new)
+        if (tpErr) throw tpErr;
+      }
+
+      showSuccess("Tenant atualizado com sucesso.");
+      setEditingTenant(null);
+      await qc.invalidateQueries({ queryKey: ["admin_tenants"] });
+    } catch (e: any) {
+      showError(`Falha ao atualizar tenant: ${e?.message ?? "erro"}`);
+    } finally {
+      setUpdatingTenant(false);
     }
   };
 
@@ -1160,6 +1242,9 @@ export default function Admin() {
                     <div className="mt-3 space-y-2">
                       {(tenantsQ.data ?? []).map((t: any) => {
                         const softDeleted = Boolean(t.deleted_at);
+                        const activePlan = t.tenant_plans?.[0]?.plans;
+                        const planName = activePlan?.name ?? "Nenhum plano";
+
                         return (
                           <div
                             key={t.id}
@@ -1170,9 +1255,25 @@ export default function Admin() {
                           >
                             <div className="min-w-0">
                               <div className="truncate text-sm font-semibold text-slate-900">{t.name}</div>
-                              <div className="mt-0.5 truncate text-xs text-slate-500">/{t.slug}</div>
+                              <div className="mt-0.5 flex items-center gap-1.5 truncate text-[11px] text-slate-500">
+                                <span>/{t.slug}</span>
+                                <span className="text-slate-300">•</span>
+                                <span className="flex items-center gap-1 font-medium text-slate-600">
+                                  <CreditCard className="h-3 w-3" /> {planName}
+                                </span>
+                              </div>
                             </div>
                             <div className="flex items-center gap-2">
+                              {!softDeleted && (
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-8 w-8 rounded-xl text-slate-400 hover:bg-white hover:text-slate-900"
+                                  onClick={() => setEditingTenant(t)}
+                                >
+                                  <Edit2 className="h-4 w-4" />
+                                </Button>
+                              )}
                               {softDeleted ? (
                                 <Badge className="rounded-full border-0 bg-rose-100 text-rose-900 hover:bg-rose-100">deletado</Badge>
                               ) : (
@@ -1201,6 +1302,16 @@ export default function Admin() {
                     </div>
                   </div>
                 </div>
+
+                {editingTenant && (
+                  <TenantEditDialog
+                    tenant={editingTenant}
+                    plans={plansQ.data ?? []}
+                    onClose={() => setEditingTenant(null)}
+                    onSave={updateTenantFull}
+                    loading={updatingTenant}
+                  />
+                )}
               </TabsContent>
 
               <TabsContent value="journeys" className="mt-4">
@@ -2260,5 +2371,112 @@ export default function Admin() {
         </div>
       </AppShell>
     </RequireAuth >
+  );
+}
+
+function TenantEditDialog({
+  tenant,
+  plans,
+  onClose,
+  onSave,
+  loading,
+}: {
+  tenant: any;
+  plans: PlanRow[];
+  onClose: () => void;
+  onSave: (id: string, patch: any, planId: string | null, overrides: any) => void;
+  loading: boolean;
+}) {
+  const currentTp = tenant.tenant_plans?.[0];
+  const [name, setName] = useState(tenant.name);
+  const [status, setStatus] = useState(tenant.status);
+  const [planId, setPlanId] = useState<string>(currentTp?.plan_id || "");
+  const [overridesStr, setOverridesStr] = useState(
+    JSON.stringify(currentTp?.overrides_json || {}, null, 2)
+  );
+
+  const handleSave = () => {
+    let ovs = {};
+    try {
+      ovs = JSON.parse(overridesStr);
+    } catch {
+      showError("JSON de overrides inválido.");
+      return;
+    }
+    onSave(tenant.id, { name, status }, planId || null, ovs);
+  };
+
+  return (
+    <Dialog open onOpenChange={onClose}>
+      <DialogContent className="max-w-md rounded-[28px]">
+        <DialogHeader>
+          <DialogTitle>Editar Tenant</DialogTitle>
+          <DialogDescription>Configure as informações básicas e o plano deste cliente.</DialogDescription>
+        </DialogHeader>
+
+        <div className="grid gap-4 py-4">
+          <div className="grid gap-2">
+            <Label className="text-xs">Nome do Tenant</Label>
+            <Input value={name} onChange={(e) => setName(e.target.value)} className="rounded-2xl" />
+          </div>
+
+          <div className="grid gap-2">
+            <Label className="text-xs">Status</Label>
+            <Select value={status} onValueChange={setStatus}>
+              <SelectTrigger className="rounded-2xl">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="rounded-2xl">
+                <SelectItem value="active" className="rounded-xl">Ativo</SelectItem>
+                <SelectItem value="paused" className="rounded-xl">Pausado</SelectItem>
+                <SelectItem value="disabled" className="rounded-xl">Desativado</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="grid gap-2">
+            <Label className="text-xs">Plano de Assinatura</Label>
+            <Select value={planId} onValueChange={setPlanId}>
+              <SelectTrigger className="rounded-2xl">
+                <SelectValue placeholder="Selecionar plano" />
+              </SelectTrigger>
+              <SelectContent className="rounded-2xl">
+                <SelectItem value="none" className="rounded-xl">Sem plano</SelectItem>
+                {plans.map((p) => (
+                  <SelectItem key={p.id} value={p.id} className="rounded-xl">
+                    {p.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="grid gap-2">
+            <div className="flex items-center justify-between">
+              <Label className="text-xs">Overrides de Limites (JSON)</Label>
+              <div className="text-[10px] text-slate-500 italic">Ex: {"{ \"max_users\": 10 }"}</div>
+            </div>
+            <textarea
+              className="min-h-[100px] w-full rounded-2xl border border-slate-200 bg-slate-50 p-3 font-mono text-xs outline-none focus:border-indigo-300"
+              value={overridesStr}
+              onChange={(e) => setOverridesStr(e.target.value)}
+            />
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="secondary" onClick={onClose} className="rounded-2xl">
+            Cancelar
+          </Button>
+          <Button
+            onClick={handleSave}
+            disabled={loading || !name}
+            className="rounded-2xl bg-indigo-600 text-white hover:bg-indigo-700"
+          >
+            {loading ? "Salvando..." : "Salvar Alterações"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

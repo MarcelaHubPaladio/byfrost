@@ -13,14 +13,13 @@ declare
   v_current int;
   v_max numeric;
 begin
-  if tg_op = 'INSERT' or (tg_op = 'UPDATE' and old.deleted_at is not null and new.deleted_at is null) then
+  if tg_op = 'INSERT' then
     v_max := public.get_tenant_limit(new.tenant_id, 'max_journeys', -1);
 
     if v_max >= 0 then
       select count(*) into v_current
         from public.tenant_journeys
-       where tenant_id = new.tenant_id
-         and deleted_at is null;
+       where tenant_id = new.tenant_id;
 
       if v_current >= v_max then
         raise exception 'tenant_limit_exceeded: max_journeys (%) reached', v_max USING HINT = 'LIMIT_MAX_JOURNEYS';
@@ -33,7 +32,7 @@ $$;
 
 drop trigger if exists trg_enforce_tenant_max_journeys on public.tenant_journeys;
 create trigger trg_enforce_tenant_max_journeys
-before insert or update of deleted_at on public.tenant_journeys
+before insert on public.tenant_journeys
 for each row execute function public.enforce_tenant_max_journeys();
 
 
@@ -135,7 +134,7 @@ as $$
     (select count(*) from public.users_profile up where up.tenant_id = t.id and up.deleted_at is null) as users_count,
     (select count(*) from public.wa_instances wi where wi.tenant_id = t.id and wi.deleted_at is null) as wa_instances_count,
     (select coalesce(sum((metrics_json->>'ai_tokens')::bigint), 0) from public.usage_counters uc where uc.tenant_id = t.id) as ai_tokens_count,
-    (select count(*) from public.tenant_journeys tj where tj.tenant_id = t.id and tj.deleted_at is null) as journeys_count,
+    (select count(*) from public.tenant_journeys tj where tj.tenant_id = t.id) as journeys_count,
     (select count(*) from public.wa_contacts wc where wc.tenant_id = t.id and wc.deleted_at is null) as leads_count,
     (select count(*) from public.core_entities ce where ce.tenant_id = t.id and ce.entity_type = 'offering' and ce.deleted_at is null) as offerings_count,
     (select count(*) from public.wa_messages wm where wm.tenant_id = t.id) as messages_count

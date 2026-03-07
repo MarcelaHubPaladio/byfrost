@@ -46,7 +46,8 @@ import { AccessMatrixPanel } from "@/components/admin/AccessMatrixPanel";
 import { OrgChartPanel } from "@/components/admin/OrgChartPanel";
 import { IncentivesPanel } from "@/components/admin/IncentivesPanel";
 import { TenantModulesPanel } from "@/components/admin/TenantModulesPanel";
-import { Trash2, PauseCircle, PlayCircle, ChevronLeft, ChevronRight, UsersRound, Smartphone, Copy, Shield, Settings2, Zap, UserCog, Edit2, CreditCard } from "lucide-react";
+import { PlansPanel } from "@/components/admin/PlansPanel";
+import { LayoutGrid, Users, Zap, MessageSquare, History, Database, Share2, Search, Smartphone, Shield, Plus, MoreVertical, Edit2, Trash2, PauseCircle, PlayCircle, ChevronLeft, ChevronRight, UsersRound, Copy, Settings2, UserCog, CreditCard, BarChart3, Package, Layers } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { useNavigate } from "react-router-dom";
 
@@ -332,6 +333,19 @@ export default function Admin() {
       if (error) throw error;
       return (data ?? []) as PlanRow[];
     },
+  });
+
+  const usageQ = useQuery({
+    queryKey: ["admin_tenants_usage"],
+    enabled: isSuperAdmin,
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("get_admin_usage_stats");
+      if (error) throw error;
+      const map = new Map<string, any>();
+      (data || []).forEach((row: any) => map.set(row.tenant_id, row));
+      return map;
+    },
+    refetchInterval: 30000, // Refresh every 30s
   });
 
   const [editingTenant, setEditingTenant] = useState<any>(null);
@@ -1193,6 +1207,9 @@ export default function Admin() {
                 <TabsTrigger value="branding" className="rounded-xl">
                   Branding
                 </TabsTrigger>
+                <TabsTrigger value="plans" className="rounded-xl">
+                  Planos
+                </TabsTrigger>
                 <TabsTrigger value="incentives" className="rounded-xl">
                   Incentives
                 </TabsTrigger>
@@ -1312,6 +1329,10 @@ export default function Admin() {
                     loading={updatingTenant}
                   />
                 )}
+              </TabsContent>
+
+              <TabsContent value="plans" className="mt-4">
+                <PlansPanel />
               </TabsContent>
 
               <TabsContent value="journeys" className="mt-4">
@@ -2371,6 +2392,30 @@ export default function Admin() {
         </div>
       </AppShell>
     </RequireAuth >
+  );
+}
+
+function UsageIndicator({ label, current, max, icon: Icon }: { label: string, current: number, max: number, icon: any }) {
+  const percent = max > 0 ? Math.min(Math.round((current / max) * 100), 100) : 0;
+  const color = percent > 90 ? "bg-rose-500" : percent > 70 ? "bg-amber-500" : "bg-indigo-500";
+
+  return (
+    <div className="flex flex-col gap-1 min-w-[80px]">
+      <div className="flex items-center justify-between text-[10px] uppercase font-bold text-slate-400 tracking-tighter">
+        <span className="flex items-center gap-1">
+          <Icon className="h-2.5 w-2.5" /> {label}
+        </span>
+        <span className={cn(percent > 90 ? "text-rose-600" : "text-slate-500")}>
+          {current}{max > 0 ? `/${max}` : ""}
+        </span>
+      </div>
+      <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden shadow-inner">
+        <div
+          className={cn("h-full transition-all duration-500 ease-out", color)}
+          style={{ width: `${max > 0 ? percent : 0}%` }}
+        />
+      </div>
+    </div>
   );
 }
 

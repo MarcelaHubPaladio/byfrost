@@ -111,6 +111,22 @@ export function PlansPanel() {
                                     <Badge variant="secondary" className="rounded-lg">{p.limits_json?.max_wa_instances ?? "∞"}</Badge>
                                 </div>
                                 <div className="flex justify-between items-center border-b border-slate-50 pb-1">
+                                    <span>Jornadas Máx.</span>
+                                    <Badge variant="secondary" className="rounded-lg">{p.limits_json?.max_journeys ?? "∞"}</Badge>
+                                </div>
+                                <div className="flex justify-between items-center border-b border-slate-50 pb-1">
+                                    <span>Leads Máx.</span>
+                                    <Badge variant="secondary" className="rounded-lg">{p.limits_json?.max_leads ?? "∞"}</Badge>
+                                </div>
+                                <div className="flex justify-between items-center border-b border-slate-50 pb-1">
+                                    <span>Ofertas Máx.</span>
+                                    <Badge variant="secondary" className="rounded-lg">{p.limits_json?.max_offerings ?? "∞"}</Badge>
+                                </div>
+                                <div className="flex justify-between items-center border-b border-slate-50 pb-1">
+                                    <span>Mensagens Z-API</span>
+                                    <Badge variant="secondary" className="rounded-lg">{p.limits_json?.max_messages ?? "∞"}</Badge>
+                                </div>
+                                <div className="flex justify-between items-center border-b border-slate-50 pb-1">
                                     <span>Tokens IA</span>
                                     <Badge variant="secondary" className="rounded-lg">{p.limits_json?.max_ai_tokens?.toLocaleString() ?? "∞"}</Badge>
                                 </div>
@@ -147,12 +163,20 @@ function PlanEditDialog({ plan, onClose, onSave, loading }: { plan: Plan | null,
     const [name, setName] = useState(plan?.name || "");
     const [maxUsers, setMaxUsers] = useState<number>(plan?.limits_json?.max_users ?? 5);
     const [maxWa, setMaxWa] = useState<number>(plan?.limits_json?.max_wa_instances ?? 1);
+    const [maxJourneys, setMaxJourneys] = useState<number>(plan?.limits_json?.max_journeys ?? 5);
+    const [maxLeads, setMaxLeads] = useState<number>(plan?.limits_json?.max_leads ?? 100);
+    const [maxOfferings, setMaxOfferings] = useState<number>(plan?.limits_json?.max_offerings ?? 50);
+    const [maxMessages, setMaxMessages] = useState<number>(plan?.limits_json?.max_messages ?? 1000);
     const [maxAi, setMaxAi] = useState<number>(plan?.limits_json?.max_ai_tokens ?? 100000);
 
     const handleSave = () => {
         const limits = {
             max_users: Number(maxUsers),
             max_wa_instances: Number(maxWa),
+            max_journeys: Number(maxJourneys),
+            max_leads: Number(maxLeads),
+            max_offerings: Number(maxOfferings),
+            max_messages: Number(maxMessages),
             max_ai_tokens: Number(maxAi)
         };
         onSave(plan?.id || null, { name, limits_json: limits });
@@ -178,8 +202,30 @@ function PlanEditDialog({ plan, onClose, onSave, loading }: { plan: Plan | null,
                             <Input type="number" value={maxUsers} onChange={(e) => setMaxUsers(Number(e.target.value))} className="rounded-xl h-11" />
                         </div>
                         <div className="grid gap-2">
-                            <Label className="text-xs font-bold uppercase text-slate-400">Instâncias WhatsApp</Label>
+                            <Label className="text-xs font-bold uppercase text-slate-400">WhatsApp Máx.</Label>
                             <Input type="number" value={maxWa} onChange={(e) => setMaxWa(Number(e.target.value))} className="rounded-xl h-11" />
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                        <div className="grid gap-2">
+                            <Label className="text-xs font-bold uppercase text-slate-400">Jornadas Máx.</Label>
+                            <Input type="number" value={maxJourneys} onChange={(e) => setMaxJourneys(Number(e.target.value))} className="rounded-xl h-11" />
+                        </div>
+                        <div className="grid gap-2">
+                            <Label className="text-xs font-bold uppercase text-slate-400">Leads Máx.</Label>
+                            <Input type="number" value={maxLeads} onChange={(e) => setMaxLeads(Number(e.target.value))} className="rounded-xl h-11" />
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                        <div className="grid gap-2">
+                            <Label className="text-xs font-bold uppercase text-slate-400">Ofertas Máx.</Label>
+                            <Input type="number" value={maxOfferings} onChange={(e) => setMaxOfferings(Number(e.target.value))} className="rounded-xl h-11" />
+                        </div>
+                        <div className="grid gap-2">
+                            <Label className="text-xs font-bold uppercase text-slate-400">Mensagens Z-API</Label>
+                            <Input type="number" value={maxMessages} onChange={(e) => setMaxMessages(Number(e.target.value))} className="rounded-xl h-11" />
                         </div>
                     </div>
 

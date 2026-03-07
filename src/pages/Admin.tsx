@@ -1280,6 +1280,48 @@ export default function Admin() {
                                 </span>
                               </div>
                             </div>
+
+                            {/* Usage Mini-Dashboard for Super-Admin */}
+                            {isSuperAdmin && !softDeleted && (
+                              <div className="hidden xl:grid grid-cols-3 2xl:grid-cols-6 gap-x-4 gap-y-2 px-3 py-1.5 bg-white/50 rounded-xl border border-slate-100 flex-1 max-w-2xl mx-4 group/usage transition-all overflow-hidden">
+                                <UsageIndicator
+                                  label="Users"
+                                  current={usageQ.data?.get(t.id)?.users_count || 0}
+                                  max={t.tenant_plans?.[0]?.overrides_json?.max_users || t.tenant_plans?.[0]?.plans?.limits_json?.max_users || 0}
+                                  icon={Users}
+                                />
+                                <UsageIndicator
+                                  label="Whats"
+                                  current={usageQ.data?.get(t.id)?.wa_instances_count || 0}
+                                  max={t.tenant_plans?.[0]?.overrides_json?.max_wa_instances || t.tenant_plans?.[0]?.plans?.limits_json?.max_wa_instances || 0}
+                                  icon={Smartphone}
+                                />
+                                <UsageIndicator
+                                  label="Jornad"
+                                  current={usageQ.data?.get(t.id)?.journeys_count || 0}
+                                  max={t.tenant_plans?.[0]?.overrides_json?.max_journeys || t.tenant_plans?.[0]?.plans?.limits_json?.max_journeys || 0}
+                                  icon={LayoutGrid}
+                                />
+                                <UsageIndicator
+                                  label="Leads"
+                                  current={usageQ.data?.get(t.id)?.leads_count || 0}
+                                  max={t.tenant_plans?.[0]?.overrides_json?.max_leads || t.tenant_plans?.[0]?.plans?.limits_json?.max_leads || 0}
+                                  icon={Search}
+                                />
+                                <UsageIndicator
+                                  label="Oferta"
+                                  current={usageQ.data?.get(t.id)?.offerings_count || 0}
+                                  max={t.tenant_plans?.[0]?.overrides_json?.max_offerings || t.tenant_plans?.[0]?.plans?.limits_json?.max_offerings || 0}
+                                  icon={Package}
+                                />
+                                <UsageIndicator
+                                  label="Z-API"
+                                  current={usageQ.data?.get(t.id)?.messages_count || 0}
+                                  max={t.tenant_plans?.[0]?.overrides_json?.max_messages || t.tenant_plans?.[0]?.plans?.limits_json?.max_messages || 0}
+                                  icon={MessageSquare}
+                                />
+                              </div>
+                            )}
                             <div className="flex items-center gap-2">
                               {!softDeleted && (
                                 <Button
@@ -2440,12 +2482,20 @@ function TenantEditDialog({
   // Overrides states
   const [ovUsers, setOvUsers] = useState<string>(currentTp?.overrides_json?.max_users?.toString() || "");
   const [ovWa, setOvWa] = useState<string>(currentTp?.overrides_json?.max_wa_instances?.toString() || "");
+  const [ovJourneys, setOvJourneys] = useState<string>(currentTp?.overrides_json?.max_journeys?.toString() || "");
+  const [ovLeads, setOvLeads] = useState<string>(currentTp?.overrides_json?.max_leads?.toString() || "");
+  const [ovOfferings, setOvOfferings] = useState<string>(currentTp?.overrides_json?.max_offerings?.toString() || "");
+  const [ovMessages, setOvMessages] = useState<string>(currentTp?.overrides_json?.max_messages?.toString() || "");
   const [ovAi, setOvAi] = useState<string>(currentTp?.overrides_json?.max_ai_tokens?.toString() || "");
 
   const handleSave = () => {
     const ovs: any = {};
     if (ovUsers !== "") ovs.max_users = Number(ovUsers);
     if (ovWa !== "") ovs.max_wa_instances = Number(ovWa);
+    if (ovJourneys !== "") ovs.max_journeys = Number(ovJourneys);
+    if (ovLeads !== "") ovs.max_leads = Number(ovLeads);
+    if (ovOfferings !== "") ovs.max_offerings = Number(ovOfferings);
+    if (ovMessages !== "") ovs.max_messages = Number(ovMessages);
     if (ovAi !== "") ovs.max_ai_tokens = Number(ovAi);
 
     onSave(tenant.id, { name, status }, planId || null, ovs);
@@ -2524,6 +2574,29 @@ function TenantEditDialog({
                 />
               </div>
             </div>
+
+            <div className="grid grid-cols-2 gap-4 mb-4">
+              <div className="grid gap-2">
+                <Label className="text-[10px] font-bold uppercase text-slate-400 tracking-wider">Jornadas Máx.</Label>
+                <Input type="number" value={ovJourneys} placeholder="Do plano" onChange={(e) => setOvJourneys(e.target.value)} className="rounded-xl h-10 border-indigo-100" />
+              </div>
+              <div className="grid gap-2">
+                <Label className="text-[10px] font-bold uppercase text-slate-400 tracking-wider">Leads Máx.</Label>
+                <Input type="number" value={ovLeads} placeholder="Do plano" onChange={(e) => setOvLeads(e.target.value)} className="rounded-xl h-10 border-indigo-100" />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4 mb-4">
+              <div className="grid gap-2">
+                <Label className="text-[10px] font-bold uppercase text-slate-400 tracking-wider">Ofertas Máx.</Label>
+                <Input type="number" value={ovOfferings} placeholder="Do plano" onChange={(e) => setOvOfferings(e.target.value)} className="rounded-xl h-10 border-indigo-100" />
+              </div>
+              <div className="grid gap-2">
+                <Label className="text-[10px] font-bold uppercase text-slate-400 tracking-wider">Z-API Máx.</Label>
+                <Input type="number" value={ovMessages} placeholder="Do plano" onChange={(e) => setOvMessages(e.target.value)} className="rounded-xl h-10 border-indigo-100" />
+              </div>
+            </div>
+
             <div className="grid gap-2">
               <Label className="text-[10px] font-bold uppercase text-slate-400 tracking-wider">Tokens de IA (Override)</Label>
               <Input

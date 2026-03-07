@@ -42,7 +42,13 @@ import {
   LineChart,
   FileSignature,
   Tv,
+  Users,
+  Search,
+  Package,
+  MessageSquare,
+  Zap,
 } from "lucide-react";
+import { UsageIndicator } from "@/components/admin/UsageIndicator";
 
 import { isTvCorporativaEnabled } from "@/components/RequireTvCorporativaEnabled";
 import * as HoverCardPrimitive from "@radix-ui/react-hover-card";
@@ -619,6 +625,48 @@ export function AppShell({
   const hasIncentivesCampaigns = Boolean(incentivesHasCampaignsQ.data);
   const isPresenceManager = isSuperAdmin || isPresenceManagerRole(activeTenant?.role);
 
+  const adminUsageQ = useQuery({
+    queryKey: ["admin_usage_stats"],
+    enabled: isSuperAdmin,
+    refetchInterval: 60 * 1000,
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("get_admin_usage_stats");
+      if (error) throw error;
+      return new Map((data as any[]).map((d) => [d.tenant_id, d]));
+    },
+  });
+
+  const activeTenantPlanQ = useQuery({
+    queryKey: ["active_tenant_plan_limits", activeTenantId],
+    enabled: Boolean(isSuperAdmin && activeTenantId),
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("tenant_plans")
+        .select("overrides_json, plans(limits_json)")
+        .eq("tenant_id", activeTenantId!)
+        .is("deleted_at", null)
+        .maybeSingle();
+      if (error) throw error;
+      return data;
+    },
+  });
+
+  const activeUsage = activeTenantId ? adminUsageQ.data?.get(activeTenantId) : null;
+  const activePlan = activeTenantPlanQ.data;
+  const limits = useMemo(() => {
+    const ov = (activePlan?.overrides_json as any) || {};
+    const pl = (activePlan?.plans as any)?.limits_json || {};
+    return {
+      max_users: ov.max_users ?? pl.max_users ?? 0,
+      max_wa_instances: ov.max_wa_instances ?? pl.max_wa_instances ?? 0,
+      max_journeys: ov.max_journeys ?? pl.max_journeys ?? 0,
+      max_leads: ov.max_leads ?? pl.max_leads ?? 0,
+      max_offerings: ov.max_offerings ?? pl.max_offerings ?? 0,
+      max_messages: ov.max_messages ?? pl.max_messages ?? 0,
+      max_ai_tokens: ov.max_ai_tokens ?? pl.max_ai_tokens ?? 0,
+    };
+  }, [activePlan]);
+
   const palettePrimaryHex = (activeTenant?.branding_json?.palette?.primary?.hex as string | undefined) ?? null;
 
   const logoUrl = useMemo(() => {
@@ -1129,6 +1177,53 @@ export function AppShell({
                       <div className="hidden sm:inline-flex items-center gap-1 rounded-full bg-[hsl(var(--byfrost-accent)/0.10)] px-2 py-1 text-[11px] font-semibold text-[hsl(var(--byfrost-accent))]">
                         <ShieldCheck className="h-3.5 w-3.5" />
                         super-admin
+                      </div>
+                    )}
+
+                    {isSuperAdmin && activeUsage && (
+                      <div className="hidden lg:flex items-center gap-4 px-4 py-1.5 bg-white/50 rounded-2xl border border-slate-100/50 shadow-sm overflow-hidden">
+                        <UsageIndicator
+                          label="Usuar"
+                          current={activeUsage.users_count || 0}
+                          max={limits.max_users}
+                          icon={Users}
+                        />
+                        <UsageIndicator
+                          label="Whats"
+                          current={activeUsage.wa_instances_count || 0}
+                          max={limits.max_wa_instances}
+                          icon={Smartphone}
+                        />
+                        <UsageIndicator
+                          label="Jornad"
+                          current={activeUsage.journeys_count || 0}
+                          max={limits.max_journeys}
+                          icon={LayoutGrid}
+                        />
+                        <UsageIndicator
+                          label="Leads"
+                          current={activeUsage.leads_count || 0}
+                          max={limits.max_leads}
+                          icon={Search}
+                        />
+                        <UsageIndicator
+                          label="Oferta"
+                          current={activeUsage.offerings_count || 0}
+                          max={limits.max_offerings}
+                          icon={Package}
+                        />
+                        <UsageIndicator
+                          label="Z-API"
+                          current={activeUsage.messages_count || 0}
+                          max={limits.max_messages}
+                          icon={MessageSquare}
+                        />
+                        <UsageIndicator
+                          label="Tokens"
+                          current={activeUsage.ai_tokens_count || 0}
+                          max={limits.max_ai_tokens}
+                          icon={Zap}
+                        />
                       </div>
                     )}
                   </div>

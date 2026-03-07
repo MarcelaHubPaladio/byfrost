@@ -47,6 +47,7 @@ import { OrgChartPanel } from "@/components/admin/OrgChartPanel";
 import { IncentivesPanel } from "@/components/admin/IncentivesPanel";
 import { TenantModulesPanel } from "@/components/admin/TenantModulesPanel";
 import { PlansPanel } from "@/components/admin/PlansPanel";
+import { UsageIndicator } from "@/components/admin/UsageIndicator";
 import { LayoutGrid, Users, Zap, MessageSquare, History, Database, Share2, Search, Smartphone, Shield, Plus, MoreVertical, Edit2, Trash2, PauseCircle, PlayCircle, ChevronLeft, ChevronRight, UsersRound, Copy, Settings2, UserCog, CreditCard, BarChart3, Package, Layers } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { useNavigate } from "react-router-dom";
@@ -2443,29 +2444,7 @@ export default function Admin() {
   );
 }
 
-function UsageIndicator({ label, current, max, icon: Icon }: { label: string, current: number, max: number, icon: any }) {
-  const percent = max > 0 ? Math.min(Math.round((current / max) * 100), 100) : 0;
-  const color = percent > 90 ? "bg-rose-500" : percent > 70 ? "bg-amber-500" : "bg-indigo-500";
 
-  return (
-    <div className="flex flex-col gap-1 min-w-[80px]">
-      <div className="flex items-center justify-between text-[10px] uppercase font-bold text-slate-400 tracking-tighter">
-        <span className="flex items-center gap-1">
-          <Icon className="h-2.5 w-2.5" /> {label}
-        </span>
-        <span className={cn(percent > 90 ? "text-rose-600" : "text-slate-500")}>
-          {current}{max > 0 ? `/${max}` : ""}
-        </span>
-      </div>
-      <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden shadow-inner">
-        <div
-          className={cn("h-full transition-all duration-500 ease-out", color)}
-          style={{ width: `${max > 0 ? percent : 0}%` }}
-        />
-      </div>
-    </div>
-  );
-}
 
 function TenantEditDialog({
   tenant,

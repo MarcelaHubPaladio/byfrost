@@ -16,7 +16,20 @@ import { showError, showSuccess } from "@/utils/toast";
 import { ImagePlus } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 
-const MAX_IMAGE_BYTES = 4 * 1024 * 1024; // 4MB (primeira versão: base64 no banco)
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // 5MB
+const UPLOAD_ASSET_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/upload-tenant-asset`;
+
+async function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = () => {
+      const result = reader.result as string;
+      resolve(result.split(",")[1]);
+    };
+    reader.onerror = (error) => reject(error);
+  });
+}
 
 async function fileToDataUrl(file: File) {
   return await new Promise<string>((resolve, reject) => {
@@ -92,20 +105,45 @@ export function TrelloAddImageDialog(props: {
 
     setSaving(true);
     try {
+      const { data: sess } = await supabase.auth.getSession();
+      const token = sess.session?.access_token;
+
+      const b64 = await fileToBase64(file);
+
+      const upRes = await fetch(UPLOAD_ASSET_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          tenantId: props.tenantId,
+          mediaBase64: b64,
+          mimeType: file.type || "image/jpeg",
+          fileName: `trello_${props.caseId}_${Date.now()}`,
+        }),
+      });
+
+      const upJson = await upRes.json().catch(() => null);
+      if (!upRes.ok || !upJson?.ok) {
+        throw new Error(upJson?.error || `HTTP ${upRes.status}`);
+      }
+
+      const publicUrl = upJson.publicUrl;
+
       const basePayload: any = {
         case_id: props.caseId,
         kind: "image",
-        // Primeira versão: data URL (base64) direto no campo.
-        storage_path: dataUrl,
+        storage_path: publicUrl,
         original_filename: file.name,
         content_type: file.type || "image/jpeg",
         meta_json: {
-          source: "inline_base64",
+          source: "supabase_storage",
           size_bytes: file.size,
+          storage_path: upJson.storagePath,
         },
       };
 
-      // Compat: alguns ambientes antigos não têm tenant_id em case_attachments.
       const tryPayloads = [
         { ...basePayload, tenant_id: props.tenantId },
         basePayload,
@@ -127,7 +165,6 @@ export function TrelloAddImageDialog(props: {
       }
       if (lastErr) throw lastErr;
 
-      // timeline_events sempre tem tenant_id
       if (props.tenantId) {
         await supabase.from("timeline_events").insert({
           tenant_id: props.tenantId,
@@ -136,7 +173,7 @@ export function TrelloAddImageDialog(props: {
           actor_type: "admin",
           actor_id: null,
           message: `Anexo adicionado: ${file.name}`,
-          meta_json: { kind: "image", source: "inline_base64", size_bytes: file.size },
+          meta_json: { kind: "image", source: "supabase_storage", size_bytes: file.size },
           occurred_at: new Date().toISOString(),
         });
       }
@@ -146,7 +183,7 @@ export function TrelloAddImageDialog(props: {
         qc.invalidateQueries({ queryKey: ["timeline", props.tenantId, props.caseId] }),
       ]);
 
-      showSuccess("Imagem anexada.");
+      showSuccess("Imagem salva no Storage.");
       setOpen(false);
       reset();
     } catch (e: any) {
@@ -169,7 +206,7 @@ export function TrelloAddImageDialog(props: {
           type="button"
           variant="secondary"
           className={cn("h-9 rounded-2xl", props.className)}
-          title="Adicionar imagem (base64)"
+          title="Adicionar imagem"
         >
           <ImagePlus className="mr-2 h-4 w-4" /> Adicionar imagem
         </Button>
@@ -180,7 +217,7 @@ export function TrelloAddImageDialog(props: {
           <DialogHeader>
             <DialogTitle className="text-base font-semibold text-slate-900">Novo anexo (imagem)</DialogTitle>
             <DialogDescription className="text-sm text-slate-600">
-              Nesta primeira versão, a imagem é salva como base64 no banco.
+              A imagem será salva no Supabase Storage para garantir performance.
             </DialogDescription>
           </DialogHeader>
 
@@ -219,10 +256,10 @@ export function TrelloAddImageDialog(props: {
                 />
                 <div className="mt-1 text-[11px] text-slate-500">
                   {reading
-                    ? "Convertendo para base64…"
+                    ? "Lendo arquivo…"
                     : file
                       ? `${file.name} • ${sizeLabel}`
-                      : "Selecione uma imagem (até 4MB)"}
+                      : "Selecione uma imagem (até 5MB)"}
                 </div>
               </div>
 

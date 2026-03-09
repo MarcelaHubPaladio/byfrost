@@ -4,6 +4,25 @@ import { createSupabaseAdmin } from "../_shared/supabaseAdmin.ts";
 import { normalizePhoneE164Like } from "../_shared/normalize.ts";
 import { clockPresencePunch, getPresenceTenantConfig, type PresencePunchType } from "../_shared/presence.ts";
 
+function stripBase64(obj: any): any {
+  if (!obj || typeof obj !== "object") return obj;
+  if (Array.isArray(obj)) return obj.map(stripBase64);
+  const out: any = {};
+  for (const [k, v] of Object.entries(obj)) {
+    // Detect typical base64 strings in Z-API / WhatsApp payloads
+    if (
+      (k.toLowerCase().includes("base64") || k.toLowerCase().includes("thumbnail")) &&
+      typeof v === "string" &&
+      v.length > 200
+    ) {
+      out[k] = `[STRIPPED_BASE64_${v.length}_CHARS]`;
+    } else {
+      out[k] = stripBase64(v);
+    }
+  }
+  return out;
+}
+
 type InboundType = "text" | "image" | "audio" | "video" | "location";
 
 type WebhookDirection = "inbound" | "outbound";
@@ -673,7 +692,8 @@ serve(async (req) => {
     const rawBody = await req.text().catch(() => "");
     let payload: any = null;
     try {
-      payload = rawBody ? JSON.parse(rawBody) : null;
+      const parsed = rawBody ? JSON.parse(rawBody) : null;
+      payload = stripBase64(parsed);
     } catch {
       payload = null;
     }

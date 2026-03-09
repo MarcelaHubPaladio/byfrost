@@ -937,17 +937,36 @@ serve(async (req) => {
         });
         if (!aErr) debug.created.attachments += 1;
       } else if (mediaBase64) {
-        // For simulator UX, store a data URL so the UI can preview the image immediately.
-        // (In real inbound flows we expect an actual URL from the provider.)
-        const dataUrl = `data:${mimeType};base64,${mediaBase64}`;
+        try {
+          // Upload to storage instead of inline base64
+          const bytes = Uint8Array.from(atob(mediaBase64), (c) => c.charCodeAt(0));
+          const fileName = `sim_${Date.now()}.${mimeType.split("/")[1] || "jpg"}`;
+          const storagePath = `${tenantId}/${fileName}`;
 
-        const { error: aErr } = await supabase.from("case_attachments").insert({
-          case_id: caseId,
-          kind: "image",
-          storage_path: dataUrl,
-          meta_json: { source: "simulator", inline_base64: true },
-        });
-        if (!aErr) debug.created.attachments += 1;
+          const { error: upErr } = await supabase.storage.from("whatsapp-media").upload(storagePath, bytes, {
+            contentType: mimeType,
+            upsert: true,
+          });
+
+          if (upErr) {
+            console.error(`[${fn}] Storage upload failed`, upErr);
+            throw upErr;
+          }
+
+          const publicUrl = supabase.storage.from("whatsapp-media").getPublicUrl(storagePath).data.publicUrl;
+
+          const { error: aErr } = await supabase.from("case_attachments").insert({
+            tenant_id: tenantId,
+            case_id: caseId,
+            kind: "image",
+            storage_path: publicUrl,
+            meta_json: { source: "simulator", storage_path: storagePath },
+          });
+          if (!aErr) debug.created.attachments += 1;
+        } catch (e) {
+          console.error(`[${fn}] Failed to handle simulator base64 storage`, e);
+          // Fallback to text info if storage fails
+        }
       }
 
       // Default pendencies are no longer created here by default to respect Journey `status_configs`.

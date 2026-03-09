@@ -71,6 +71,7 @@ async function fileToBase64(file: File): Promise<string> {
 }
 
 const PALETTE_EXTRACT_URL = `${SUPABASE_URL_IN_USE}/functions/v1/palette-extract`;
+const UPLOAD_ASSET_URL = `${SUPABASE_URL_IN_USE}/functions/v1/upload-tenant-asset`;
 
 function isValidHex(hex: string) {
     return /^#[0-9a-fA-F]{6}$/.test(hex);
@@ -167,6 +168,7 @@ export default function LinkManager() {
             const { data, error } = await supabase
                 .from("link_manager_groups")
                 .select("*")
+                .eq("tenant_id", activeTenantId)
                 .is("deleted_at", null)
                 .order("created_at", { ascending: false });
             if (error) throw error;
@@ -183,6 +185,7 @@ export default function LinkManager() {
             const { data, error } = await supabase
                 .from("link_manager_items")
                 .select("*")
+                .eq("tenant_id", activeTenantId)
                 .eq("group_id", selectedGroup!.id)
                 .is("deleted_at", null)
                 .order("sort_order", { ascending: true });
@@ -198,6 +201,7 @@ export default function LinkManager() {
             const { data, error } = await supabase
                 .from("link_manager_item_redirects")
                 .select("*")
+                .eq("tenant_id", activeTenantId)
                 .eq("item_id", selectedItemId!)
                 .is("deleted_at", null);
             if (error) throw error;
@@ -256,19 +260,42 @@ export default function LinkManager() {
     };
 
     const handleLogoUpload = async (file: File) => {
+        if (!activeTenantId) return;
         setUploading(true);
         try {
+            const { data: sess } = await supabase.auth.getSession();
+            const token = sess.session?.access_token;
             const b64 = await fileToBase64(file);
+
+            const res = await fetch(UPLOAD_ASSET_URL, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                },
+                body: JSON.stringify({
+                    tenantId: activeTenantId,
+                    mediaBase64: b64,
+                    mimeType: file.type,
+                    fileName: `logo_${Date.now()}`,
+                }),
+            });
+
+            const json = await res.json().catch(() => null);
+            if (!res.ok || !json?.ok) {
+                throw new Error(json?.error || `HTTP ${res.status}`);
+            }
+
             setEditingGroup(prev => ({
                 ...prev!,
                 theme_config: {
                     ...prev!.theme_config,
-                    logo: b64
+                    logo: json.publicUrl
                 }
             }));
-            showSuccess("Logo carregado!");
-        } catch (err) {
-            showError("Erro ao carregar logo.");
+            showSuccess("Logo carregado para o Storage!");
+        } catch (err: any) {
+            showError(`Erro ao carregar logo: ${err.message}`);
         } finally {
             setUploading(false);
         }
@@ -295,7 +322,11 @@ export default function LinkManager() {
     const deleteGroup = async (id: string) => {
         if (!confirm("Tem certeza que deseja excluir este grupo?")) return;
         try {
-            const { error } = await supabase.from("link_manager_groups").update({ deleted_at: new Date().toISOString() }).eq("id", id);
+            const { error } = await supabase
+                .from("link_manager_groups")
+                .update({ deleted_at: new Date().toISOString() })
+                .eq("id", id)
+                .eq("tenant_id", activeTenantId);
             if (error) throw error;
             showSuccess("Grupo excluído.");
             qc.invalidateQueries({ queryKey: ["link_manager_groups"] });
@@ -326,7 +357,11 @@ export default function LinkManager() {
     const deleteItem = async (id: string) => {
         if (!confirm("Excluir este link?")) return;
         try {
-            const { error } = await supabase.from("link_manager_items").update({ deleted_at: new Date().toISOString() }).eq("id", id);
+            const { error } = await supabase
+                .from("link_manager_items")
+                .update({ deleted_at: new Date().toISOString() })
+                .eq("id", id)
+                .eq("tenant_id", activeTenantId);
             if (error) throw error;
             showSuccess("Link removido.");
             qc.invalidateQueries({ queryKey: ["link_manager_items", selectedGroup?.id] });
@@ -356,7 +391,11 @@ export default function LinkManager() {
     const deleteRedirect = async (id: string) => {
         if (!confirm("Remover este redirecionamento?")) return;
         try {
-            const { error } = await supabase.from("link_manager_item_redirects").update({ deleted_at: new Date().toISOString() }).eq("id", id);
+            const { error } = await supabase
+                .from("link_manager_item_redirects")
+                .update({ deleted_at: new Date().toISOString() })
+                .eq("id", id)
+                .eq("tenant_id", activeTenantId);
             if (error) throw error;
             showSuccess("Removido.");
             qc.invalidateQueries({ queryKey: ["link_manager_redirects", selectedItemId] });
@@ -827,14 +866,36 @@ export default function LinkManager() {
                                                 accept="image/*"
                                                 onChange={async (e) => {
                                                     const file = e.target.files?.[0];
-                                                    if (!file) return;
+                                                    if (!file || !activeTenantId) return;
                                                     setUploading(true);
                                                     try {
+                                                        const { data: sess } = await supabase.auth.getSession();
+                                                        const token = sess.session?.access_token;
                                                         const b64 = await fileToBase64(file);
-                                                        setEditingRedirect(p => ({ ...p, image_url: b64 }));
-                                                        showSuccess("Imagem carregada!");
-                                                    } catch (err) {
-                                                        showError("Erro ao carregar imagem.");
+
+                                                        const res = await fetch(UPLOAD_ASSET_URL, {
+                                                            method: "POST",
+                                                            headers: {
+                                                                "Content-Type": "application/json",
+                                                                ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                                                            },
+                                                            body: JSON.stringify({
+                                                                tenantId: activeTenantId,
+                                                                mediaBase64: b64,
+                                                                mimeType: file.type,
+                                                                fileName: `store_${Date.now()}`,
+                                                            }),
+                                                        });
+
+                                                        const json = await res.json().catch(() => null);
+                                                        if (!res.ok || !json?.ok) {
+                                                            throw new Error(json?.error || `HTTP ${res.status}`);
+                                                        }
+
+                                                        setEditingRedirect(p => ({ ...p, image_url: json.publicUrl }));
+                                                        showSuccess("Imagem salva no Storage!");
+                                                    } catch (err: any) {
+                                                        showError(`Erro ao carregar imagem: ${err.message}`);
                                                     } finally {
                                                         setUploading(false);
                                                     }

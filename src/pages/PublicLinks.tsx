@@ -141,29 +141,45 @@ export default function PublicLinks() {
                         </DialogDescription>
                     </DialogHeader>
 
-                    <div className="py-6">
-                        <Select onValueChange={setSelectedStoreUrl}>
-                            <SelectTrigger className="h-14 rounded-2xl border-slate-200 bg-slate-50 px-4 text-slate-700 focus:ring-blue-100">
-                                <SelectValue placeholder="Toque para escolher..." />
-                            </SelectTrigger>
-                            <SelectContent className="rounded-2xl border-slate-100 shadow-xl">
-                                {selectedItem?.redirects?.map((r: any) => (
-                                    <SelectItem key={r.store_name} value={r.redirect_url} className="rounded-xl py-3 cursor-pointer">
-                                        {r.store_name}
-                                    </SelectItem>
-                                ))}
-                                {(!selectedItem?.redirects || selectedItem.redirects.length === 0) && (
-                                    <div className="p-4 text-center text-xs text-slate-400 italic">Nenhuma loja configurada.</div>
-                                )}
-                            </SelectContent>
-                        </Select>
+                    <div className="py-6 space-y-4">
+                        <div className="grid gap-3">
+                            {selectedItem?.redirects?.map((r: any) => (
+                                <button
+                                    key={r.store_name}
+                                    onClick={() => setSelectedStoreUrl(r.redirect_url)}
+                                    className={cn(
+                                        "flex items-center gap-4 rounded-[24px] border p-4 text-left transition-all active:scale-[0.98]",
+                                        selectedStoreUrl === r.redirect_url
+                                            ? "border-blue-500 bg-blue-50 ring-1 ring-blue-500"
+                                            : "border-slate-100 bg-slate-50 hover:bg-white hover:shadow-md"
+                                    )}
+                                >
+                                    <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-white shadow-inner">
+                                        {r.image_url ? (
+                                            <img src={r.image_url} alt={r.store_name} className="h-full w-full object-cover" />
+                                        ) : (
+                                            <Store className="h-6 w-6 text-slate-300" />
+                                        )}
+                                    </div>
+                                    <div className="min-w-0">
+                                        <div className="font-bold text-slate-900">{r.store_name}</div>
+                                        {r.address && (
+                                            <div className="mt-0.5 text-xs text-slate-500 line-clamp-2">{r.address}</div>
+                                        )}
+                                    </div>
+                                </button>
+                            ))}
+                            {(!selectedItem?.redirects || selectedItem.redirects.length === 0) && (
+                                <div className="p-4 text-center text-xs text-slate-400 italic">Nenhuma loja configurada.</div>
+                            )}
+                        </div>
 
                         <Button
-                            className="mt-6 h-14 w-full rounded-2xl bg-blue-600 text-base font-bold text-white shadow-lg shadow-blue-200 transition-all hover:bg-blue-700 active:scale-[0.98] disabled:opacity-50"
+                            className="mt-4 h-14 w-full rounded-2xl bg-blue-600 text-base font-bold text-white shadow-lg shadow-blue-200 transition-all hover:bg-blue-700 active:scale-[0.98] disabled:opacity-50"
                             disabled={!selectedStoreUrl}
                             onClick={handleRedirect}
                         >
-                            Ir para Avaliação
+                            Confirmar e Ir para Avaliação
                         </Button>
                     </div>
                 </DialogContent>

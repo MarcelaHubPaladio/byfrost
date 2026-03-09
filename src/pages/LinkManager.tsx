@@ -56,6 +56,8 @@ type ItemRedirect = {
     item_id: string;
     store_name: string;
     redirect_url: string;
+    image_url: string | null;
+    address: string | null;
 };
 
 export default function LinkManager() {
@@ -348,9 +350,14 @@ export default function LinkManager() {
                                                                     <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                                                                         {redirectsQ.data.map(r => (
                                                                             <div key={r.id} className="flex items-center justify-between gap-2 rounded-lg border border-slate-100 bg-white px-3 py-2 shadow-sm">
-                                                                                <div className="min-w-0">
-                                                                                    <div className="truncate text-[11px] font-bold text-slate-700">{r.store_name}</div>
-                                                                                    <div className="truncate text-[9px] text-slate-400">{r.redirect_url}</div>
+                                                                                <div className="flex items-center gap-2 min-w-0">
+                                                                                    {r.image_url && (
+                                                                                        <img src={r.image_url} alt={r.store_name} className="h-8 w-8 rounded-lg object-cover" />
+                                                                                    )}
+                                                                                    <div className="min-w-0">
+                                                                                        <div className="truncate text-[11px] font-bold text-slate-700">{r.store_name}</div>
+                                                                                        <div className="truncate text-[9px] text-slate-400">{r.address || r.redirect_url}</div>
+                                                                                    </div>
                                                                                 </div>
                                                                                 <div className="flex items-center">
                                                                                     <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => { setEditingRedirect(r); setSelectedItemId(item.id); setIsRedirectDialogOpen(true); }}>
@@ -380,7 +387,7 @@ export default function LinkManager() {
                                                 {itemsQ.data?.length === 0 && (
                                                     <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-slate-200 py-12 text-center">
                                                         <div className="mb-2 rounded-full bg-slate-50 p-3">
-                                                            <Link2 className="h-6 w-6 text-slate-300" />
+                                                            <Link2 className="mb-2 h-6 w-6 text-slate-300" />
                                                         </div>
                                                         <p className="text-sm text-slate-500">Nenhum link adicionado ainda.</p>
                                                     </div>
@@ -538,6 +545,26 @@ export default function LinkManager() {
                                         value={editingRedirect?.redirect_url || ""}
                                         onChange={e => setEditingRedirect(p => ({ ...p, redirect_url: e.target.value }))}
                                         placeholder="https://google.com/maps/..."
+                                        className="rounded-xl"
+                                    />
+                                </div>
+                                <div className="grid gap-2">
+                                    <Label htmlFor="img">Foto da Loja (URL)</Label>
+                                    <Input
+                                        id="img"
+                                        value={editingRedirect?.image_url || ""}
+                                        onChange={e => setEditingRedirect(p => ({ ...p, image_url: e.target.value }))}
+                                        placeholder="https://imagens.../loja.jpg"
+                                        className="rounded-xl"
+                                    />
+                                </div>
+                                <div className="grid gap-2">
+                                    <Label htmlFor="address">Endereço (opcional)</Label>
+                                    <Input
+                                        id="address"
+                                        value={editingRedirect?.address || ""}
+                                        onChange={e => setEditingRedirect(p => ({ ...p, address: e.target.value }))}
+                                        placeholder="Rua Exemplo, 123 - Centro"
                                         className="rounded-xl"
                                     />
                                 </div>

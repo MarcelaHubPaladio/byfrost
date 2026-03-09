@@ -67,6 +67,7 @@ import Inventory from "@/pages/Inventory";
 import InventoryDetail from "@/pages/InventoryDetail";
 import LinkManager from "@/pages/LinkManager";
 import PublicLinks from "@/pages/PublicLinks";
+import { RequireLinkManagerEnabled } from "@/components/RequireLinkManagerEnabled";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -414,7 +415,9 @@ const App = () => (
                   path="/app/link-manager"
                   element={
                     <RequireRouteAccess routeKey="app.link_manager">
-                      <LinkManager />
+                      <RequireLinkManagerEnabled>
+                        <LinkManager />
+                      </RequireLinkManagerEnabled>
                     </RequireRouteAccess>
                   }
                 />

@@ -344,6 +344,10 @@ function isFinanceEnabled(modulesJson: any) {
   return Boolean(modulesJson?.finance_enabled === true);
 }
 
+function isLinkManagerEnabled(modulesJson: any) {
+  return Boolean(modulesJson?.link_manager_enabled === true);
+}
+
 function isSimulatorEnabled(modulesJson: any) {
   return Boolean(modulesJson?.simulator_enabled === true);
 }
@@ -494,6 +498,7 @@ export function AppShell({
 
   const roleKey = String(activeTenant?.role ?? "");
   const financeEnabledForTenant = isSuperAdmin || isFinanceEnabled(activeTenant?.modules_json);
+  const linkManagerEnabledForTenant = isSuperAdmin || isLinkManagerEnabled(activeTenant?.modules_json);
   const simulatorEnabledForTenant = isSuperAdmin || isSimulatorEnabled(activeTenant?.modules_json);
   const goalsEnabledForTenant = isGoalsEnabled(activeTenant?.modules_json);
   const tvCorporativaEnabledForTenant = isSuperAdmin || isTvCorporativaEnabled(activeTenant?.modules_json);
@@ -766,7 +771,9 @@ export function AppShell({
                 {hasMetaContent && (
                   <NavTile to="/app/content" icon={Clapperboard} label="Conteúdo" disabled={!can("app.content")} />
                 )}
-                <NavTile to="/app/link-manager" icon={Link2} label="Links" disabled={!can("app.link_manager")} />
+                {linkManagerEnabledForTenant && (
+                  <NavTile to="/app/link-manager" icon={Link2} label="Links" disabled={!can("app.link_manager")} />
+                )}
 
                 {/* Core (desktop): hover menu */}
                 {coreHasAnyAccess && (

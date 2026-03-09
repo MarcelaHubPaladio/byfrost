@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AppShell } from "@/components/AppShell";
 import { RequireAuth } from "@/components/RequireAuth";
 import { RequireRouteAccess } from "@/components/RequireRouteAccess";
-import { supabase } from "@/lib/supabase";
+import { supabase, SUPABASE_URL_IN_USE } from "@/lib/supabase";
 import { useTenant } from "@/providers/TenantProvider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
 import {
     Dialog,
     DialogContent,
@@ -27,7 +28,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
-import { Plus, Link2, ExternalLink, Star, Trash2, Edit2, GripVertical, Settings2, Share2, Copy, Check } from "lucide-react";
+import { Plus, Link2, ExternalLink, Star, Trash2, Edit2, GripVertical, Settings2, Share2, Copy, Check, Store, Palette, Image as ImageIcon } from "lucide-react";
 import { showError, showSuccess } from "@/utils/toast";
 import { cn } from "@/lib/utils";
 
@@ -69,6 +70,80 @@ async function fileToBase64(file: File): Promise<string> {
     });
 }
 
+const PALETTE_EXTRACT_URL = `${SUPABASE_URL_IN_USE}/functions/v1/palette-extract`;
+
+function isValidHex(hex: string) {
+    return /^#[0-9a-fA-F]{6}$/.test(hex);
+}
+
+function hexToRgb(hex: string) {
+    if (!isValidHex(hex)) return null;
+    const v = hex.replace("#", "");
+    const r = parseInt(v.slice(0, 2), 16);
+    const g = parseInt(v.slice(2, 4), 16);
+    const b = parseInt(v.slice(4, 6), 16);
+    return { r, g, b };
+}
+
+function bestTextOnHex(hex: string) {
+    const rgb = hexToRgb(hex);
+    if (!rgb) return "#0b1220";
+    const toLin = (c: number) => {
+        const s = c / 255;
+        return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+    };
+    const L = 0.2126 * toLin(rgb.r) + 0.7152 * toLin(rgb.g) + 0.0722 * toLin(rgb.b);
+    return L > 0.6 ? "#0b1220" : "#fffdf5";
+}
+
+function ColorRow({
+    label,
+    value,
+    onChange,
+    disabled,
+}: {
+    label: string;
+    value: string;
+    onChange: (next: string) => void;
+    disabled?: boolean;
+}) {
+    return (
+        <div className="grid grid-cols-[1fr_100px] items-end gap-3">
+            <div className="space-y-1.5">
+                <Label className="text-[11px] font-semibold text-slate-500">{label}</Label>
+                <div className="flex items-center gap-2">
+                    <input
+                        type="color"
+                        value={value || "#ffffff"}
+                        onChange={(e) => onChange(e.target.value)}
+                        disabled={disabled}
+                        className="h-10 w-12 cursor-pointer rounded-xl border border-slate-200 bg-white p-1 disabled:cursor-not-allowed disabled:opacity-60"
+                    />
+                    <Input
+                        value={value}
+                        onChange={(e) => {
+                            const raw = e.target.value.trim();
+                            if (raw === "" || raw === "#") return;
+                            const next = raw.startsWith("#") ? raw : `#${raw}`;
+                            if (isValidHex(next)) onChange(next);
+                        }}
+                        disabled={disabled}
+                        className="h-10 rounded-2xl font-mono text-xs"
+                        placeholder="#RRGGBB"
+                    />
+                </div>
+            </div>
+            <div className="rounded-2xl border border-slate-100 bg-slate-50/50 p-2">
+                <div
+                    className="h-8 w-full rounded-xl border border-slate-200"
+                    style={{ background: value }}
+                />
+                <div className="mt-1 text-[9px] text-center text-slate-400">Texto: {bestTextOnHex(value)}</div>
+            </div>
+        </div>
+    );
+}
+
 export default function LinkManager() {
     const { activeTenantId, activeTenant } = useTenant();
     const qc = useQueryClient();
@@ -82,6 +157,7 @@ export default function LinkManager() {
     const [editingRedirect, setEditingRedirect] = useState<Partial<ItemRedirect> | null>(null);
     const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
     const [uploading, setUploading] = useState(false);
+    const [extracting, setExtracting] = useState(false);
 
     // Queries
     const groupsQ = useQuery({
@@ -130,7 +206,75 @@ export default function LinkManager() {
     });
 
     // Actions
-    const saveGroup = async () => {
+    const handleExtractPalette = async () => {
+        if (!editingGroup?.theme_config?.logo) {
+            showError("Faça o upload de um logo primeiro.");
+            return;
+        }
+
+        setExtracting(true);
+        try {
+            const { data: sess } = await supabase.auth.getSession();
+            const token = sess.session?.access_token;
+
+            const res = await fetch(PALETTE_EXTRACT_URL, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                },
+                body: JSON.stringify({
+                    tenantId: activeTenantId,
+                    logoUrl: editingGroup.theme_config.logo, // Works with Base64 as well
+                }),
+            });
+
+            const json = await res.json().catch(() => null);
+            if (!res.ok || !json?.ok) {
+                throw new Error(json?.error || `HTTP ${res.status}`);
+            }
+
+            const extracted = json.palette;
+            setEditingGroup(prev => ({
+                ...prev!,
+                theme_config: {
+                    ...prev!.theme_config,
+                    palette: {
+                        primary: extracted.primary.hex,
+                        secondary: extracted.secondary?.hex || extracted.primary.hex,
+                        tertiary: extracted.tertiary?.hex || extracted.primary.hex,
+                        quaternary: extracted.quaternary?.hex || extracted.primary.hex,
+                    }
+                }
+            }));
+            showSuccess("Paleta extraída com sucesso!");
+        } catch (err: any) {
+            showError(`Erro ao extrair paleta: ${err.message}`);
+        } finally {
+            setExtracting(false);
+        }
+    };
+
+    const handleLogoUpload = async (file: File) => {
+        setUploading(true);
+        try {
+            const b64 = await fileToBase64(file);
+            setEditingGroup(prev => ({
+                ...prev!,
+                theme_config: {
+                    ...prev!.theme_config,
+                    logo: b64
+                }
+            }));
+            showSuccess("Logo carregado!");
+        } catch (err) {
+            showError("Erro ao carregar logo.");
+        } finally {
+            setUploading(false);
+        }
+    };
+
+    const handleSaveGroup = async () => {
         if (!activeTenantId || !editingGroup?.name || !editingGroup?.slug) return;
         try {
             const payload = {
@@ -423,43 +567,137 @@ export default function LinkManager() {
                                 <DialogTitle>{editingGroup?.id ? 'Editar Perfil' : 'Novo Perfil'}</DialogTitle>
                                 <DialogDescription>Defina o nome e a URL amigável do seu LinkTree.</DialogDescription>
                             </DialogHeader>
-                            <div className="grid gap-4 py-4">
-                                <div className="grid gap-2">
-                                    <Label htmlFor="name">Nome do Perfil</Label>
-                                    <Input
-                                        id="name"
-                                        value={editingGroup?.name || ""}
-                                        onChange={e => setEditingGroup(p => ({ ...p, name: e.target.value, slug: p?.slug || e.target.value.toLowerCase().replace(/[^a-z0-9]/g, '-') }))}
-                                        placeholder="Ex: Bio Instagram"
-                                        className="rounded-xl"
-                                    />
-                                </div>
-                                <div className="grid gap-2">
-                                    <Label htmlFor="slug">Slug (URL)</Label>
-                                    <div className="flex items-center rounded-xl border px-3 focus-within:ring-2 focus-within:ring-blue-100">
-                                        <span className="text-sm text-slate-400 select-none">byfrost.io/l/{activeTenant?.slug}/</span>
-                                        <input
-                                            id="slug"
-                                            value={editingGroup?.slug || ""}
-                                            onChange={e => setEditingGroup(p => ({ ...p, slug: e.target.value.toLowerCase().replace(/[^a-z0-9]/g, '-') }))}
-                                            className="ml-0.5 flex-1 bg-transparent py-2 text-sm outline-none"
-                                            placeholder="meu-link"
+                            <Tabs defaultValue="general" className="w-full">
+                                <TabsList className="grid w-full grid-cols-2 rounded-2xl p-1 bg-slate-100">
+                                    <TabsTrigger value="general" className="rounded-xl data-[state=active]:bg-white data-[state=active]:shadow-sm">Geral</TabsTrigger>
+                                    <TabsTrigger value="branding" className="rounded-xl data-[state=active]:bg-white data-[state=active]:shadow-sm">Personalização</TabsTrigger>
+                                </TabsList>
+
+                                <TabsContent value="general" className="space-y-4 pt-4">
+                                    <div className="grid gap-2">
+                                        <Label htmlFor="gname">Nome do Perfil</Label>
+                                        <Input
+                                            id="gname"
+                                            value={editingGroup?.name || ""}
+                                            onChange={e => setEditingGroup(p => ({ ...p!, name: e.target.value }))}
+                                            placeholder="Ex: Marketing Digital"
+                                            className="rounded-xl"
                                         />
                                     </div>
-                                </div>
-                                <div className="grid gap-2">
-                                    <Label htmlFor="desc">Descrição (opcional)</Label>
-                                    <Input
-                                        id="desc"
-                                        value={editingGroup?.description || ""}
-                                        onChange={e => setEditingGroup(p => ({ ...p, description: e.target.value }))}
-                                        className="rounded-xl"
-                                    />
-                                </div>
-                            </div>
+                                    <div className="grid gap-2">
+                                        <Label htmlFor="gslug">URL Amigável (slug)</Label>
+                                        <Input
+                                            id="gslug"
+                                            value={editingGroup?.slug || ""}
+                                            onChange={e => setEditingGroup(p => ({ ...p!, slug: e.target.value.toLowerCase().replace(/\s+/g, "-") }))}
+                                            placeholder="ex: marketing-social"
+                                            className="rounded-xl"
+                                        />
+                                        <p className="text-[10px] text-slate-500 italic">
+                                            URL: /l/{activeTenant?.slug}/<span className="font-bold">{editingGroup?.slug || "..."}</span>
+                                        </p>
+                                    </div>
+                                    <div className="grid gap-2">
+                                        <Label htmlFor="gdesc">Breve descrição (opcional)</Label>
+                                        <Textarea
+                                            id="gdesc"
+                                            value={editingGroup?.description || ""}
+                                            onChange={e => setEditingGroup(p => ({ ...p!, description: e.target.value }))}
+                                            placeholder="Ex: Nossos canais oficiais de atendimento"
+                                            className="rounded-xl min-h-[80px]"
+                                        />
+                                    </div>
+                                </TabsContent>
+
+                                <TabsContent value="branding" className="space-y-6 pt-4">
+                                    <div className="space-y-3">
+                                        <Label className="text-sm font-bold flex items-center gap-2">
+                                            <ImageIcon className="h-4 w-4 text-slate-400" />
+                                            Logo do Perfil
+                                        </Label>
+                                        <div className="flex items-center gap-4 p-4 rounded-2xl border bg-slate-50/50">
+                                            <div className="relative group">
+                                                <div className="h-20 w-20 rounded-2xl border bg-white shadow-sm flex items-center justify-center overflow-hidden">
+                                                    {editingGroup?.theme_config?.logo ? (
+                                                        <img src={editingGroup.theme_config.logo} alt="Logo" className="h-full w-full object-contain" />
+                                                    ) : (
+                                                        <ImageIcon className="h-8 w-8 text-slate-200" />
+                                                    )}
+                                                </div>
+                                                <Input
+                                                    type="file"
+                                                    accept="image/*"
+                                                    onChange={e => e.target.files?.[0] && handleLogoUpload(e.target.files[0])}
+                                                    className="absolute inset-0 opacity-0 cursor-pointer"
+                                                    disabled={uploading}
+                                                />
+                                            </div>
+                                            <div className="flex-1 space-y-2">
+                                                <Button
+                                                    variant="outline"
+                                                    className="w-full rounded-xl gap-2 text-xs h-9"
+                                                    disabled={uploading}
+                                                    onClick={() => { }} // Handled by Input above
+                                                >
+                                                    {uploading ? "Aguarde..." : "Trocar Logo"}
+                                                </Button>
+                                                <Button
+                                                    variant="secondary"
+                                                    className="w-full rounded-xl gap-2 text-xs h-9 bg-blue-50 text-blue-600 hover:bg-blue-100 border-none"
+                                                    disabled={!editingGroup?.theme_config?.logo || extracting}
+                                                    onClick={handleExtractPalette}
+                                                >
+                                                    {extracting ? "Extraindo..." : <><Palette className="h-3.5 w-3.5" /> Extrair Cores</>}
+                                                </Button>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="space-y-4">
+                                        <Label className="text-sm font-bold flex items-center gap-2">
+                                            <Palette className="h-4 w-4 text-slate-400" />
+                                            Cores do Perfil
+                                        </Label>
+                                        <div className="grid gap-4 sm:grid-cols-2">
+                                            <ColorRow
+                                                label="Cor Primária"
+                                                value={editingGroup?.theme_config?.palette?.primary || "#3b82f6"}
+                                                onChange={(v) => setEditingGroup(p => ({
+                                                    ...p!,
+                                                    theme_config: { ...p!.theme_config, palette: { ...p!.theme_config.palette, primary: v } }
+                                                }))}
+                                            />
+                                            <ColorRow
+                                                label="Cor Secundária"
+                                                value={editingGroup?.theme_config?.palette?.secondary || "#1e293b"}
+                                                onChange={(v) => setEditingGroup(p => ({
+                                                    ...p!,
+                                                    theme_config: { ...p!.theme_config, palette: { ...p!.theme_config.palette, secondary: v } }
+                                                }))}
+                                            />
+                                            <ColorRow
+                                                label="Cor Terciária"
+                                                value={editingGroup?.theme_config?.palette?.tertiary || "#f1f5f9"}
+                                                onChange={(v) => setEditingGroup(p => ({
+                                                    ...p!,
+                                                    theme_config: { ...p!.theme_config, palette: { ...p!.theme_config.palette, tertiary: v } }
+                                                }))}
+                                            />
+                                            <ColorRow
+                                                label="Cor Quaternária"
+                                                value={editingGroup?.theme_config?.palette?.quaternary || "#ffffff"}
+                                                onChange={(v) => setEditingGroup(p => ({
+                                                    ...p!,
+                                                    theme_config: { ...p!.theme_config, palette: { ...p!.theme_config.palette, quaternary: v } }
+                                                }))}
+                                            />
+                                        </div>
+                                    </div>
+                                </TabsContent>
+                            </Tabs>
                             <DialogFooter>
                                 <Button variant="outline" className="rounded-xl" onClick={() => setIsGroupDialogOpen(false)}>Cancelar</Button>
-                                <Button className="rounded-xl" onClick={saveGroup}>Salvar</Button>
+                                <Button className="rounded-xl" onClick={handleSaveGroup}>Salvar</Button>
                             </DialogFooter>
                         </DialogContent>
                     </Dialog>

@@ -72,17 +72,42 @@ export default function PublicLinks() {
     }
 
     const theme = data.theme_config || {};
-    const primaryColor = theme.primary_color || "hsl(var(--byfrost-accent))";
+    const palette = theme.palette || {};
+    const primaryColor = palette.primary || "#3b82f6";
+    const secondaryColor = palette.secondary || "#1e293b";
+    const tertiaryColor = palette.tertiary || "#f1f5f9";
+    const logoUrl = theme.logo;
+
+    const primaryText = bestTextOnHex(primaryColor);
+
+    function bestTextOnHex(hex: string) {
+        if (!hex) return "#0b1220";
+        const v = hex.replace("#", "");
+        if (v.length !== 6) return "#0b1220";
+        const r = parseInt(v.slice(0, 2), 16);
+        const g = parseInt(v.slice(2, 4), 16);
+        const b = parseInt(v.slice(4, 6), 16);
+        const toLin = (c: number) => {
+            const s = c / 255;
+            return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+        };
+        const L = 0.2126 * toLin(r) + 0.7152 * toLin(g) + 0.0722 * toLin(b);
+        return L > 0.6 ? "#0b1220" : "#fffdf5";
+    }
 
     return (
         <div className="min-h-screen bg-slate-50 bg-gradient-to-b from-white to-slate-100 px-6 py-12 dark:from-slate-950 dark:to-slate-900">
             <div className="mx-auto max-w-[480px]">
                 {/* Header */}
                 <div className="mb-10 text-center">
-                    <div className="mx-auto mb-4 flex h-24 w-24 items-center justify-center rounded-3xl bg-white shadow-xl ring-1 ring-slate-100 dark:bg-slate-900 dark:ring-slate-800">
-                        <span className="text-3xl font-bold" style={{ color: primaryColor }}>
-                            {data.name?.slice(0, 1).toUpperCase()}
-                        </span>
+                    <div className="mx-auto mb-4 flex h-24 w-24 items-center justify-center overflow-hidden rounded-3xl bg-white shadow-xl ring-1 ring-slate-100 dark:bg-slate-900 dark:ring-slate-800">
+                        {logoUrl ? (
+                            <img src={logoUrl} alt={data.name} className="h-full w-full object-contain p-2" />
+                        ) : (
+                            <span className="text-3xl font-bold" style={{ color: primaryColor }}>
+                                {data.name?.slice(0, 1).toUpperCase()}
+                            </span>
+                        )}
                     </div>
                     <h1 className="text-2xl font-bold text-slate-900 dark:text-white">{data.name}</h1>
                     {data.description && (
@@ -110,9 +135,9 @@ export default function PublicLinks() {
                                         )}
                                     </div>
                                     <div>
-                                        <div className="font-bold text-slate-900 dark:text-white">{item.label}</div>
+                                        <div className="font-bold text-slate-900 dark:text-white group-hover:opacity-80 transition-opacity">{item.label}</div>
                                         {item.link_type === 'assessment' && (
-                                            <div className="text-[10px] font-medium uppercase tracking-wider text-blue-500">Avaliação Premiada</div>
+                                            <div className="text-[10px] font-medium uppercase tracking-wider" style={{ color: primaryColor }}>Avaliação Premiada</div>
                                         )}
                                     </div>
                                 </div>
@@ -150,9 +175,10 @@ export default function PublicLinks() {
                                     className={cn(
                                         "flex items-center gap-4 rounded-[24px] border p-4 text-left transition-all active:scale-[0.98]",
                                         selectedStoreUrl === r.redirect_url
-                                            ? "border-blue-500 bg-blue-50 ring-1 ring-blue-500"
+                                            ? "ring-2"
                                             : "border-slate-100 bg-slate-50 hover:bg-white hover:shadow-md"
                                     )}
+                                    style={selectedStoreUrl === r.redirect_url ? { borderColor: primaryColor, backgroundColor: `${primaryColor}10`, boxShadow: `0 0 0 2px ${primaryColor}` } : {}}
                                 >
                                     <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-white shadow-inner">
                                         {r.image_url ? (
@@ -175,7 +201,8 @@ export default function PublicLinks() {
                         </div>
 
                         <Button
-                            className="mt-4 h-14 w-full rounded-2xl bg-blue-600 text-base font-bold text-white shadow-lg shadow-blue-200 transition-all hover:bg-blue-700 active:scale-[0.98] disabled:opacity-50"
+                            className="mt-4 h-14 w-full rounded-2xl text-base font-bold shadow-lg transition-all hover:opacity-90 active:scale-[0.98] disabled:opacity-50"
+                            style={{ backgroundColor: primaryColor, color: primaryText }}
                             disabled={!selectedStoreUrl}
                             onClick={handleRedirect}
                         >

@@ -162,6 +162,7 @@ export function ReceiptUpsertDialog({
             const { data: json, error: upError } = await supabase.functions.invoke("upload-tenant-asset", {
                 body: {
                     tenantId: activeTenantId,
+                    kind: "branding", // Added kind
                     mediaBase64: b64,
                     mimeType: file.type,
                     fileName: `signature_${Date.now()}`,

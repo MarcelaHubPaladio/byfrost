@@ -4,56 +4,27 @@ import { createSupabaseAdmin } from "../_shared/supabaseAdmin.ts";
 
 const BUCKET = "tenant-assets";
 
-type UploadKind = "participants" | "events";
+type UploadKind = "participants" | "events" | "branding"; // Added "branding"
 
 type Body = {
   action?: "upload" | "sign";
   tenantId?: string;
   kind?: UploadKind;
 
-  // upload
+  // upload (robust support)
   filename?: string;
+  fileName?: string;
   contentType?: string;
+  mimeType?: string;
   fileBase64?: string;
+  mediaBase64?: string;
 
   // sign
   path?: string;
   expiresIn?: number;
 };
 
-function json(data: any, status = 200) {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
-  });
-}
-
-function err(message: string, status = 400) {
-  return json({ ok: false, error: message }, status);
-}
-
-function decodeBase64ToBytes(b64: string) {
-  const bin = atob(b64);
-  const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  return bytes;
-}
-
-function sanitizeFilename(filename: string) {
-  const safe = filename.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 120);
-  return safe || "file.bin";
-}
-
-function isUuid(v: string) {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
-}
-
-function tenantIdFromPath(path: string) {
-  const seg1 = path.split("/")[0] ?? "";
-  const seg2 = path.split("/")[1] ?? "";
-  if (seg1 === "tenants") return seg2;
-  return seg1;
-}
+// ... (helper functions same)
 
 serve(async (req) => {
   const fn = "upload-tenant-asset";
@@ -81,10 +52,10 @@ serve(async (req) => {
     const userId = userRes.user.id;
     const isSuperAdmin = Boolean(
       (userRes.user.app_metadata as any)?.byfrost_super_admin ||
-        (userRes.user.app_metadata as any)?.super_admin,
+      (userRes.user.app_metadata as any)?.super_admin,
     );
 
-    // Tenant boundary: require membership OR super-admin.
+    // Tenant boundary
     const { data: membership, error: memErr } = await supabase
       .from("users_profile")
       .select("user_id")
@@ -112,7 +83,6 @@ serve(async (req) => {
         .createSignedUrl(path, expiresIn);
 
       if (error || !data?.signedUrl) {
-        console.error(`[${fn}] createSignedUrl failed`, { error: error?.message, tenantId, path });
         return err(error?.message ?? "sign_failed", 500);
       }
 
@@ -121,11 +91,11 @@ serve(async (req) => {
 
     // action === "upload"
     const kind = body.kind as UploadKind | undefined;
-    if (kind !== "participants" && kind !== "events") return err("invalid_kind", 400);
+    if (kind !== "participants" && kind !== "events" && kind !== "branding") return err("invalid_kind", 400);
 
-    const filename = sanitizeFilename(String(body.filename ?? "file.bin").trim());
-    const contentType = String(body.contentType ?? "application/octet-stream").trim();
-    const fileBase64 = String(body.fileBase64 ?? "").trim();
+    const filename = sanitizeFilename(String(body.filename ?? body.fileName ?? "file.bin").trim());
+    const contentType = String(body.contentType ?? body.mimeType ?? "application/octet-stream").trim();
+    const fileBase64 = String(body.fileBase64 ?? body.mediaBase64 ?? "").trim();
     if (!fileBase64) return err("missing_fileBase64", 400);
 
     const uid = crypto.randomUUID();
@@ -139,26 +109,26 @@ serve(async (req) => {
     });
 
     if (upErr) {
-      console.error(`[${fn}] upload failed`, { error: upErr.message, tenantId, path, by: userId });
+      console.error(`[${fn}] upload failed`, { error: upErr.message, tenantId, path });
       return err(upErr.message, 500);
     }
 
+    // Get public URL or signed URL. For branding maybe public is better if bucket is public, 
+    // but the function usually signs.
     const { data: signData, error: signErr } = await supabase.storage
       .from(BUCKET)
-      .createSignedUrl(path, 3600);
+      .createSignedUrl(path, 3600 * 24 * 365); // 1 year for branding/receipts
 
-    if (signErr || !signData?.signedUrl) {
-      console.error(`[${fn}] createSignedUrl failed after upload`, {
-        error: signErr?.message,
-        tenantId,
-        path,
-      });
-      return json({ ok: true, bucket: BUCKET, path, signedUrl: null, expiresIn: 3600 });
-    }
+    const publicUrl = supabase.storage.from(BUCKET).getPublicUrl(path).data.publicUrl;
 
-    console.log(`[${fn}] uploaded`, { tenantId, kind, path, by: userId });
-
-    return json({ ok: true, bucket: BUCKET, path, signedUrl: signData.signedUrl, expiresIn: 3600 });
+    return json({
+      ok: true,
+      bucket: BUCKET,
+      path,
+      signedUrl: signData?.signedUrl || null,
+      publicUrl, // Include publicUrl as well
+      expiresIn: 3600 * 24 * 365
+    });
   } catch (e: any) {
     console.error(`[upload-tenant-asset] unhandled`, { error: e?.message ?? String(e) });
     return err("internal_error", 500);

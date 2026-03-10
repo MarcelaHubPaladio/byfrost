@@ -69,12 +69,50 @@ serve(async (req) => {
     if (!auth.startsWith("Bearer ")) return err("unauthorized", 401);
     const token = auth.slice("Bearer ".length).trim();
 
-    const body = (await req.json().catch(() => null)) as Body | null;
-    if (!body) return err("invalid_json", 400);
+    const contentTypeHeader = req.headers.get("Content-Type") ?? "";
+    let action: string = "upload";
+    let tenantIdStr: string = "";
+    let kindStr: string = "";
+    let fileName: string = "";
+    let mimeType: string = "";
+    let fileBytes: Uint8Array | null = null;
+    let pathParam: string = "";
+    let expiresInParam: number = 3600;
 
-    const action = body.action ?? "upload";
-    const tenantId = String(body.tenantId ?? "").trim();
-    if (!tenantId || !isUuid(tenantId)) return err("invalid_tenantId", 400);
+    if (contentTypeHeader.includes("multipart/form-data")) {
+      const formData = await req.formData();
+      action = String(formData.get("action") ?? "upload");
+      tenantIdStr = String(formData.get("tenantId") ?? "").trim();
+      kindStr = String(formData.get("kind") ?? "").trim();
+
+      const file = formData.get("file");
+      if (file instanceof File) {
+        fileName = file.name;
+        mimeType = file.type;
+        fileBytes = new Uint8Array(await file.arrayBuffer());
+      }
+
+      pathParam = String(formData.get("path") ?? "").trim();
+      expiresInParam = Number(formData.get("expiresIn") ?? 3600);
+    } else {
+      // Fallback for legacy JSON/Base64 (or if we want to support it for a bit)
+      const body = (await req.json().catch(() => null)) as Body | null;
+      if (!body) return err("invalid_json", 400);
+
+      action = body.action ?? "upload";
+      tenantIdStr = String(body.tenantId ?? "").trim();
+      kindStr = String(body.kind ?? "").trim();
+      fileName = String(body.filename ?? body.fileName ?? "file.bin");
+      mimeType = String(body.contentType ?? body.mimeType ?? "application/octet-stream");
+
+      const b64 = String(body.fileBase64 ?? body.mediaBase64 ?? "").trim();
+      if (b64) fileBytes = decodeBase64ToBytes(b64);
+
+      pathParam = String(body.path ?? "").trim();
+      expiresInParam = Number(body.expiresIn ?? 3600);
+    }
+
+    if (!tenantIdStr || !isUuid(tenantIdStr)) return err("invalid_tenantId", 400);
 
     const supabase = createSupabaseAdmin();
 
@@ -91,65 +129,58 @@ serve(async (req) => {
     const { data: membership, error: memErr } = await supabase
       .from("users_profile")
       .select("user_id")
-      .eq("tenant_id", tenantId)
+      .eq("tenant_id", tenantIdStr)
       .eq("user_id", userId)
       .is("deleted_at", null)
       .maybeSingle();
 
     if (memErr || (!membership && !isSuperAdmin)) {
-      console.warn(`[${fn}] forbidden`, { tenantId, userId, memErr });
+      console.warn(`[${fn}] forbidden`, { tenantId: tenantIdStr, userId, memErr });
       return err("forbidden", 403);
     }
 
     if (action === "sign") {
-      const path = String(body.path ?? "").trim();
-      if (!path) return err("missing_path", 400);
+      if (!pathParam) return err("missing_path", 400);
 
-      const pathTenantId = tenantIdFromPath(path);
-      if (pathTenantId !== tenantId) return err("cross_tenant_path", 403);
+      const pathTenantId = tenantIdFromPath(pathParam);
+      if (pathTenantId !== tenantIdStr) return err("cross_tenant_path", 403);
 
-      const expiresIn = Math.max(60, Math.min(Number(body.expiresIn ?? 3600), 60 * 60 * 24));
+      const expiresIn = Math.max(60, Math.min(expiresInParam, 60 * 60 * 24));
 
       const { data, error } = await supabase.storage
         .from(BUCKET)
-        .createSignedUrl(path, expiresIn);
+        .createSignedUrl(pathParam, expiresIn);
 
       if (error || !data?.signedUrl) {
         return err(error?.message ?? "sign_failed", 500);
       }
 
-      return json({ ok: true, bucket: BUCKET, path, signedUrl: data.signedUrl, expiresIn });
+      return json({ ok: true, bucket: BUCKET, path: pathParam, signedUrl: data.signedUrl, expiresIn });
     }
 
     // action === "upload"
-    const kind = body.kind as UploadKind | undefined;
+    const kind = kindStr as UploadKind;
     if (kind !== "participants" && kind !== "events" && kind !== "branding") return err("invalid_kind", 400);
 
-    const filename = sanitizeFilename(String(body.filename ?? body.fileName ?? "file.bin").trim());
-    const contentType = String(body.contentType ?? body.mimeType ?? "application/octet-stream").trim();
-    const fileBase64 = String(body.fileBase64 ?? body.mediaBase64 ?? "").trim();
-    if (!fileBase64) return err("missing_fileBase64", 400);
+    if (!fileBytes) return err("missing_file", 400);
 
+    const safeFilenameStr = sanitizeFilename(fileName);
     const uid = crypto.randomUUID();
-    const path = `${tenantId}/${kind}/${uid}-${filename}`;
+    const path = `${tenantIdStr}/${kind}/${uid}-${safeFilenameStr}`;
 
-    const bytes = decodeBase64ToBytes(fileBase64);
-
-    const { error: upErr } = await supabase.storage.from(BUCKET).upload(path, bytes, {
+    const { error: upErr } = await supabase.storage.from(BUCKET).upload(path, fileBytes, {
       upsert: false,
-      contentType,
+      contentType: mimeType,
     });
 
     if (upErr) {
-      console.error(`[${fn}] upload failed`, { error: upErr.message, tenantId, path });
+      console.error(`[${fn}] upload failed`, { error: upErr.message, tenantId: tenantIdStr, path });
       return err(upErr.message, 500);
     }
 
-    // Get public URL or signed URL. For branding maybe public is better if bucket is public, 
-    // but the function usually signs.
-    const { data: signData, error: signErr } = await supabase.storage
+    const { data: signData } = await supabase.storage
       .from(BUCKET)
-      .createSignedUrl(path, 3600 * 24 * 365); // 1 year for branding/receipts
+      .createSignedUrl(path, 3600 * 24 * 365);
 
     const publicUrl = supabase.storage.from(BUCKET).getPublicUrl(path).data.publicUrl;
 
@@ -158,7 +189,7 @@ serve(async (req) => {
       bucket: BUCKET,
       path,
       signedUrl: signData?.signedUrl || null,
-      publicUrl, // Include publicUrl as well
+      publicUrl,
       expiresIn: 3600 * 24 * 365
     });
   } catch (e: any) {

@@ -19,17 +19,6 @@ import { useQueryClient } from "@tanstack/react-query";
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // 5MB
 const UPLOAD_ASSET_URL = `${SUPABASE_URL_IN_USE}/functions/v1/upload-tenant-asset`;
 
-async function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.readAsDataURL(file);
-    reader.onload = () => {
-      const result = reader.result as string;
-      resolve(result.split(",")[1]);
-    };
-    reader.onerror = (error) => reject(error);
-  });
-}
 
 async function fileToDataUrl(file: File) {
   return await new Promise<string>((resolve, reject) => {
@@ -105,15 +94,13 @@ export function TrelloAddImageDialog(props: {
 
     setSaving(true);
     try {
-      const b64 = await fileToBase64(file);
+      const fd = new FormData();
+      fd.append("tenantId", props.tenantId);
+      fd.append("kind", "branding"); // Or appropriate kind, function supports branding now
+      fd.append("file", file);
 
       const { data: upJson, error: upError } = await supabase.functions.invoke("upload-tenant-asset", {
-        body: {
-          tenantId: props.tenantId,
-          mediaBase64: b64,
-          mimeType: file.type || "image/jpeg",
-          fileName: `trello_${props.caseId}_${Date.now()}`,
-        },
+        body: fd,
       });
 
       if (upError || !upJson?.ok) {

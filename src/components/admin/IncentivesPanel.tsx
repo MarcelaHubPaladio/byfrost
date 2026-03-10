@@ -125,17 +125,13 @@ async function uploadTenantAsset(params: {
   kind: "participants" | "events";
   file: File;
 }) {
-  const b64 = await fileToBase64(params.file);
+  const fd = new FormData();
+  fd.append("tenantId", params.tenantId);
+  fd.append("kind", params.kind);
+  fd.append("file", params.file);
 
   const { data: json, error: upError } = await supabase.functions.invoke("upload-tenant-asset", {
-    body: {
-      action: "upload",
-      tenantId: params.tenantId,
-      kind: params.kind,
-      fileName: params.file.name,
-      mimeType: params.file.type || "application/octet-stream",
-      mediaBase64: b64,
-    },
+    body: fd,
   });
 
   if (upError || !json?.ok) {

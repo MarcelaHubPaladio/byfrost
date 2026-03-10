@@ -78,31 +78,47 @@ serve(async (req) => {
       });
     }
 
-    const body = await req.json().catch(() => null);
-    if (!body) return new Response("Invalid JSON", { status: 400, headers: corsHeaders });
+    const contentTypeHeader = req.headers.get("Content-Type") ?? "";
+    let tenantId = "";
+    let fileName = "logo.png";
+    let mimeType = "image/png";
+    let fileBytes: Uint8Array | null = null;
 
-    const tenantId = body.tenantId as string | undefined;
-    const filename = (body.filename as string | undefined) ?? "logo.png";
-    const contentType = (body.contentType as string | undefined) ?? "image/png";
-    const fileBase64 = body.fileBase64 as string | undefined;
+    if (contentTypeHeader.includes("multipart/form-data")) {
+      const formData = await req.formData();
+      tenantId = String(formData.get("tenantId") ?? "").trim();
+      const file = formData.get("file");
+      if (file instanceof File) {
+        fileName = file.name;
+        mimeType = file.type;
+        fileBytes = new Uint8Array(await file.arrayBuffer());
+      }
+    } else {
+      const body = await req.json().catch(() => null);
+      if (!body) return new Response("Invalid JSON", { status: 400, headers: corsHeaders });
 
-    if (!tenantId || !fileBase64) {
-      return new Response(JSON.stringify({ ok: false, error: "Missing tenantId or fileBase64" }), {
+      tenantId = (body.tenantId as string | undefined) ?? "";
+      fileName = (body.filename as string | undefined) ?? "logo.png";
+      mimeType = (body.contentType as string | undefined) ?? "image/png";
+      const fileBase64 = body.fileBase64 as string | undefined;
+      if (fileBase64) fileBytes = decodeBase64ToBytes(fileBase64);
+    }
+
+    if (!tenantId || !fileBytes) {
+      return new Response(JSON.stringify({ ok: false, error: "Missing tenantId or file" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    const ext = filename.split(".").pop()?.toLowerCase() || "png";
+    const ext = fileName.split(".").pop()?.toLowerCase() || "png";
     const path = `tenants/${tenantId}/logo.${ext}`;
 
     const supabase = createSupabaseAdmin();
 
-    const bytes = decodeBase64ToBytes(fileBase64);
-
     const { error: upErr } = await supabase.storage
       .from(BUCKET)
-      .upload(path, bytes, { upsert: true, contentType });
+      .upload(path, fileBytes, { upsert: true, contentType: mimeType });
 
     if (upErr) {
       console.error(`[${fn}] upload failed`, { upErr });

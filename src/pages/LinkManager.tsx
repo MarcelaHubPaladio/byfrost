@@ -266,15 +266,13 @@ export default function LinkManager() {
         if (!activeTenantId) return;
         setUploading(true);
         try {
-            const b64 = await fileToBase64(file);
+            const fd = new FormData();
+            fd.append("tenantId", activeTenantId);
+            fd.append("kind", "branding");
+            fd.append("file", file);
 
             const { data: json, error: upError } = await supabase.functions.invoke("upload-tenant-asset", {
-                body: {
-                    tenantId: activeTenantId,
-                    mediaBase64: b64,
-                    mimeType: file.type,
-                    fileName: `logo_${Date.now()}`,
-                },
+                body: fd,
             });
 
             if (upError || !json?.ok) {

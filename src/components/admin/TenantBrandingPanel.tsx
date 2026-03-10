@@ -21,16 +21,6 @@ function publicUrl(bucket: string, path: string) {
   }
 }
 
-async function fileToBase64(file: File) {
-  const buf = await file.arrayBuffer();
-  let binary = "";
-  const bytes = new Uint8Array(buf);
-  const chunkSize = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    binary += String.fromCharCode(...bytes.slice(i, i + chunkSize));
-  }
-  return btoa(binary);
-}
 
 function paletteErrorHint(message: string) {
   if (message.includes("Missing GOOGLE_VISION_API_KEY")) {
@@ -196,30 +186,16 @@ export function TenantBrandingPanel() {
 
     setUploading(true);
     try {
-      const fileBase64 = await fileToBase64(f);
+      const fd = new FormData();
+      fd.append("tenantId", activeTenantId);
+      fd.append("file", f);
 
-      const { data: sess } = await supabase.auth.getSession();
-      const token = sess.session?.access_token;
-      if (!token) throw new Error("Sessão inválida");
-
-      const res = await fetch(UPLOAD_URL, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          apikey: SUPABASE_ANON_KEY_IN_USE,
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          tenantId: activeTenantId,
-          filename: f.name,
-          contentType: f.type || "image/png",
-          fileBase64,
-        }),
+      const { data: json, error: upError } = await supabase.functions.invoke("branding-upload-logo", {
+        body: fd,
       });
 
-      const json = await res.json().catch(() => null);
-      if (!res.ok || !json?.ok) {
-        throw new Error(json?.error || `HTTP ${res.status}`);
+      if (upError || !json?.ok) {
+        throw new Error(upError?.message || json?.error || "Erro no upload");
       }
 
       showSuccess("Logo atualizado. Agora extraia a paleta.");
@@ -472,9 +448,9 @@ export function TenantBrandingPanel() {
               <div className="text-xs font-semibold text-slate-800">Atual no banco</div>
               <div className="mt-2 grid grid-cols-2 gap-3">
                 {(palette?.primary?.hex ||
-                palette?.secondary?.hex ||
-                palette?.tertiary?.hex ||
-                palette?.quaternary?.hex
+                  palette?.secondary?.hex ||
+                  palette?.tertiary?.hex ||
+                  palette?.quaternary?.hex
                   ? [palette?.primary, palette?.secondary, palette?.tertiary, palette?.quaternary]
                   : [])
                   .filter(Boolean)

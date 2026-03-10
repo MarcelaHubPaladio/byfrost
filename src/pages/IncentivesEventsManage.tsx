@@ -78,34 +78,19 @@ type EventRow = {
   created_at: string;
 };
 
-async function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.readAsDataURL(file);
-    reader.onload = () => {
-      const result = reader.result as string;
-      resolve(result.split(",")[1]);
-    };
-    reader.onerror = (error) => reject(error);
-  });
-}
 
 async function uploadTenantAsset(params: {
   tenantId: string;
   kind: "events";
   file: File;
 }) {
-  const b64 = await fileToBase64(params.file);
+  const fd = new FormData();
+  fd.append("tenantId", params.tenantId);
+  fd.append("kind", params.kind);
+  fd.append("file", params.file);
 
   const { data: json, error: upError } = await supabase.functions.invoke("upload-tenant-asset", {
-    body: {
-      action: "upload",
-      tenantId: params.tenantId,
-      kind: params.kind,
-      fileName: params.file.name,
-      mimeType: params.file.type || "application/octet-stream",
-      mediaBase64: b64,
-    },
+    body: fd,
   });
 
   if (upError || !json?.ok) {

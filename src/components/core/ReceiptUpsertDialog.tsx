@@ -150,23 +150,13 @@ export function ReceiptUpsertDialog({
 
         setUploading(true);
         try {
-            const reader = new FileReader();
-            const base64Promise = new Promise<string>((resolve, reject) => {
-                reader.onload = () => resolve((reader.result as string).split(",")[1]);
-                reader.onerror = reject;
-                reader.readAsDataURL(file);
-            });
-
-            const b64 = await base64Promise;
+            const fd = new FormData();
+            fd.append("tenantId", activeTenantId);
+            fd.append("kind", "branding");
+            fd.append("file", file);
 
             const { data: json, error: upError } = await supabase.functions.invoke("upload-tenant-asset", {
-                body: {
-                    tenantId: activeTenantId,
-                    kind: "branding", // Added kind
-                    mediaBase64: b64,
-                    mimeType: file.type,
-                    fileName: `signature_${Date.now()}`,
-                },
+                body: fd,
             });
 
             if (upError || !json?.ok) {

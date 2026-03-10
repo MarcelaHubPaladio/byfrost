@@ -78,7 +78,7 @@ serve(async (req) => {
       });
     }
 
-    const contentTypeHeader = req.headers.get("Content-Type") ?? "";
+    const contentTypeHeader = (req.headers.get("Content-Type") ?? "").toLowerCase();
     let tenantId = "";
     let fileName = "logo.png";
     let mimeType = "image/png";
@@ -86,7 +86,7 @@ serve(async (req) => {
 
     if (contentTypeHeader.includes("multipart/form-data")) {
       const formData = await req.formData();
-      tenantId = String(formData.get("tenantId") ?? "").trim();
+      tenantId = String(formData.get("tenantId") ?? formData.get("tenant_id") ?? "").trim();
       const file = formData.get("file");
       if (file instanceof File) {
         fileName = file.name;
@@ -97,14 +97,14 @@ serve(async (req) => {
       const body = await req.json().catch(() => null);
       if (!body) return new Response("Invalid JSON", { status: 400, headers: corsHeaders });
 
-      tenantId = (body.tenantId as string | undefined) ?? "";
+      tenantId = String(body.tenantId ?? body.tenant_id ?? "").trim();
       fileName = (body.filename as string | undefined) ?? "logo.png";
       mimeType = (body.contentType as string | undefined) ?? "image/png";
       const fileBase64 = body.fileBase64 as string | undefined;
       if (fileBase64) fileBytes = decodeBase64ToBytes(fileBase64);
     }
 
-    if (!tenantId || !fileBytes) {
+    if (!tenantId || !fileBytes || fileBytes.length === 0) {
       return new Response(JSON.stringify({ ok: false, error: "Missing tenantId or file" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -118,7 +118,7 @@ serve(async (req) => {
 
     const { error: upErr } = await supabase.storage
       .from(BUCKET)
-      .upload(path, fileBytes, { upsert: true, contentType: mimeType });
+      .upload(path, fileBytes, { upsert: true, contentType: mimeType || "image/png" });
 
     if (upErr) {
       console.error(`[${fn}] upload failed`, { upErr });
@@ -162,7 +162,7 @@ serve(async (req) => {
 
     await supabase.rpc("append_audit_ledger", {
       p_tenant_id: tenantId,
-      p_payload: { kind: "tenant_logo_uploaded", path, contentType, by: callerEmail },
+      p_payload: { kind: "tenant_logo_uploaded", path, contentType: mimeType, by: callerEmail },
     });
 
     const publicUrl = supabase.storage.from(BUCKET).getPublicUrl(path).data.publicUrl;
@@ -172,8 +172,11 @@ serve(async (req) => {
     return new Response(JSON.stringify({ ok: true, tenantId, bucket: BUCKET, path, publicUrl }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
-  } catch (e) {
+  } catch (e: any) {
     console.error(`[branding-upload-logo] Unhandled error`, { e: String(e) });
-    return new Response("Internal error", { status: 500, headers: corsHeaders });
+    return new Response(JSON.stringify({ ok: false, error: e?.message ?? "internal_error" }), {
+      status: 500,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   }
 });

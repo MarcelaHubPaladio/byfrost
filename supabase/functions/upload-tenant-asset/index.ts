@@ -63,13 +63,13 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    if (req.method !== "POST") return err("method_not_allowed", 405);
+    if (req.method !== "POST") return err(`${fn}:method_not_allowed`, 405);
 
     const auth = req.headers.get("Authorization") ?? "";
-    if (!auth.startsWith("Bearer ")) return err("unauthorized", 401);
+    if (!auth.startsWith("Bearer ")) return err(`${fn}:missing_auth`, 401);
     const token = auth.slice("Bearer ".length).trim();
 
-    const contentTypeHeader = req.headers.get("Content-Type") ?? "";
+    const contentTypeHeader = (req.headers.get("Content-Type") ?? "").toLowerCase();
     let action: string = "upload";
     let tenantIdStr: string = "";
     let kindStr: string = "";
@@ -82,7 +82,7 @@ serve(async (req) => {
     if (contentTypeHeader.includes("multipart/form-data")) {
       const formData = await req.formData();
       action = String(formData.get("action") ?? "upload");
-      tenantIdStr = String(formData.get("tenantId") ?? "").trim();
+      tenantIdStr = String(formData.get("tenantId") ?? formData.get("tenant_id") ?? "").trim();
       kindStr = String(formData.get("kind") ?? "").trim();
 
       const file = formData.get("file");
@@ -95,12 +95,11 @@ serve(async (req) => {
       pathParam = String(formData.get("path") ?? "").trim();
       expiresInParam = Number(formData.get("expiresIn") ?? 3600);
     } else {
-      // Fallback for legacy JSON/Base64 (or if we want to support it for a bit)
       const body = (await req.json().catch(() => null)) as Body | null;
-      if (!body) return err("invalid_json", 400);
+      if (!body) return err(`${fn}:invalid_json_or_empty_body`, 400);
 
       action = body.action ?? "upload";
-      tenantIdStr = String(body.tenantId ?? "").trim();
+      tenantIdStr = String(body.tenantId ?? body.tenant_id ?? "").trim();
       kindStr = String(body.kind ?? "").trim();
       fileName = String(body.filename ?? body.fileName ?? "file.bin");
       mimeType = String(body.contentType ?? body.mimeType ?? "application/octet-stream");
@@ -112,12 +111,12 @@ serve(async (req) => {
       expiresInParam = Number(body.expiresIn ?? 3600);
     }
 
-    if (!tenantIdStr || !isUuid(tenantIdStr)) return err("invalid_tenantId", 400);
+    if (!tenantIdStr || !isUuid(tenantIdStr)) return err(`${fn}:invalid_tenant_id:${tenantIdStr}`, 400);
 
     const supabase = createSupabaseAdmin();
 
     const { data: userRes, error: userErr } = await supabase.auth.getUser(token);
-    if (userErr || !userRes?.user) return err("unauthorized", 401);
+    if (userErr || !userRes?.user) return err(`${fn}:unauthorized:${userErr?.message ?? "no_user"}`, 401);
 
     const userId = userRes.user.id;
     const isSuperAdmin = Boolean(
@@ -136,14 +135,14 @@ serve(async (req) => {
 
     if (memErr || (!membership && !isSuperAdmin)) {
       console.warn(`[${fn}] forbidden`, { tenantId: tenantIdStr, userId, memErr });
-      return err("forbidden", 403);
+      return err(`${fn}:forbidden`, 403);
     }
 
     if (action === "sign") {
-      if (!pathParam) return err("missing_path", 400);
+      if (!pathParam) return err(`${fn}:missing_path`, 400);
 
       const pathTenantId = tenantIdFromPath(pathParam);
-      if (pathTenantId !== tenantIdStr) return err("cross_tenant_path", 403);
+      if (pathTenantId !== tenantIdStr) return err(`${fn}:cross_tenant_path`, 403);
 
       const expiresIn = Math.max(60, Math.min(expiresInParam, 60 * 60 * 24));
 
@@ -152,7 +151,7 @@ serve(async (req) => {
         .createSignedUrl(pathParam, expiresIn);
 
       if (error || !data?.signedUrl) {
-        return err(error?.message ?? "sign_failed", 500);
+        return err(`${fn}:sign_failed:${error?.message ?? "unknown"}`, 500);
       }
 
       return json({ ok: true, bucket: BUCKET, path: pathParam, signedUrl: data.signedUrl, expiresIn });
@@ -160,9 +159,11 @@ serve(async (req) => {
 
     // action === "upload"
     const kind = kindStr as UploadKind;
-    if (kind !== "participants" && kind !== "events" && kind !== "branding") return err("invalid_kind", 400);
+    if (kind !== "participants" && kind !== "events" && kind !== "branding") {
+      return err(`${fn}:invalid_kind:${kindStr}`, 400);
+    }
 
-    if (!fileBytes) return err("missing_file", 400);
+    if (!fileBytes || fileBytes.length === 0) return err(`${fn}:missing_file_content`, 400);
 
     const safeFilenameStr = sanitizeFilename(fileName);
     const uid = crypto.randomUUID();
@@ -170,17 +171,17 @@ serve(async (req) => {
 
     const { error: upErr } = await supabase.storage.from(BUCKET).upload(path, fileBytes, {
       upsert: false,
-      contentType: mimeType,
+      contentType: mimeType || "application/octet-stream",
     });
 
     if (upErr) {
       console.error(`[${fn}] upload failed`, { error: upErr.message, tenantId: tenantIdStr, path });
-      return err(upErr.message, 500);
+      return err(`${fn}:storage_upload_failed:${upErr.message}`, 500);
     }
 
     const { data: signData } = await supabase.storage
       .from(BUCKET)
-      .createSignedUrl(path, 3600 * 24 * 365);
+      .createSignedUrl(path, 3600 * 24 * 7); // 7 days is enough for most usages
 
     const publicUrl = supabase.storage.from(BUCKET).getPublicUrl(path).data.publicUrl;
 
@@ -190,10 +191,10 @@ serve(async (req) => {
       path,
       signedUrl: signData?.signedUrl || null,
       publicUrl,
-      expiresIn: 3600 * 24 * 365
+      expiresIn: 3600 * 24 * 7
     });
   } catch (e: any) {
     console.error(`[upload-tenant-asset] unhandled`, { error: e?.message ?? String(e) });
-    return err("internal_error", 500);
+    return err(`${fn}:internal_error:${e?.message ?? "unknown"}`, 500);
   }
 });

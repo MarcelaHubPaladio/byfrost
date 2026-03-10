@@ -160,7 +160,9 @@ export function ReceiptUpsertDialog({
             });
 
             if (upError || !json?.ok) {
-                throw new Error(upError?.message || json?.error || "Erro no upload");
+                const fault = upError?.message || json?.error || "Erro desconhecido";
+                console.error("[ReceiptUpsertDialog] Upload failed", { upError, json });
+                throw new Error(fault);
             }
 
             const currentBj = activeTenant?.branding_json || {};

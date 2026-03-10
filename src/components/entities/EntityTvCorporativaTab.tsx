@@ -468,10 +468,26 @@ export function EntityTvCorporativaTab({ tenantId, entityId }: { tenantId: strin
             </Card>
 
             <Card className="rounded-2xl border-slate-200 p-6">
-                <h3 className="text-lg font-semibold text-slate-900">Planos TV Corporativa</h3>
-                <p className="mt-2 text-sm text-slate-600 mb-6">
-                    Selecione quais os planos de TV corporativa que estão ativos para este cliente.
-                </p>
+                <div className="flex items-center justify-between mb-6">
+                    <div>
+                        <h3 className="text-lg font-semibold text-slate-900">Planos TV Corporativa</h3>
+                        <p className="mt-1 text-sm text-slate-600">
+                            Selecione quais os planos de TV corporativa que estão ativos para este cliente.
+                        </p>
+                    </div>
+                    {(() => {
+                        const hasActive = entityPlansQ.data?.some(ep => ep.is_active && !ep.deleted_at);
+                        return hasActive ? (
+                            <span className="inline-flex items-center rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-800 shadow-sm border border-emerald-200 animate-pulse">
+                                ● VISÍVEL NA TV
+                            </span>
+                        ) : (
+                            <span className="inline-flex items-center rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-500 border border-slate-200">
+                                ○ OCULTO (SEM PLANO ATIVO)
+                            </span>
+                        );
+                    })()}
+                </div>
 
                 {plansQ.isLoading || entityPlansQ.isLoading ? (
                     <div className="text-sm text-slate-500">Carregando planos...</div>

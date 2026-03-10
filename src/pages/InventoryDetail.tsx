@@ -16,7 +16,10 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from "@/components/ui/form";
 import { Card } from "@/components/ui/card";
-import { ArrowLeft, Loader2, Package, Image as ImageIcon, Upload, Trash2, Info, CloudUpload } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { ArrowLeft, Loader2, Package, Image as ImageIcon, Upload, Trash2, Info, CloudUpload, Plus, Pencil, ClipboardList } from "lucide-react";
+import { DeliverableTemplateUpsertDialog } from "@/components/core/DeliverableTemplateUpsertDialog";
+import { Separator } from "@/components/ui/separator";
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB limit REMOVED from original, handled by compression.
 
@@ -42,6 +45,8 @@ export default function InventoryDetail() {
     const [uploading, setUploading] = useState(false);
     const [uploadProgress, setUploadProgress] = useState(0);
     const [uploadPhase, setUploadPhase] = useState<"compressing" | "uploading" | "idle">("idle");
+    const [upsertOpen, setUpsertOpen] = useState(false);
+    const [editingTemplate, setEditingTemplate] = useState<any>(null);
     const isEdit = Boolean(id && id !== "new");
 
     const itemQ = useQuery({
@@ -54,6 +59,22 @@ export default function InventoryDetail() {
                 .eq("id", id!)
                 .eq("tenant_id", activeTenantId!)
                 .single();
+            if (error) throw error;
+            return data;
+        },
+    });
+
+    const templatesQ = useQuery({
+        queryKey: ["deliverable_templates", activeTenantId, id],
+        enabled: isEdit && !!activeTenantId,
+        queryFn: async () => {
+            const { data, error } = await supabase
+                .from("deliverable_templates")
+                .select("*")
+                .eq("offering_entity_id", id!)
+                .eq("tenant_id", activeTenantId!)
+                .is("deleted_at", null)
+                .order("created_at", { ascending: true });
             if (error) throw error;
             return data;
         },
@@ -214,6 +235,22 @@ export default function InventoryDetail() {
             showError(e.message);
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handleDeleteTemplate = async (templateId: string) => {
+        if (!confirm("Remover este template de entrega?")) return;
+        try {
+            const { error } = await supabase
+                .from("deliverable_templates")
+                .update({ deleted_at: new Date().toISOString() })
+                .eq("id", templateId)
+                .eq("tenant_id", activeTenantId!);
+            if (error) throw error;
+            showSuccess("Template removido!");
+            qc.invalidateQueries({ queryKey: ["deliverable_templates", activeTenantId, id] });
+        } catch (e: any) {
+            showError(e.message);
         }
     };
 
@@ -416,10 +453,118 @@ export default function InventoryDetail() {
                                         </Button>
                                     )}
                                 </div>
+
+                                {isEdit && (
+                                    <Card className="p-6 rounded-3xl border-slate-200">
+                                        <div className="flex items-center justify-between mb-6">
+                                            <div className="flex items-center gap-3">
+                                                <div className="bg-indigo-50 p-2 rounded-xl text-indigo-600">
+                                                    <ClipboardList className="w-5 h-5" />
+                                                </div>
+                                                <div>
+                                                    <h3 className="text-base font-bold text-slate-800">Templates de Entregas</h3>
+                                                    <p className="text-xs text-slate-500">Etapas padrão de entrega para este produto.</p>
+                                                </div>
+                                            </div>
+                                            <Button
+                                                type="button"
+                                                size="sm"
+                                                variant="outline"
+                                                className="rounded-xl h-9 gap-2"
+                                                onClick={() => {
+                                                    setEditingTemplate(null);
+                                                    setUpsertOpen(true);
+                                                }}
+                                            >
+                                                <Plus className="w-4 h-4" /> Novo Template
+                                            </Button>
+                                        </div>
+
+                                        <div className="space-y-3">
+                                            {templatesQ.data?.map(t => (
+                                                <div key={t.id} className="flex items-center justify-between p-3 rounded-2xl border border-slate-100 bg-slate-50/30 group hover:border-indigo-100 hover:bg-white transition-all">
+                                                    <div className="min-w-0">
+                                                        <div className="flex items-center gap-2">
+                                                            <span className="font-bold text-sm text-slate-700">{t.name}</span>
+                                                            {t.required_resource_type && (
+                                                                <Badge variant="outline" className="text-[10px] px-1.5 h-4 font-medium border-slate-200 text-slate-500 uppercase">
+                                                                    {t.required_resource_type}
+                                                                </Badge>
+                                                            )}
+                                                        </div>
+                                                        <div className="text-[11px] text-slate-400 mt-0.5 flex items-center gap-2">
+                                                            {t.estimated_minutes ? <span>⏱️ {t.estimated_minutes} min</span> : null}
+                                                            {t.quantity > 1 ? (
+                                                                <>
+                                                                    <Separator orientation="vertical" className="h-2 bg-slate-200" />
+                                                                    <span>📦 qtd {t.quantity}</span>
+                                                                </>
+                                                            ) : null}
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                        <Button
+                                                            type="button"
+                                                            size="icon"
+                                                            variant="ghost"
+                                                            className="h-8 w-8 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50"
+                                                            onClick={() => {
+                                                                setEditingTemplate(t);
+                                                                setUpsertOpen(true);
+                                                            }}
+                                                        >
+                                                            <Pencil className="w-4 h-4" />
+                                                        </Button>
+                                                        <Button
+                                                            type="button"
+                                                            size="icon"
+                                                            variant="ghost"
+                                                            className="h-8 w-8 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50"
+                                                            onClick={() => handleDeleteTemplate(t.id)}
+                                                        >
+                                                            <Trash2 className="w-4 h-4" />
+                                                        </Button>
+                                                    </div>
+                                                </div>
+                                            ))}
+
+                                            {templatesQ.data?.length === 0 && (
+                                                <div className="py-10 text-center rounded-2xl border-2 border-dashed border-slate-100">
+                                                    <p className="text-sm text-slate-400 italic">Nenhum template de entrega configurado.</p>
+                                                </div>
+                                            )}
+
+                                            {templatesQ.isLoading && (
+                                                <div className="py-10 flex flex-col items-center gap-2">
+                                                    <Loader2 className="w-6 h-6 animate-spin text-slate-300" />
+                                                    <p className="text-xs text-slate-400">Carregando etapas...</p>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </Card>
+                                )}
                             </div>
                         </div>
                     </form>
                 </Form>
+
+                {isEdit && activeTenantId && (
+                    <DeliverableTemplateUpsertDialog
+                        open={upsertOpen}
+                        onOpenChange={setUpsertOpen}
+                        tenantId={activeTenantId}
+                        offerings={itemQ.data ? [{
+                            id: itemQ.data.id,
+                            display_name: itemQ.data.display_name,
+                            subtype: itemQ.data.subtype
+                        }] : []}
+                        initial={editingTemplate}
+                        defaultOfferingId={id}
+                        onSaved={() => {
+                            qc.invalidateQueries({ queryKey: ["deliverable_templates", activeTenantId, id] });
+                        }}
+                    />
+                )}
             </div>
         </AppShell>
     );

@@ -160,6 +160,21 @@ export function EntityTvCorporativaTab({ tenantId, entityId }: { tenantId: strin
         }
     };
 
+    const handleToggleMediaStatus = async (id: string, currentStatus: string) => {
+        const nextStatus = currentStatus === "active" ? "inactive" : "active";
+        try {
+            const { error } = await supabase
+                .from("tv_media")
+                .update({ status: nextStatus })
+                .eq("id", id);
+            if (error) throw error;
+            showSuccess(nextStatus === "active" ? "Mídia ativada" : "Mídia desativada");
+            qc.invalidateQueries({ queryKey: ["tv_media", tenantId, entityId] });
+        } catch (e: any) {
+            showError("Erro ao alterar status da mídia");
+        }
+    };
+
     const handleTogglePlan = async (planId: string, isActive: boolean, existingRecordId?: string) => {
         try {
             if (existingRecordId) {
@@ -386,7 +401,7 @@ export function EntityTvCorporativaTab({ tenantId, entityId }: { tenantId: strin
                     ) : (
                         <div className="flex flex-col gap-3">
                             {mediaQ.data?.map(m => (
-                                <div key={m.id} className="flex items-center justify-between rounded-xl border border-slate-200 p-3">
+                                <div key={m.id} className={`flex items-center justify-between rounded-xl border p-3 transition ${m.status === 'inactive' ? 'opacity-50 grayscale bg-slate-50 border-slate-200' : 'border-slate-200 bg-white shadow-sm'}`}>
                                     <div className="flex items-center gap-3 overflow-hidden flex-1">
                                         {m.media_type === 'youtube_link' ? <Youtube className="h-5 w-5 text-rose-500 shrink-0" /> : <LinkIcon className="h-5 w-5 text-indigo-500 shrink-0" />}
                                         <div className="truncate flex-1">
@@ -431,7 +446,7 @@ export function EntityTvCorporativaTab({ tenantId, entityId }: { tenantId: strin
                                         </div>
                                     </div>
                                     <div className="flex items-center gap-2 shrink-0">
-                                        <div className="relative group/frame">
+                                        <div className="relative group/frame mr-2">
                                             {m.frame_url ? (
                                                 <div className="flex items-center gap-1">
                                                     <div className="h-8 w-8 rounded-lg border border-slate-200 overflow-hidden bg-white cursor-pointer hover:bg-slate-50 relative group/frameimg">
@@ -455,6 +470,13 @@ export function EntityTvCorporativaTab({ tenantId, entityId }: { tenantId: strin
                                                     </Button>
                                                 </div>
                                             )}
+                                        </div>
+                                        <div className="flex items-center gap-2 mr-2">
+                                            <Switch
+                                                checked={m.status === "active"}
+                                                onCheckedChange={() => handleToggleMediaStatus(m.id, m.status)}
+                                                title={m.status === "active" ? "Desativar mídia" : "Ativar mídia"}
+                                            />
                                         </div>
                                         <Button variant="ghost" size="icon" onClick={() => handleDeleteMedia(m.id)} className="text-slate-400 hover:text-rose-600">
                                             <Trash2 className="h-4 w-4" />

@@ -54,7 +54,6 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
 
   const refresh = async () => {
     if (!user) {
-      console.log("[TenantProvider] No user, clearing tenants");
       setTenants([]);
       setActiveTenantIdState(null);
       setMembershipHint({ type: "none" });
@@ -62,7 +61,6 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    console.log("[TenantProvider] Refreshing tenants for user:", user.id);
     setLoading(true);
     setMembershipHint({ type: "none" });
 
@@ -75,7 +73,6 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
     try {
       // Super-admin can see *all* tenants (via RLS bypass claim).
       if (isSuperAdmin) {
-        console.log("[TenantProvider] User is super-admin, fetching all tenants");
         const { data, error } = await supabase
           .from("tenants")
           .select("id,name,slug,branding_json,modules_json")
@@ -99,7 +96,6 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
           role: "admin",
         }));
 
-        console.log(`[TenantProvider] Mapped ${mapped.length} tenants for super-admin`);
         setTenants(mapped);
 
         if (mapped.length === 1) {
@@ -114,7 +110,6 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
       }
 
       // Regular users: tenant list comes from users_profile membership.
-      console.log("[TenantProvider] Fetching memberships from users_profile");
       const { data, error } = await supabase
         .from("users_profile")
         .select("tenant_id, role, tenants(id,name,slug,branding_json,modules_json)")
@@ -139,11 +134,9 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
         }))
         .filter((t: any) => Boolean(t.id));
 
-      console.log(`[TenantProvider] Mapped ${mapped.length} tenants for user`);
       setTenants(mapped);
 
       if (mapped.length === 0) {
-        console.log("[TenantProvider] No active memberships, checking for soft-deleted ones");
         // Distinguish "no membership" vs "membership exists but is soft-deleted".
         const { data: anyRows, error: anyErr } = await supabase
           .from("users_profile")
@@ -172,7 +165,6 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
     } finally {
       clearTimeout(timeout);
       setLoading(false);
-      console.log("[TenantProvider] Refresh complete");
     }
   };
 

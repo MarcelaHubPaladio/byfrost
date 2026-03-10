@@ -427,14 +427,6 @@ export function WhatsAppConversation({
         }
       }
 
-      console.log("[WhatsAppConversation] Querying messages:", {
-        caseId,
-        conversationMode,
-        entityPhone,
-        waGroupId,
-        qString: q['url'] ? q['url'].toString() : 'unknown'
-      });
-
       const { data, error } = await q
         .order("occurred_at", { ascending: true })
         .limit(200);

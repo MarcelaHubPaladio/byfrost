@@ -14,8 +14,6 @@ const handlers: Record<ActionType, ActionHandler> = {
     send_whatsapp: async ({ tenantId, caseId, action }) => {
         // Exemplo: { template: 'welcome', to_role: 'customer' }
         // Implementação real viria aqui (chamar Edge Function ou tabela de mensagens)
-        console.log(`[Action:send_whatsapp] Case ${caseId} (${tenantId})`, action.params);
-
         // Por enquanto, apenas loga no timeline para evidência
         await supabase.from("timeline_events").insert({
             tenant_id: tenantId,
@@ -29,15 +27,14 @@ const handlers: Record<ActionType, ActionHandler> = {
     },
 
     create_trello_card: async ({ tenantId, caseId, action }) => {
-        console.log(`[Action:create_trello_card] Case ${caseId}`, action.params);
+        // Implementação para criar cartão no Trello
     },
 
     update_case_field: async ({ tenantId, caseId, action }) => {
-        console.log(`[Action:update_case_field] Case ${caseId}`, action.params);
+        // Implementação para atualizar campo do caso
     },
 
     webhook: async ({ tenantId, caseId, action }) => {
-        console.log(`[Action:webhook] Case ${caseId}`, action.params);
         if (action.params.url) {
             try {
                 await fetch(action.params.url, {
@@ -72,8 +69,6 @@ export async function executeTransitionActions(
     ];
 
     if (actions.length === 0) return;
-
-    console.log(`[JourneyActions] Found ${actions.length} actions for transition ${oldState} -> ${newState}`);
 
     for (const action of actions) {
         const handler = handlers[action.type];

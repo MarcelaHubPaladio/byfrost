@@ -23,10 +23,9 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     let mounted = true;
 
-    console.log("[SessionProvider] Initializing session...");
     supabase.auth.getSession().then(({ data, error }) => {
       if (!mounted) return;
-      console.log("[SessionProvider] getSession result:", { hasSession: !!data.session, error });
+      if (!mounted) return;
       setSession(data.session ?? null);
       setLoading(false);
     }).catch(err => {
@@ -35,7 +34,6 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     });
 
     const { data } = supabase.auth.onAuthStateChange((event, nextSession) => {
-      console.log("[SessionProvider] onAuthStateChange event:", event, { hasSession: !!nextSession });
       setSession(nextSession);
       setLoading(false);
     });

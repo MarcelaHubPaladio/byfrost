@@ -9,6 +9,7 @@ type UploadKind = "participants" | "events" | "branding"; // Added "branding"
 type Body = {
   action?: "upload" | "sign";
   tenantId?: string;
+  tenant_id?: string;
   kind?: UploadKind;
 
   // upload (robust support)

@@ -252,7 +252,7 @@ export default function PublicProposal() {
         const finalQty = typeof overrideQty === "number" ? overrideQty : (itemQty * baseQty);
 
         if (finalQty > 0) {
-          deliverableLines.push(`${String(t.name)}`);
+          deliverableLines.push(`${String(t.name)} (qtd ${finalQty})`);
         }
       }
     }

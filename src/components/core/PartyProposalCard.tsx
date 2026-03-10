@@ -448,7 +448,7 @@ export function PartyProposalCard({
             const finalQty = typeof overrideQty === "number" ? overrideQty : (itemQty * baseQty);
 
             if (finalQty > 0) {
-              scopeLines.push(`  - Entregável: ${(t as any).name}`);
+              scopeLines.push(`  - Entregável: ${(t as any).name} (qtd ${finalQty})`);
             }
           }
         }

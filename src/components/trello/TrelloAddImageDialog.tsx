@@ -10,14 +10,14 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { supabase } from "@/lib/supabase";
+import { supabase, SUPABASE_URL_IN_USE } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 import { showError, showSuccess } from "@/utils/toast";
 import { ImagePlus } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // 5MB
-const UPLOAD_ASSET_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/upload-tenant-asset`;
+const UPLOAD_ASSET_URL = `${SUPABASE_URL_IN_USE}/functions/v1/upload-tenant-asset`;
 
 async function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {

@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useParams, useNavigate } from "react-router-dom";
 import { RequireAuth } from "@/components/RequireAuth";
 import { AppShell } from "@/components/AppShell";
-import { supabase } from "@/lib/supabase";
+import { supabase, SUPABASE_URL_IN_USE } from "@/lib/supabase";
 import { useTenant } from "@/providers/TenantProvider";
 import { useSession } from "@/providers/SessionProvider";
 import { Button } from "@/components/ui/button";
@@ -151,7 +151,7 @@ function UserDataTab({ userData }: { userData: any }) {
             const { data: { session } } = await supabase.auth.getSession();
             if (!session) throw new Error("Não autenticado");
 
-            const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/admin-reset-pwd`, {
+            const res = await fetch(`${SUPABASE_URL_IN_USE}/functions/v1/admin-reset-pwd`, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
@@ -188,7 +188,7 @@ function UserDataTab({ userData }: { userData: any }) {
             const { data: { session } } = await supabase.auth.getSession();
             const message = `*Olá ${name}!* 🚀\n\nSeguem suas credenciais de acesso ao Byfrost:\n\n*E-mail:* ${email}\n*Senha Temporária:* ${tempPassword}\n\n*Acesse aqui:* ${window.location.origin}/login\n\n_Recomendamos trocar sua senha após o primeiro acesso._`;
 
-            const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/integrations-zapi-send`, {
+            const res = await fetch(`${SUPABASE_URL_IN_USE}/functions/v1/integrations-zapi-send`, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",

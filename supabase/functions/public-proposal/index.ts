@@ -603,7 +603,7 @@ serve(async (req) => {
         const overrides = (it as any).metadata?.deliverable_overrides ?? {};
 
         // Product name
-        scopeLines.push(`${offName} [PRODUTO]`);
+        scopeLines.push(`${offName}`);
 
         for (const t of ts) {
           const tId = String((t as any).id);
@@ -713,7 +713,7 @@ serve(async (req) => {
         const overrides = (it as any).metadata?.deliverable_overrides ?? {};
 
         // Product name
-        scopeLines.push(`${offName} [PRODUTO]`);
+        scopeLines.push(`${offName}`);
 
         for (const t of ts) {
           const tId = String((t as any).id);

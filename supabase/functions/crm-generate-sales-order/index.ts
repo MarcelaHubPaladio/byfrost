@@ -21,6 +21,7 @@ serve(async (req: Request) => {
     if (!tenantId || !caseId) return new Response(JSON.stringify({ ok: false, error: "Missing tenantId or caseId in body" }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
     // 1. Get the CRM Case
+    console.log(`[${fn}] Fetching case ${caseId} for tenant ${tenantId}`);
     const { data: crmCase, error: caseErr } = await supabase
       .from("cases")
       .select("*, customer_accounts(*), customer_id")
@@ -35,6 +36,7 @@ serve(async (req: Request) => {
     }
 
     // 2. Get the sales_order Journey
+    console.log(`[${fn}] Fetching sales_order journey`);
     const { data: salesOrderJourney, error: jrnErr } = await supabase
       .from("journeys")
       .select("id")
@@ -53,6 +55,7 @@ serve(async (req: Request) => {
     const customerEmail = crmCase.customer_accounts?.email || crmCase.meta_json?.email || "";
 
     // 3. Create the Sales Order Case
+    console.log(`[${fn}] Creating sales order case`);
     const { data: orderCase, error: insertErr } = await supabase
       .from("cases")
       .insert({
@@ -82,6 +85,7 @@ serve(async (req: Request) => {
 
     // 4. Duplicate Items
     if (generationMode === "crm") {
+      console.log(`[${fn}] Duplicating items from CRM case`);
       // Get existing CRM items
       const { data: existingItems } = await supabase
         .from("case_items")
@@ -120,12 +124,14 @@ serve(async (req: Request) => {
   }
 
     // 4.2 Duplicate Fields & Inject Customer Data
+    console.log(`[${fn}] Duplicating fields from CRM case`);
     const { data: existingFields } = await supabase
       .from("case_fields")
       .select("*")
       .eq("case_id", caseId);
 
     const fieldsToInsert = (existingFields || []).map((f: any) => ({
+      tenant_id: tenantId,
       case_id: orderCase.id,
       key: f.key,
       value_text: f.value_text,
@@ -138,13 +144,13 @@ serve(async (req: Request) => {
 
     const hasField = (k: string) => fieldsToInsert.some((f: any) => f.key === k);
     if (customerName && customerName !== "Novo Lead" && !hasField("name")) {
-      fieldsToInsert.push({ case_id: orderCase.id, key: "name", value_text: customerName, source: "crm_generation", confidence: 1, last_updated_by: "system" });
+      fieldsToInsert.push({ tenant_id: tenantId, case_id: orderCase.id, key: "name", value_text: customerName, source: "crm_generation", confidence: 1, last_updated_by: "system" });
     }
     if (customerPhone && !hasField("phone")) {
-      fieldsToInsert.push({ case_id: orderCase.id, key: "phone", value_text: customerPhone, source: "crm_generation", confidence: 1, last_updated_by: "system" });
+      fieldsToInsert.push({ tenant_id: tenantId, case_id: orderCase.id, key: "phone", value_text: customerPhone, source: "crm_generation", confidence: 1, last_updated_by: "system" });
     }
     if (customerEmail && !hasField("email")) {
-      fieldsToInsert.push({ case_id: orderCase.id, key: "email", value_text: customerEmail, source: "crm_generation", confidence: 1, last_updated_by: "system" });
+      fieldsToInsert.push({ tenant_id: tenantId, case_id: orderCase.id, key: "email", value_text: customerEmail, source: "crm_generation", confidence: 1, last_updated_by: "system" });
     }
 
     if (fieldsToInsert.length > 0) {
@@ -154,6 +160,7 @@ serve(async (req: Request) => {
 
     // 4.3 Link Attachments
     if (attachments && Array.isArray(attachments) && attachments.length > 0) {
+      console.log(`[${fn}] Linking ${attachments.length} attachments`);
       const attachmentsToInsert = attachments.map((att: any) => ({
         tenant_id: tenantId,
         case_id: orderCase.id,
@@ -169,6 +176,7 @@ serve(async (req: Request) => {
     }
 
     // 5. Audit & Timeline
+    console.log(`[${fn}] Finalizing audit and timeline`);
     await Promise.all([
       supabase.rpc("append_audit_ledger", {
         p_tenant_id: tenantId,

@@ -893,6 +893,33 @@ export default function Dashboard() {
     }
   };
 
+  const hasCrmAccess = (allJourneys: JourneyOpt[]) => allJourneys.some(j => j.is_crm);
+
+  if (!journeyKey && !journeyQ.isLoading && (journeyQ.data?.length ?? 0) === 0) {
+    const allUserJourneys = (journeyQ.data || []); // This is already filtered
+    // We need to know if they have ANY journey, even CRM
+    return (
+      <RequireAuth>
+        <AppShell>
+          <div className="flex flex-col items-center justify-center min-h-[50vh] text-center p-8 bg-white/40 rounded-[32px] border border-slate-200 backdrop-blur">
+            <h2 className="text-xl font-semibold text-slate-800">Nenhuma jornada ativa no painel</h2>
+            <p className="text-slate-500 mt-2 max-w-sm">
+              Você não possui jornadas de operação padrão habilitadas.
+            </p>
+            <div className="mt-6 flex flex-wrap justify-center gap-3">
+              <Button asChild variant="outline" className="rounded-2xl h-11 px-6">
+                <Link to="/app/crm">Ir para o CRM</Link>
+              </Button>
+              <Button asChild variant="ghost" className="rounded-2xl h-11 px-6">
+                <Link to="/app/trello">Ver Tarefas</Link>
+              </Button>
+            </div>
+          </div>
+        </AppShell>
+      </RequireAuth>
+    );
+  }
+
   return (
     <RequireAuth>
       <AppShell>

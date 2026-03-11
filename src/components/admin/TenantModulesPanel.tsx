@@ -26,6 +26,10 @@ function getLinkManagerEnabled(modulesJson: any) {
   return Boolean(modulesJson?.link_manager_enabled === true);
 }
 
+function getPortalEnabled(modulesJson: any) {
+  return Boolean(modulesJson?.portal_enabled === true);
+}
+
 function setModuleFlag(modulesJson: any, key: string, enabled: boolean) {
   const base = (modulesJson ?? {}) as any;
   return { ...base, [key]: enabled };
@@ -56,6 +60,7 @@ export function TenantModulesPanel() {
   const goalsEnabled = useMemo(() => getGoalsEnabled(tenantQ.data?.modules_json), [tenantQ.data]);
   const tvCorporativaEnabled = useMemo(() => getTvCorporativaEnabled(tenantQ.data?.modules_json), [tenantQ.data]);
   const linkManagerEnabled = useMemo(() => getLinkManagerEnabled(tenantQ.data?.modules_json), [tenantQ.data]);
+  const portalEnabled = useMemo(() => getPortalEnabled(tenantQ.data?.modules_json), [tenantQ.data]);
 
   const toggleModule = async (key: string, next: boolean) => {
     if (!activeTenantId) return;
@@ -158,6 +163,20 @@ export function TenantModulesPanel() {
                 checked={linkManagerEnabled}
                 disabled={saving || tenantQ.isLoading}
                 onCheckedChange={(v) => toggleModule("link_manager_enabled", v)}
+              />
+            </div>
+
+            <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
+              <div>
+                <div className="text-xs font-semibold text-slate-900">Construtor de Páginas (Portal)</div>
+                <div className="mt-0.5 text-[11px] text-slate-600">
+                  Habilita a criação de sites, landing pages e portais para o tenant.
+                </div>
+              </div>
+              <Switch
+                checked={portalEnabled}
+                disabled={saving || tenantQ.isLoading}
+                onCheckedChange={(v) => toggleModule("portal_enabled", v)}
               />
             </div>
 

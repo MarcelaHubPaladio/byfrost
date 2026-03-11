@@ -35,6 +35,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@/components/ui/tabs";
 import { BadgeDollarSign, Check, ChevronsUpDown, ExternalLink, Plus, Trash2, PackagePlus, Loader2, Target, FileText, X, Upload } from "lucide-react";
 import { useSession } from "@/providers/SessionProvider";
 import { useTenant } from "@/providers/TenantProvider";
@@ -90,6 +96,7 @@ export function CaseProductsCard(props: { tenantId: string; caseId: string }) {
   const [selectedGoal, setSelectedGoal] = useState<string>("none");
   const [attachments, setAttachments] = useState<File[]>([]);
   const [uploadProgress, setUploadProgress] = useState<{ [key: string]: number }>({});
+  const [generationMode, setGenerationMode] = useState<"crm" | "manual">("crm");
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(searchOffering), 300);
@@ -288,7 +295,8 @@ export function CaseProductsCard(props: { tenantId: string; caseId: string }) {
       const payload: any = { 
         tenantId: props.tenantId, 
         caseId: props.caseId,
-        attachments: uploadedAttachments
+        attachments: uploadedAttachments,
+        generationMode
       };
       if (selectedGoal && selectedGoal !== "none") {
         payload.linked_goal_metric = selectedGoal;
@@ -335,7 +343,7 @@ export function CaseProductsCard(props: { tenantId: string; caseId: string }) {
           variant="secondary"
           className="h-9 rounded-xl text-xs font-semibold bg-indigo-50 text-indigo-700 hover:bg-indigo-100 hover:text-indigo-800"
           onClick={() => setConfirmOrderOpen(true)}
-          disabled={generatingOrder || itemsQ.data?.length === 0}
+          disabled={generatingOrder}
         >
           {generatingOrder ? (
             <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
@@ -525,7 +533,31 @@ export function CaseProductsCard(props: { tenantId: string; caseId: string }) {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="py-4 space-y-4">
+          <Tabs value={generationMode} onValueChange={(v: any) => setGenerationMode(v)} className="w-full mt-2">
+            <TabsList className="grid w-full grid-cols-2 rounded-2xl">
+              <TabsTrigger value="crm" className="rounded-xl">Pedido pelo CRM</TabsTrigger>
+              <TabsTrigger value="manual" className="rounded-xl">Pedido Manual</TabsTrigger>
+            </TabsList>
+            
+            <TabsContent value="crm" className="mt-4">
+              <div className="rounded-2xl border border-indigo-100 bg-indigo-50/50 p-4 text-xs text-indigo-900 leading-relaxed">
+                <p className="font-semibold mb-1">Modo CRM:</p>
+                Os {itemsQ.data?.length ?? 0} itens listados no CRM serão transferidos para o novo pedido e removidos deste case.
+                {itemsQ.data?.length === 0 && (
+                  <p className="text-rose-600 mt-2 font-semibold">Atenção: Adicione itens no CRM antes ou use o modo Manual.</p>
+                )}
+              </div>
+            </TabsContent>
+
+            <TabsContent value="manual" className="mt-4">
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-xs text-slate-600 leading-relaxed">
+                <p className="font-semibold text-slate-800 mb-1">Modo Manual:</p>
+                Nenhum item do CRM será transferido. Utilize este modo quando o pedido for baseado apenas nos documentos anexados.
+              </div>
+            </TabsContent>
+          </Tabs>
+
+          <div className="py-2 space-y-4">
             <div className="space-y-2">
               <Label className="flex items-center gap-2">
                 <Target className="w-4 h-4 text-slate-500" />
@@ -600,7 +632,11 @@ export function CaseProductsCard(props: { tenantId: string; caseId: string }) {
             <Button variant="outline" onClick={() => setConfirmOrderOpen(false)} disabled={generatingOrder}>
               Cancelar
             </Button>
-            <Button onClick={generateOrder} disabled={generatingOrder} className="bg-indigo-600 hover:bg-indigo-700">
+            <Button 
+              onClick={generateOrder} 
+              disabled={generatingOrder || (generationMode === "crm" && itemsQ.data?.length === 0)} 
+              className="bg-indigo-600 hover:bg-indigo-700"
+            >
               {generatingOrder ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
               Confirmar Geração
             </Button>

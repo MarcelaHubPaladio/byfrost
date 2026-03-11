@@ -3,6 +3,7 @@
 
 -- 1. Deduplicate existing entities before creating the unique index
 -- This merges child record references into a single "master" for each (tenant_id, display_name)
+-- We must consider ALL records (active or deleted) because the index is total.
 DO $$
 DECLARE
     r RECORD;
@@ -11,23 +12,20 @@ BEGIN
     -- Disable audit trigger to allow safe cleanup of redundant entities
     alter table public.core_entity_events disable trigger trg_core_entity_events_no_delete;
 
-    -- Find all groups of entities that have the same name within the same tenant
+    -- Find all groups of entities that have the same name within the same tenant (including deleted ones)
     FOR r IN (
         SELECT tenant_id, display_name
           FROM public.core_entities
-         WHERE deleted_at IS NULL
          GROUP BY tenant_id, display_name
         HAVING count(*) > 1
     ) LOOP
-        -- Identify the "master" record (the one most recently updated)
+        -- Identify the "master" record (Preferred: active one. Fallback: newest one)
         SELECT id INTO v_master_id
           FROM public.core_entities
-         WHERE tenant_id = r.tenant_id AND display_name = r.display_name AND deleted_at IS NULL
-         ORDER BY updated_at DESC LIMIT 1;
+         WHERE tenant_id = r.tenant_id AND display_name = r.display_name
+         ORDER BY (deleted_at IS NULL) DESC, updated_at DESC LIMIT 1;
 
         -- Re-point children from other redundant entities to the master
-        -- (This covers all major tables that reference core_entities)
-
         UPDATE public.customer_accounts SET entity_id = v_master_id
          WHERE tenant_id = r.tenant_id AND entity_id IN (SELECT id FROM public.core_entities WHERE tenant_id = r.tenant_id AND display_name = r.display_name AND id <> v_master_id);
 
@@ -49,8 +47,7 @@ BEGIN
         UPDATE public.core_entity_relations SET to_entity_id = v_master_id
          WHERE tenant_id = r.tenant_id AND to_entity_id IN (SELECT id FROM public.core_entities WHERE tenant_id = r.tenant_id AND display_name = r.display_name AND id <> v_master_id);
 
-        -- Specialized tables (one-to-one or complex ones)
-        -- Delete redundant core_offerings (specializations) if the master already has one or if they are redundant
+        -- Specialized tables
         DELETE FROM public.core_offerings
          WHERE entity_id IN (SELECT id FROM public.core_entities WHERE tenant_id = r.tenant_id AND display_name = r.display_name AND id <> v_master_id);
 
@@ -60,7 +57,7 @@ BEGIN
             USING v_master_id, r.tenant_id, r.display_name;
         END IF;
 
-        -- Finally, delete the redundant entities themselves
+        -- Finally, delete the redundant entities themselves (hard delete)
         DELETE FROM public.core_entities
          WHERE tenant_id = r.tenant_id AND display_name = r.display_name AND id <> v_master_id;
 

@@ -881,6 +881,10 @@ export function FinancialLedgerPanel() {
   const [reconcileDialogOpen, setReconcileDialogOpen] = useState(false);
   const [reconcileOnlyCurrentMonth, setReconcileOnlyCurrentMonth] = useState(true);
   const [reconcileEntityId, setReconcileEntityId] = useState<string | null>(null);
+  const [reconcileAdjustmentCatId, setReconcileAdjustmentCatId] = useState<string | null>(null);
+  const [reconcileDiff, setReconcileDiff] = useState<number | null>(null);
+  const [reconcilePendingLink, setReconcilePendingLink] = useState<{ id: string, type: string } | null>(null);
+  const [reconcilePendingLabel, setReconcilePendingLabel] = useState<string | null>(null);
 
   const selectedTx = useMemo(() =>
     transactionsQ.data?.find(t => t.id === reconcileTxId),
@@ -901,8 +905,9 @@ export function FinancialLedgerPanel() {
   });
 
   const reconcileTxM = useMutation({
-    mutationFn: async ({ linkedId, type }: { linkedId: string, type: string }) => {
+    mutationFn: async ({ linkedId, type, adjustment }: { linkedId: string, type: string, adjustment?: { amount: number, categoryId: string } }) => {
       if (!activeTenantId || !reconcileTxId) throw new Error("Parâmetros inválidos");
+      
       const { data, error } = await supabase.rpc("financial_reconcile_transaction", {
         p_tenant_id: activeTenantId,
         p_transaction_id: reconcileTxId,
@@ -911,11 +916,29 @@ export function FinancialLedgerPanel() {
       });
       if (error) throw error;
       if (data?.ok === false) throw new Error(data.error || "Erro desconhecido");
+
+      if (adjustment && adjustment.amount !== 0) {
+        const table = type === 'payable' ? 'financial_payables' : 'financial_receivables';
+        const { error: adjErr } = await supabase.from(table).insert({
+          tenant_id: activeTenantId,
+          description: `Ajuste/Juros de conciliação (${reconcileTxId?.slice(0,8)})`,
+          amount: Math.abs(adjustment.amount),
+          due_date: selectedTx?.transaction_date,
+          status: 'paid',
+          category_id: adjustment.categoryId,
+          entity_id: reconcileEntityId
+        });
+        if (adjErr) console.error("Falha ao criar ajuste:", adjErr);
+      }
     },
     onSuccess: async () => {
       showSuccess("Transação conciliada com sucesso.");
       setReconcileDialogOpen(false);
       setReconcileTxId(null);
+      setReconcileDiff(null);
+      setReconcilePendingLink(null);
+      setReconcilePendingLabel(null);
+      setReconcileAdjustmentCatId(null);
       await qc.invalidateQueries({ queryKey: ["financial_transactions", activeTenantId] });
       await qc.invalidateQueries({ queryKey: ["financial_cash_projection", activeTenantId] });
     },
@@ -2020,9 +2043,20 @@ export function FinancialLedgerPanel() {
                   key={`reconcile-search-${reconcileOnlyCurrentMonth}`}
                   className="h-10 rounded-2xl"
                   placeholder="Buscar por descrição ou valor..."
-                  onChange={(val) => {
-                    if (val) {
-                      reconcileTxM.mutate({ linkedId: val, type: selectedTx.type === 'debit' ? 'payable' : 'receivable' });
+                  onChange={(jsonVal) => {
+                    if (jsonVal) {
+                      const { id, amount, label } = JSON.parse(jsonVal);
+                      const diff = Math.abs(selectedTx?.amount || 0) - (amount || 0);
+                      const type = selectedTx.type === 'debit' ? 'payable' : 'receivable';
+
+                      if (diff > 0.01) {
+                        setReconcileDiff(diff);
+                        setReconcilePendingLink({ id, type });
+                        setReconcilePendingLabel(label);
+                        setReconcileAdjustmentCatId(null);
+                      } else {
+                        reconcileTxM.mutate({ linkedId: id, type });
+                      }
                     }
                   }}
                   loadOptions={async (val) => {
@@ -2048,7 +2082,7 @@ export function FinancialLedgerPanel() {
                       .limit(10);
                     
                     return (data || []).map((d: any) => ({
-                      value: d.id,
+                      value: JSON.stringify({ id: d.id, amount: d.amount, label: d.description }),
                       label: `${d.description}${d.core_entities?.display_name ? ` [${d.core_entities.display_name}]` : ""} - ${formatMoneyBRL(d.amount)} (${d.due_date})`
                     }));
                   }}
@@ -2086,11 +2120,35 @@ export function FinancialLedgerPanel() {
                             )}>
                               {match.days_diff === 0 ? "Mesma data" : `${match.days_diff} dias de diferença`}
                             </span>
+                            {selectedTx && Math.abs(selectedTx.amount) > match.amount && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded-full border bg-amber-50 text-amber-700 border-amber-200">
+                                Diferença: {formatMoneyBRL(Math.abs(selectedTx.amount) - match.amount)}
+                              </span>
+                            )}
                           </span>
                         </div>
-                        <Button size="sm" variant="outline" className="h-8 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity">
-                          Vincular
-                        </Button>
+                        <div className="flex flex-col items-end gap-2">
+                          <span className="text-sm font-bold text-slate-900 dark:text-slate-100">{formatMoneyBRL(match.amount)}</span>
+                          <Button 
+                            size="sm" 
+                            variant="outline" 
+                            className="h-8 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const diff = Math.abs(selectedTx?.amount || 0) - match.amount;
+                              if (diff > 0.01) {
+                                setReconcileDiff(diff);
+                                setReconcilePendingLink({ id: match.id, type: match.type });
+                                setReconcilePendingLabel(match.description);
+                                setReconcileAdjustmentCatId(null);
+                              } else {
+                                reconcileTxM.mutate({ linkedId: match.id, type: match.type });
+                              }
+                            }}
+                          >
+                            Vincular
+                          </Button>
+                        </div>
                       </div>
                     ))
                   ) : (
@@ -2162,6 +2220,65 @@ export function FinancialLedgerPanel() {
                   )}
                 </div>
               </div>
+
+              {reconcileDiff !== null && reconcilePendingLink && (
+                <div className="absolute inset-0 bg-white/95 dark:bg-slate-950/95 z-20 flex flex-col items-center justify-center p-6 text-center animate-in fade-in zoom-in duration-200">
+                  <div className="w-16 h-16 rounded-full bg-amber-100 dark:bg-amber-900/30 text-amber-600 flex items-center justify-center mb-4">
+                    <Info className="h-8 w-8" />
+                  </div>
+                  <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100 mb-1">Diferença Detectada</h3>
+                  <div className="text-sm text-slate-600 dark:text-slate-400 mb-6">
+                    Você está vinculando a <strong>{reconcilePendingLabel}</strong>.<br/>
+                    O valor pago é maior em <strong className="text-emerald-600">{formatMoneyBRL(reconcileDiff)}</strong>.
+                  </div>
+
+                  <div className="w-full max-w-sm space-y-4 bg-slate-50 dark:bg-slate-900/50 p-6 rounded-3xl border border-slate-200 dark:border-slate-800">
+                    <div className="text-left">
+                      <Label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-2 block text-center">Classificar a diferença como:</Label>
+                      <AsyncSelect
+                        className="h-10 rounded-2xl"
+                        value={reconcileAdjustmentCatId}
+                        onChange={setReconcileAdjustmentCatId}
+                        placeholder="Selecione categoria (ex: Juros)..."
+                        loadOptions={async (val) => {
+                          if (!activeTenantId) return [];
+                          const { data } = await supabase
+                            .from("financial_categories")
+                            .select("id, name")
+                            .eq("tenant_id", activeTenantId)
+                            .ilike("name", `%${val}%`)
+                            .limit(10);
+                          return (data || []).map((d) => ({ value: d.id, label: d.name }));
+                        }}
+                      />
+                    </div>
+                    
+                    <div className="flex flex-col gap-2 pt-2">
+                       <Button 
+                        className="w-full h-11 rounded-2xl bg-[hsl(var(--byfrost-accent))] hover:bg-[hsl(var(--byfrost-accent)/0.9)]"
+                        disabled={!reconcileAdjustmentCatId || reconcileTxM.isPending}
+                        onClick={() => reconcileTxM.mutate({ 
+                          linkedId: reconcilePendingLink.id, 
+                          type: reconcilePendingLink.type,
+                          adjustment: { amount: reconcileDiff, categoryId: reconcileAdjustmentCatId! }
+                        })}
+                      >
+                        {reconcileTxM.isPending ? "Processando..." : "Confirmar Vínculo com Ajuste"}
+                      </Button>
+                      <Button 
+                        variant="ghost" 
+                        className="w-full h-11 rounded-2xl text-slate-500"
+                        onClick={() => {
+                          setReconcileDiff(null);
+                          setReconcilePendingLink(null);
+                        }}
+                      >
+                        Cancelar
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

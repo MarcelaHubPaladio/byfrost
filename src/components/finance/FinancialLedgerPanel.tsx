@@ -2001,6 +2001,36 @@ export function FinancialLedgerPanel() {
                 </div>
               </div>
 
+              <div className="space-y-2">
+                <Label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Busca manual (Conciliação Parcial)</Label>
+                <AsyncSelect
+                  className="h-10 rounded-2xl"
+                  placeholder="Buscar por descrição ou valor..."
+                  onChange={(val) => {
+                    if (val) {
+                      reconcileTxM.mutate({ linkedId: val, type: selectedTx.type === 'debit' ? 'payable' : 'receivable' });
+                    }
+                  }}
+                  loadOptions={async (val) => {
+                    if (!activeTenantId || val.length < 2) return [];
+                    const table = selectedTx.type === 'debit' ? 'financial_payables' : 'financial_receivables';
+                    const { data } = await supabase
+                      .from(table)
+                      .select("id, description, amount, due_date")
+                      .eq("tenant_id", activeTenantId)
+                      .eq("status", "pending")
+                      .or(`description.ilike.%${val}%,amount.as.text.ilike.%${val}%`)
+                      .order("due_date", { ascending: true })
+                      .limit(10);
+                    
+                    return (data || []).map((d: any) => ({
+                      value: d.id,
+                      label: `${d.description} - ${formatMoneyBRL(d.amount)} (${d.due_date})`
+                    }));
+                  }}
+                />
+              </div>
+
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
                   <h4 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">

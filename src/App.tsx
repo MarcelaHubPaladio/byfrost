@@ -18,6 +18,7 @@ import { RequireChatInstanceAccess } from "@/components/RequireChatInstanceAcces
 import { RequireFinanceEnabled } from "@/components/RequireFinanceEnabled";
 import { RequireSimulatorEnabled } from "@/components/RequireSimulatorEnabled";
 import { RequireLinkManagerEnabled } from "@/components/RequireLinkManagerEnabled";
+import { RequirePortalEnabled } from "@/components/RequirePortalEnabled";
 
 // Lazy-loaded components
 const Index = lazy(() => import("@/pages/Index"));
@@ -69,6 +70,9 @@ const Inventory = lazy(() => import("@/pages/Inventory"));
 const InventoryDetail = lazy(() => import("@/pages/InventoryDetail"));
 const LinkManager = lazy(() => import("@/pages/LinkManager"));
 const PublicLinks = lazy(() => import("@/pages/PublicLinks"));
+const PortalManager = lazy(() => import("@/pages/PortalManager"));
+const PortalEditor = lazy(() => import("@/pages/PortalEditor"));
+const PublicPortal = lazy(() => import("@/pages/PublicPortal"));
 
 const GlobalLoading = () => (
   <div className="flex h-screen w-full items-center justify-center bg-slate-50 dark:bg-slate-950">
@@ -118,6 +122,10 @@ const App = () => (
 
                   {/* Public LinkTree (no auth) */}
                   <Route path="/l/:tenantSlug/:groupSlug" element={<PublicLinks />} />
+
+                  {/* Public Portal (no auth) */}
+                  <Route path="/portal/:tenantSlug/:slug" element={<PublicPortal />} />
+                  <Route path="/l/:tenantSlug/p/:slug" element={<PublicPortal />} />
 
                   {/* Incentives (gestão interna; protegido por matriz de acesso) */}
                   <Route
@@ -426,6 +434,27 @@ const App = () => (
                         <RequireLinkManagerEnabled>
                           <LinkManager />
                         </RequireLinkManagerEnabled>
+                      </RequireRouteAccess>
+                    }
+                  />
+
+                  <Route
+                    path="/app/portal"
+                    element={
+                      <RequireRouteAccess routeKey="app.settings">
+                        <RequirePortalEnabled>
+                          <PortalManager />
+                        </RequirePortalEnabled>
+                      </RequireRouteAccess>
+                    }
+                  />
+                  <Route
+                    path="/app/portal/edit/:id"
+                    element={
+                      <RequireRouteAccess routeKey="app.settings">
+                        <RequirePortalEnabled>
+                          <PortalEditor />
+                        </RequirePortalEnabled>
                       </RequireRouteAccess>
                     }
                   />

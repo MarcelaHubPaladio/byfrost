@@ -229,7 +229,7 @@ export function EntityImportDialog({ open, onOpenChange, tenantId }: EntityImpor
                 .from("core_entities")
                 .upsert(rows, {
                     onConflict: 'tenant_id,display_name',
-                    ignoreDuplicates: false // We want to update subtype/status if it changed
+                    ignoreDuplicates: false
                 })
                 .select("id");
 
@@ -253,8 +253,8 @@ export function EntityImportDialog({ open, onOpenChange, tenantId }: EntityImpor
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="sm:max-w-[700px] max-h-[85vh] overflow-hidden flex flex-col">
-                <DialogHeader>
+            <DialogContent className="sm:max-w-[700px] h-[90vh] flex flex-col p-0 overflow-hidden">
+                <DialogHeader className="p-6 pb-2">
                     <DialogTitle>Importar Entidades via CSV</DialogTitle>
                     <DialogDescription>
                         Envie uma lista de colunas como `Nome;Tipo`.
@@ -262,7 +262,7 @@ export function EntityImportDialog({ open, onOpenChange, tenantId }: EntityImpor
                     </DialogDescription>
                 </DialogHeader>
 
-                <ScrollArea className="flex-1 pr-2">
+                <ScrollArea className="flex-1 px-6">
                     <div className="space-y-4 pt-2 pb-6">
                         <div className="rounded-[16px] border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800 dark:border-blue-900/50 dark:bg-blue-950/30 dark:text-blue-200">
                             <b>Dica:</b> A primeira linha deve ser o cabeçalho. O "Tipo" pode ser: <i>Cliente, Fornecedor, Colaborador, Banco, Produto, Serviço, Plano.</i>
@@ -306,7 +306,7 @@ export function EntityImportDialog({ open, onOpenChange, tenantId }: EntityImpor
                                             </TableRow>
                                         </TableHeader>
                                         <TableBody>
-                                            {importPreview.slice(0, 10).map((p, i) => (
+                                            {importPreview.map((p, i) => (
                                                 <TableRow key={i}>
                                                     <TableCell className="font-medium">{p.display_name}</TableCell>
                                                     <TableCell>
@@ -320,13 +320,6 @@ export function EntityImportDialog({ open, onOpenChange, tenantId }: EntityImpor
                                                     </TableCell>
                                                 </TableRow>
                                             ))}
-                                            {importPreview.length > 10 ? (
-                                                <TableRow>
-                                                    <TableCell colSpan={3} className="text-center text-xs text-slate-500 py-3">
-                                                        ... e mais {importPreview.length - 10} registros.
-                                                    </TableCell>
-                                                </TableRow>
-                                            ) : null}
                                         </TableBody>
                                     </Table>
                                 </div>
@@ -335,7 +328,7 @@ export function EntityImportDialog({ open, onOpenChange, tenantId }: EntityImpor
                     </div>
                 </ScrollArea>
 
-                <DialogFooter className="mt-4 border-t pt-4">
+                <DialogFooter className="p-6 pt-2 border-t mt-auto">
                     <Button variant="secondary" className="h-10 rounded-2xl" onClick={() => onOpenChange(false)}>
                         Cancelar
                     </Button>

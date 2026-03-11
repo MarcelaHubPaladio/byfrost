@@ -48,6 +48,7 @@ import {
   MessageSquare,
   Zap,
   Link2,
+  Globe,
 } from "lucide-react";
 import { UsageIndicator } from "@/components/admin/UsageIndicator";
 
@@ -356,6 +357,10 @@ function isGoalsEnabled(modulesJson: any) {
   return Boolean(modulesJson?.goals_enabled === true);
 }
 
+function isPortalEnabled(modulesJson: any) {
+  return Boolean(modulesJson?.portal_enabled === true);
+}
+
 type FinanceNavChild = {
   to: string;
   label: string;
@@ -502,6 +507,7 @@ export function AppShell({
   const simulatorEnabledForTenant = isSuperAdmin || isSimulatorEnabled(activeTenant?.modules_json);
   const goalsEnabledForTenant = isGoalsEnabled(activeTenant?.modules_json);
   const tvCorporativaEnabledForTenant = isSuperAdmin || isTvCorporativaEnabled(activeTenant?.modules_json);
+  const portalEnabledForTenant = isSuperAdmin || isPortalEnabled(activeTenant?.modules_json);
 
   const navAccessQ = useQuery({
     queryKey: ["nav_access", activeTenantId, roleKey],
@@ -541,6 +547,7 @@ export function AppShell({
         "app.finance.board",
         "app.tv_corporativa",
         "app.link_manager",
+        "app.portal",
       ];
 
       try {
@@ -774,6 +781,9 @@ export function AppShell({
                 {linkManagerEnabledForTenant && (
                   <NavTile to="/app/link-manager" icon={Link2} label="Links" disabled={!can("app.link_manager")} />
                 )}
+                {portalEnabledForTenant && (
+                  <NavTile to="/app/portal" icon={Globe} label="Portal" disabled={!can("app.portal")} />
+                )}
 
                 {/* Core (desktop): hover menu */}
                 {coreHasAnyAccess && (
@@ -974,6 +984,15 @@ export function AppShell({
                                 onNavigate={() => setMobileNavOpen(false)}
                               />
                             )}
+                            {portalEnabledForTenant && (
+                                <MobileNavItem
+                                  to="/app/portal"
+                                  icon={Globe}
+                                  label="Portal"
+                                  disabled={!can("app.portal")}
+                                  onNavigate={() => setMobileNavOpen(false)}
+                                />
+                              )}
 
                             {/* Core (mobile): menu com filhos */}
                             {coreHasAnyAccess && (

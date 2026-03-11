@@ -1,4 +1,4 @@
--- Migration: Unify RLS Helpers to Eliminate Recursion
+-- Migration: Unify RLS Helpers to Eliminate Recursion (FIXED SYNTAX)
 -- Description: Consolidates all security helpers in plpgsql to break loops in tenants, cases and profiles.
 
 -- 1. Consolidated Security Helpers (all as plpgsql + security definer)
@@ -96,7 +96,7 @@ using (
     or public.has_tenant_access(tenant_id)
 );
 
--- 4. Update Cases RLS (Clean and robust)
+-- 4. Update Cases RLS (Simplified Syntax - removed dynamic format)
 drop policy if exists cases_select on public.cases;
 create policy cases_select on public.cases
 for select to authenticated
@@ -106,30 +106,8 @@ using (
         public.has_tenant_access(tenant_id)
         and (
             assigned_user_id = auth.uid()
-            or (assigned_user_id in (select public.get_subordinates(tenant_id, auth.uid())))
-            or public.is_tenant_admin(tenant_id)
-            -- If we have cases.created_by_user_id (added in mixed migrations), add it here:
-            or (case when (select count(*) from information_schema.columns where table_name='cases' and column_name='created_by_user_id') > 0 
-                then (select (execute format('select $1.created_by_user_id = auth.uid()', cases))::boolean)
-                else false end)
-        )
-    )
-);
-
--- Re-wrap the cases policy if the created_by_user_id exists, 
--- but simpler is to just use what we have in 20260302050000_add_case_creator_rls.sql
--- while replacing the manual checks:
-drop policy if exists cases_select on public.cases;
-create policy cases_select on public.cases
-for select to authenticated
-using (
-    public.is_super_admin() 
-    or (
-        public.has_tenant_access(tenant_id)
-        and (
-            assigned_user_id = auth.uid()
-            -- OR Created by me (using the column name directly since we know it exists after 20260225100000_add_assigned_user_id.sql / 20260302050000_add_case_creator_rls.sql)
-            or (created_by_user_id = auth.uid())
+            -- We confirmed this column exists in migration 20260302050000_add_case_creator_rls.sql
+            or created_by_user_id = auth.uid()
             -- OR I am an admin in this tenant
             or public.is_tenant_admin(tenant_id)
             -- OR The assignee is one of my subordinates

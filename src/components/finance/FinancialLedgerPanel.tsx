@@ -879,6 +879,7 @@ export function FinancialLedgerPanel() {
   const [reconcileIsRecurrent, setReconcileIsRecurrent] = useState(false);
   const [reconcileInstallments, setReconcileInstallments] = useState("12");
   const [reconcileDialogOpen, setReconcileDialogOpen] = useState(false);
+  const [reconcileOnlyCurrentMonth, setReconcileOnlyCurrentMonth] = useState(true);
 
   const selectedTx = useMemo(() =>
     transactionsQ.data?.find(t => t.id === reconcileTxId),
@@ -2001,9 +2002,20 @@ export function FinancialLedgerPanel() {
                 </div>
               </div>
 
-              <div className="space-y-2">
-                <Label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Busca manual (Conciliação Parcial)</Label>
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Busca manual (Conciliação Parcial)</Label>
+                  <div className="flex items-center gap-2">
+                    <Checkbox 
+                      id="dlg-only-month" 
+                      checked={reconcileOnlyCurrentMonth} 
+                      onCheckedChange={(v) => setReconcileOnlyCurrentMonth(!!v)} 
+                    />
+                    <Label htmlFor="dlg-only-month" className="text-[10px] text-slate-500 cursor-pointer">Apenas mês atual</Label>
+                  </div>
+                </div>
                 <AsyncSelect
+                  key={`reconcile-search-${reconcileOnlyCurrentMonth}`}
                   className="h-10 rounded-2xl"
                   placeholder="Buscar por descrição ou valor..."
                   onChange={(val) => {
@@ -2014,20 +2026,28 @@ export function FinancialLedgerPanel() {
                   loadOptions={async (val) => {
                     if (!activeTenantId || val.length < 2) return [];
                     const table = selectedTx.type === 'debit' ? 'financial_payables' : 'financial_receivables';
-                    // Simplificamos a busca para garantir que funcione mesmo com acentos (ilike básico)
-                    // e garantimos que busca tanto na descrição quanto no valor (parcial)
-                    const { data } = await supabase
+                    
+                    let query = supabase
                       .from(table)
-                      .select("id, description, amount, due_date")
+                      .select("id, description, amount, due_date, core_entities(display_name)")
                       .eq("tenant_id", activeTenantId)
                       .eq("status", "pending")
-                      .or(`description.ilike.%${val}%,description.ilike.%${val.replace(/[áàâãéèêíïóôõöúç]/gi, '_')}%`)
+                      .or(`description.ilike.%${val}%,description.ilike.%${val.replace(/[áàâãéèêíïóôõöúç]/gi, '_')}%`);
+
+                    if (reconcileOnlyCurrentMonth) {
+                      const baseDate = new Date(`${selectedTx.transaction_date}T12:00:00`);
+                      const startOfMonth = format(new Date(baseDate.getFullYear(), baseDate.getMonth(), 1), "yyyy-MM-dd");
+                      const endOfMonth = format(new Date(baseDate.getFullYear(), baseDate.getMonth() + 1, 0), "yyyy-MM-dd");
+                      query = query.gte("due_date", startOfMonth).lte("due_date", endOfMonth);
+                    }
+
+                    const { data } = await query
                       .order("due_date", { ascending: true })
                       .limit(10);
                     
                     return (data || []).map((d: any) => ({
                       value: d.id,
-                      label: `${d.description} - ${formatMoneyBRL(d.amount)} (${d.due_date})`
+                      label: `${d.description}${d.core_entities?.display_name ? ` [${d.core_entities.display_name}]` : ""} - ${formatMoneyBRL(d.amount)} (${d.due_date})`
                     }));
                   }}
                 />
@@ -2035,7 +2055,7 @@ export function FinancialLedgerPanel() {
 
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
-                  <h4 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                  <h4 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-3">
                     <Search className="h-4 w-4" />
                     Sugestões de correspondência
                   </h4>

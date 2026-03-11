@@ -37,7 +37,7 @@ export default function TenantSelect() {
     try {
       const { data, error } = await supabase
         .from("users_profile")
-        .select("tenant_id, role, email, deleted_at, created_at")
+        .select("tenant_id, role, deleted_at, created_at")
         .eq("user_id", userId)
         .order("created_at", { ascending: false })
         .limit(20);

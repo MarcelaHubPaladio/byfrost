@@ -9,10 +9,12 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { showError, showSuccess } from "@/utils/toast";
 import { Checkbox } from "@/components/ui/checkbox";
 import { addMonths, format } from "date-fns";
 import { AsyncSelect } from "@/components/ui/async-select";
+import { Pencil, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type CategoryRow = {
@@ -284,6 +286,57 @@ export function FinancialPlanningPanel() {
       await qc.invalidateQueries({ queryKey: ["financial_payables", activeTenantId] });
       await qc.invalidateQueries({ queryKey: ["financial_cash_projection", activeTenantId] });
     },
+  });
+
+  // ----------------------
+  // Edit logic
+  // ----------------------
+  const [editItem, setEditItem] = useState<any>(null);
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [editType, setEditType] = useState<"receivable" | "payable">("receivable");
+  const [editScope, setEditScope] = useState<"only-this" | "this-and-future">("only-this");
+
+  const updateItemM = useMutation({
+    mutationFn: async (updatedData: any) => {
+      if (!activeTenantId || !editItem) throw new Error("Item inválido");
+      const table = editType === "receivable" ? "financial_receivables" : "financial_payables";
+      
+      const payload = {
+        description: updatedData.description,
+        amount: parseMoneyInput(updatedData.amount),
+        due_date: updatedData.due_date,
+        entity_id: updatedData.entity_id,
+      };
+
+      if (!Number.isFinite(payload.amount)) throw new Error("Valor inválido");
+
+      if (editScope === "this-and-future" && editItem.recurrence_group_id) {
+        // Atualiza este e os próximos membros do grupo
+        const { error } = await supabase
+          .from(table)
+          .update(payload)
+          .eq("tenant_id", activeTenantId)
+          .eq("recurrence_group_id", editItem.recurrence_group_id)
+          .gte("installment_number", editItem.installment_number);
+        if (error) throw error;
+      } else {
+        // Atualiza apenas este
+        const { error } = await supabase
+          .from(table)
+          .update(payload)
+          .eq("id", editItem.id)
+          .eq("tenant_id", activeTenantId);
+        if (error) throw error;
+      }
+    },
+    onSuccess: async () => {
+      showSuccess("Item atualizado com sucesso.");
+      setEditDialogOpen(false);
+      setEditItem(null);
+      qc.invalidateQueries({ queryKey: [editType === "receivable" ? "financial_receivables" : "financial_payables", activeTenantId] });
+      qc.invalidateQueries({ queryKey: ["financial_cash_projection", activeTenantId] });
+    },
+    onError: (e: any) => showError(e?.message ?? "Falha ao atualizar"),
   });
 
   const projection = projectionQ.data;
@@ -577,6 +630,7 @@ export function FinancialPlanningPanel() {
                     <TableHead>Conciliado</TableHead>
                     <TableHead>Vencimento</TableHead>
                     <TableHead>Status</TableHead>
+                    <TableHead className="w-[50px]"></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -613,12 +667,27 @@ export function FinancialPlanningPanel() {
                           </SelectContent>
                         </Select>
                       </TableCell>
+                      <TableCell>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 rounded-full"
+                          onClick={() => {
+                            setEditType("receivable");
+                            setEditItem(r);
+                            setEditScope("only-this");
+                            setEditDialogOpen(true);
+                          }}
+                        >
+                          <Pencil className="h-4 w-4 text-slate-500" />
+                        </Button>
+                      </TableCell>
                     </TableRow>
                   ))}
 
                   {!receivablesQ.isLoading && !(receivablesQ.data ?? []).length ? (
                     <TableRow>
-                      <TableCell colSpan={5} className="text-slate-600 dark:text-slate-400">
+                      <TableCell colSpan={6} className="text-slate-600 dark:text-slate-400">
                         Nenhum recebível ainda.
                       </TableCell>
                     </TableRow>
@@ -734,6 +803,7 @@ export function FinancialPlanningPanel() {
                     <TableHead>Conciliado</TableHead>
                     <TableHead>Vencimento</TableHead>
                     <TableHead>Status</TableHead>
+                    <TableHead className="w-[50px]"></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -767,12 +837,27 @@ export function FinancialPlanningPanel() {
                           </SelectContent>
                         </Select>
                       </TableCell>
+                      <TableCell>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 rounded-full"
+                          onClick={() => {
+                            setEditType("payable");
+                            setEditItem(p);
+                            setEditScope("only-this");
+                            setEditDialogOpen(true);
+                          }}
+                        >
+                          <Pencil className="h-4 w-4 text-slate-500" />
+                        </Button>
+                      </TableCell>
                     </TableRow>
                   ))}
 
                   {!payablesQ.isLoading && !(payablesQ.data ?? []).length ? (
                     <TableRow>
-                      <TableCell colSpan={5} className="text-slate-600 dark:text-slate-400">
+                      <TableCell colSpan={6} className="text-slate-600 dark:text-slate-400">
                         Nenhum pagável ainda.
                       </TableCell>
                     </TableRow>
@@ -783,6 +868,112 @@ export function FinancialPlanningPanel() {
           </Card>
         </TabsContent>
       </Tabs>
+      <EditItemDialog
+        open={editDialogOpen}
+        onOpenChange={setEditDialogOpen}
+        item={editItem}
+        type={editType}
+        scope={editScope}
+        onScopeChange={setEditScope}
+        onSave={(data: any) => updateItemM.mutate(data)}
+        isPending={updateItemM.isPending}
+        activeTenantId={activeTenantId}
+      />
     </div>
+  );
+}
+function EditItemDialog({ open, onOpenChange, item, type, scope, onScopeChange, onSave, isPending, activeTenantId }: any) {
+  const [desc, setDesc] = useState("");
+  const [amount, setAmount] = useState("");
+  const [date, setDate] = useState("");
+  const [entityId, setEntityId] = useState<string | null>(null);
+  const [entityLabel, setEntityLabel] = useState<string | null>(null);
+
+  // Sync state when item changes
+  useMemo(() => {
+    if (item) {
+      setDesc(item.description || "");
+      setAmount(String(item.amount || ""));
+      setDate(item.due_date || "");
+      setEntityId(item.entity_id || null);
+      setEntityLabel(item.core_entities?.display_name || null);
+    }
+  }, [item]);
+
+  if (!item) return null;
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-[480px]">
+        <DialogHeader>
+          <DialogTitle>Editar {type === 'receivable' ? 'Recebível' : 'Pagável'}</DialogTitle>
+          <DialogDescription>
+            Ajuste os detalhes do lançamento planejado.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="grid gap-3 py-4">
+          <div>
+            <Label className="text-xs">Descrição</Label>
+            <Input className="mt-1 rounded-2xl" value={desc} onChange={(e) => setDesc(e.target.value)} />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label className="text-xs">Valor</Label>
+              <Input className="mt-1 rounded-2xl" value={amount} onChange={(e) => setAmount(e.target.value)} />
+            </div>
+            <div>
+              <Label className="text-xs">Vencimento</Label>
+              <Input type="date" className="mt-1 rounded-2xl" value={date} onChange={(e) => setDate(e.target.value)} />
+            </div>
+          </div>
+          <div>
+            <Label className="text-xs">Entidade</Label>
+            <AsyncSelect
+              className="mt-1 h-10 rounded-2xl"
+              value={entityId}
+              initialLabel={entityLabel}
+              onChange={(v) => setEntityId(v)}
+              loadOptions={async (val) => {
+                if (!activeTenantId || val.length < 2) return [];
+                const { data } = await supabase
+                  .from("core_entities")
+                  .select("id, display_name")
+                  .eq("tenant_id", activeTenantId)
+                  .ilike("display_name", `%${val}%`)
+                  .limit(10);
+                return (data || []).map((d) => ({ value: d.id, label: d.display_name }));
+              }}
+            />
+          </div>
+
+          {item.recurrence_group_id && (
+            <div className="mt-2 p-3 rounded-2xl bg-amber-50 border border-amber-100 dark:bg-amber-900/20 dark:border-amber-900/40">
+              <Label className="text-xs font-semibold text-amber-800 dark:text-amber-200 block mb-2">Este lançamento faz parte de uma recorrência</Label>
+              <Select value={scope} onValueChange={onScopeChange}>
+                <SelectTrigger className="h-9 rounded-xl bg-white dark:bg-slate-950">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="only-this">Alterar somente esta parcela ({item.installment_number})</SelectItem>
+                  <SelectItem value="this-and-future">Alterar esta e todas as próximas</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+        </div>
+
+        <DialogFooter>
+          <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancelar</Button>
+          <Button 
+            disabled={isPending} 
+            onClick={() => onSave({ description: desc, amount, due_date: date, entity_id: entityId })}
+            className="rounded-2xl"
+          >
+            {isPending ? "Salvando..." : "Salvar Alterações"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

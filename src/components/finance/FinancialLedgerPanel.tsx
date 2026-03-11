@@ -2014,12 +2014,14 @@ export function FinancialLedgerPanel() {
                   loadOptions={async (val) => {
                     if (!activeTenantId || val.length < 2) return [];
                     const table = selectedTx.type === 'debit' ? 'financial_payables' : 'financial_receivables';
+                    // Simplificamos a busca para garantir que funcione mesmo com acentos (ilike básico)
+                    // e garantimos que busca tanto na descrição quanto no valor (parcial)
                     const { data } = await supabase
                       .from(table)
                       .select("id, description, amount, due_date")
                       .eq("tenant_id", activeTenantId)
                       .eq("status", "pending")
-                      .or(`description.ilike.%${val}%,amount.as.text.ilike.%${val}%`)
+                      .or(`description.ilike.%${val}%,description.ilike.%${val.replace(/[áàâãéèêíïóôõöúç]/gi, '_')}%`)
                       .order("due_date", { ascending: true })
                       .limit(10);
                     

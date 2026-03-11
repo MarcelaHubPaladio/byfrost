@@ -21,7 +21,17 @@ type CategoryRow = {
   id: string;
   name: string;
   parent_id: string | null;
-  type: "revenue" | "cost" | "fixed" | "variable" | "other";
+  type: "revenue" | "cost" | "fixed" | "variable" | "investment" | "financing" | "other";
+};
+
+const CATEGORY_LABELS: Record<CategoryRow["type"], string> = {
+  revenue: "Revenue",
+  cost: "Direct Costs",
+  fixed: "Fixed Expenses",
+  variable: "Variable Expenses",
+  investment: "Investments",
+  financing: "Financing",
+  other: "Others",
 };
 
 function parseMoneyInput(v: string) {
@@ -420,7 +430,7 @@ export function FinancialPlanningPanel() {
                   <SelectContent>
                     {(categoriesQ.data ?? []).map((c) => (
                       <SelectItem key={c.id} value={c.id}>
-                        {c.name} ({c.type})
+                        {c.name} ({CATEGORY_LABELS[c.type]})
                       </SelectItem>
                     ))}
                   </SelectContent>

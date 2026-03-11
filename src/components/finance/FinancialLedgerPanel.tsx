@@ -48,12 +48,22 @@ type BankAccountRow = {
   currency: string;
 };
 
-type CategoryType = "revenue" | "cost" | "fixed" | "variable" | "other";
+type CategoryType = "revenue" | "cost" | "fixed" | "variable" | "investment" | "financing" | "other";
 
 type CategoryRow = {
   id: string;
   name: string;
   type: CategoryType;
+};
+
+const CATEGORY_LABELS: Record<CategoryType, string> = {
+  revenue: "Revenue",
+  cost: "Direct Costs",
+  fixed: "Fixed Expenses",
+  variable: "Variable Expenses",
+  investment: "Investments",
+  financing: "Financing",
+  other: "Others",
 };
 
 function normalizeDescription(s: string) {
@@ -129,6 +139,8 @@ function parseCategoryType(s: string | undefined | null): CategoryType | null {
   if (["cost", "custo", "custos"].includes(t)) return "cost";
   if (["fixed", "fixo", "fixos"].includes(t)) return "fixed";
   if (["variable", "variavel", "variaveis"].includes(t)) return "variable";
+  if (["investment", "investimento", "investimentos"].includes(t)) return "investment";
+  if (["financing", "financiamento", "financiamentos"].includes(t)) return "financing";
   if (["other", "outro", "outros"].includes(t)) return "other";
 
   return null;
@@ -367,7 +379,15 @@ export function FinancialLedgerPanel() {
 
     const sortedRows = Object.values(rows).sort((a, b) => {
       if (a.category.type !== b.category.type) {
-        const order = { revenue: 0, cost: 1, variable: 2, fixed: 3, other: 4 };
+        const order: Record<CategoryType, number> = {
+          revenue: 0,
+          cost: 1,
+          variable: 2,
+          fixed: 3,
+          investment: 4,
+          financing: 5,
+          other: 6,
+        };
         return (order[a.category.type] ?? 99) - (order[b.category.type] ?? 99);
       }
       return a.category.name.localeCompare(b.category.name);
@@ -1535,11 +1555,11 @@ export function FinancialLedgerPanel() {
                                     <SelectValue />
                                   </SelectTrigger>
                                   <SelectContent>
-                                    <SelectItem value="revenue">revenue</SelectItem>
-                                    <SelectItem value="cost">cost</SelectItem>
-                                    <SelectItem value="fixed">fixed</SelectItem>
-                                    <SelectItem value="variable">variable</SelectItem>
-                                    <SelectItem value="other">other</SelectItem>
+                                    {(["revenue", "cost", "fixed", "variable", "investment", "financing", "other"] as CategoryType[]).map((t) => (
+                                      <SelectItem key={t} value={t}>
+                                        {CATEGORY_LABELS[t]}
+                                      </SelectItem>
+                                    ))}
                                   </SelectContent>
                                 </Select>
                               </TableCell>
@@ -1606,11 +1626,11 @@ export function FinancialLedgerPanel() {
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="revenue">revenue (receita)</SelectItem>
-                          <SelectItem value="cost">cost (custo)</SelectItem>
-                          <SelectItem value="fixed">fixed (fixo)</SelectItem>
-                          <SelectItem value="variable">variable (variável)</SelectItem>
-                          <SelectItem value="other">other (outro)</SelectItem>
+                          {(["revenue", "cost", "fixed", "variable", "investment", "financing", "other"] as CategoryType[]).map((t) => (
+                            <SelectItem key={t} value={t}>
+                              {CATEGORY_LABELS[t]}
+                            </SelectItem>
+                          ))}
                         </SelectContent>
                       </Select>
                       <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
@@ -1700,11 +1720,11 @@ export function FinancialLedgerPanel() {
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="revenue">revenue (receita)</SelectItem>
-                          <SelectItem value="cost">cost (custo)</SelectItem>
-                          <SelectItem value="fixed">fixed (fixo)</SelectItem>
-                          <SelectItem value="variable">variable (variável)</SelectItem>
-                          <SelectItem value="other">other (outro)</SelectItem>
+                          {(["revenue", "cost", "fixed", "variable", "investment", "financing", "other"] as CategoryType[]).map((t) => (
+                            <SelectItem key={t} value={t}>
+                              {CATEGORY_LABELS[t]}
+                            </SelectItem>
+                          ))}
                         </SelectContent>
                       </Select>
                     </div>

@@ -1,6 +1,16 @@
 -- Migration: unique index for core_entities to support bulk upsert by name
 -- Description: Adds a partial unique index on (tenant_id, display_name) for active entities.
 
-create unique index if not exists core_entities_tenant_display_name_unique_active
-  on public.core_entities(tenant_id, display_name)
-  where deleted_at is null;
+-- 1. Deduplicate existing entities before creating the unique index
+-- This keeps the most recently updated record for each (tenant_id, display_name)
+delete from public.core_entities e1
+ where e1.id not in (
+   select distinct on (tenant_id, display_name) id
+     from public.core_entities
+    order by tenant_id, display_name, updated_at desc
+ );
+
+-- 2. Create a total unique index (PostgREST UPSERT requires a non-partial unique constraint)
+drop index if exists core_entities_tenant_display_name_unique_active;
+create unique index if not exists core_entities_tenant_display_name_unique
+  on public.core_entities(tenant_id, display_name);

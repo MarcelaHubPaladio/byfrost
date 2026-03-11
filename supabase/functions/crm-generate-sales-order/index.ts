@@ -17,7 +17,7 @@ serve(async (req: Request) => {
     const body = await req.json().catch(() => null);
     if (!body) return new Response(JSON.stringify({ ok: false, error: "Invalid JSON" }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
-    const { tenantId, caseId, linked_goal_metric } = body;
+    const { tenantId, caseId, linked_goal_metric, attachments } = body;
     if (!tenantId || !caseId) return new Response(JSON.stringify({ ok: false, error: "Missing tenantId or caseId in body" }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
     // 1. Get the CRM Case
@@ -148,6 +148,22 @@ serve(async (req: Request) => {
     if (fieldsToInsert.length > 0) {
       const { error: fieldsErr } = await supabase.from("case_fields").insert(fieldsToInsert);
       if (fieldsErr) console.error(`[${fn}] Failed to copy case fields:`, fieldsErr);
+    }
+
+    // 4.3 Link Attachments
+    if (attachments && Array.isArray(attachments) && attachments.length > 0) {
+      const attachmentsToInsert = attachments.map((att: any) => ({
+        tenant_id: tenantId,
+        case_id: orderCase.id,
+        kind: att.content_type?.startsWith("image/") ? "image" : (att.content_type?.startsWith("audio/") ? "audio" : "doc"),
+        storage_path: att.storage_path,
+        original_filename: att.original_filename,
+        content_type: att.content_type,
+        meta_json: { source: "crm_generation", original_case_id: caseId }
+      }));
+
+      const { error: attErr } = await supabase.from("case_attachments").insert(attachmentsToInsert);
+      if (attErr) console.error(`[${fn}] Failed to link case attachments:`, attErr);
     }
 
     // 5. Audit & Timeline

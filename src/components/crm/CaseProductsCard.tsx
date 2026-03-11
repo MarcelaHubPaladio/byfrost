@@ -35,7 +35,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { BadgeDollarSign, Check, ChevronsUpDown, ExternalLink, Plus, Trash2, PackagePlus, Loader2, Target } from "lucide-react";
+import { BadgeDollarSign, Check, ChevronsUpDown, ExternalLink, Plus, Trash2, PackagePlus, Loader2, Target, FileText, X, Upload } from "lucide-react";
 import { useSession } from "@/providers/SessionProvider";
 import { useTenant } from "@/providers/TenantProvider";
 import { LinkedOrdersAccordion } from "./LinkedOrdersAccordion";
@@ -88,6 +88,8 @@ export function CaseProductsCard(props: { tenantId: string; caseId: string }) {
   const [generatingOrder, setGeneratingOrder] = useState(false);
   const [confirmOrderOpen, setConfirmOrderOpen] = useState(false);
   const [selectedGoal, setSelectedGoal] = useState<string>("none");
+  const [attachments, setAttachments] = useState<File[]>([]);
+  const [uploadProgress, setUploadProgress] = useState<{ [key: string]: number }>({});
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(searchOffering), 300);
@@ -264,7 +266,30 @@ export function CaseProductsCard(props: { tenantId: string; caseId: string }) {
     if (generatingOrder) return;
     setGeneratingOrder(true);
     try {
-      const payload: any = { tenantId: props.tenantId, caseId: props.caseId };
+      // 1. Upload Attachments if any
+      const uploadedAttachments = [];
+      for (const file of attachments) {
+        const ext = file.name.split(".").pop();
+        const path = `tenants/${props.tenantId}/crm/pending_orders/${props.caseId}/${Date.now()}_${file.name}`;
+        
+        const { error: upErr } = await supabase.storage
+          .from("tenant-assets")
+          .upload(path, file);
+
+        if (upErr) throw upErr;
+
+        uploadedAttachments.push({
+          storage_path: path,
+          original_filename: file.name,
+          content_type: file.type
+        });
+      }
+
+      const payload: any = { 
+        tenantId: props.tenantId, 
+        caseId: props.caseId,
+        attachments: uploadedAttachments
+      };
       if (selectedGoal && selectedGoal !== "none") {
         payload.linked_goal_metric = selectedGoal;
       }
@@ -278,6 +303,7 @@ export function CaseProductsCard(props: { tenantId: string; caseId: string }) {
       showSuccess("Pedido de Venda gerado com sucesso!");
       setConfirmOrderOpen(false);
       setSelectedGoal("none");
+      setAttachments([]);
 
       await Promise.all([
         qc.invalidateQueries({ queryKey: ["crm_case_items", props.tenantId, props.caseId] }), // Items were deleted!
@@ -519,6 +545,54 @@ export function CaseProductsCard(props: { tenantId: string; caseId: string }) {
                 </SelectContent>
               </Select>
               <p className="text-xs text-slate-500">O valor total vai contribuir para a meta escolhida quando a venda for concluída.</p>
+            </div>
+
+            <div className="space-y-2">
+              <Label className="flex items-center gap-2">
+                <FileText className="w-4 h-4 text-slate-500" />
+                Documentos / Anexos
+              </Label>
+              <div className="space-y-2">
+                <div 
+                  className="border-2 border-dashed border-slate-200 rounded-2xl p-4 flex flex-col items-center justify-center bg-slate-50 hover:bg-slate-100 transition-colors cursor-pointer relative"
+                  onClick={() => document.getElementById("order-attachment-input")?.click()}
+                >
+                  <Upload className="w-8 h-8 text-slate-400 mb-2" />
+                  <p className="text-xs text-slate-600 font-medium">Clique para subir documentos</p>
+                  <p className="text-[10px] text-slate-400">PDF, Imagens, etc.</p>
+                  <input
+                    id="order-attachment-input"
+                    type="file"
+                    multiple
+                    className="hidden"
+                    onChange={(e) => {
+                      if (e.target.files) {
+                        setAttachments(prev => [...prev, ...Array.from(e.target.files!)]);
+                      }
+                    }}
+                  />
+                </div>
+
+                {attachments.length > 0 && (
+                  <div className="space-y-2 mt-2">
+                    {attachments.map((file, idx) => (
+                      <div key={idx} className="flex items-center justify-between gap-2 p-2 bg-white border border-slate-200 rounded-xl">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <FileText className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                          <span className="text-xs text-slate-700 truncate">{file.name}</span>
+                          <span className="text-[10px] text-slate-400">({(file.size / 1024 / 1024).toFixed(2)}MB)</span>
+                        </div>
+                        <button 
+                          className="text-slate-400 hover:text-rose-500 transition-colors"
+                          onClick={() => setAttachments(prev => prev.filter((_, i) => i !== idx))}
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 

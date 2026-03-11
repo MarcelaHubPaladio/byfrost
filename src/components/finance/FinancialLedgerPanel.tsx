@@ -32,8 +32,13 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { showError, showSuccess } from "@/utils/toast";
-import { Download, Landmark, Pencil, Plus, Upload } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { addMonths, format } from "date-fns";
+import {
+  Download, Landmark, Pencil, Plus, Upload, Link2, CheckCircle2, Search, Info } from "lucide-react";
 import { AsyncSelect } from "@/components/ui/async-select";
+import { Badge } from "@/components/ui/badge";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 type BankAccountRow = {
   id: string;
@@ -382,7 +387,7 @@ export function FinancialLedgerPanel() {
       const { data, error } = await supabase
         .from("financial_transactions")
         .select(
-          "id,tenant_id,account_id,amount,type,description,transaction_date,status,source,fingerprint,category_id,created_at,entity_id,core_entities(display_name),financial_categories(name)"
+          "id,tenant_id,account_id,amount,type,description,transaction_date,status,source,fingerprint,category_id,created_at,entity_id,linked_payable_id,linked_receivable_id,core_entities(display_name),financial_categories(name)"
         )
         .eq("tenant_id", activeTenantId!)
         .gte("transaction_date", txStartDate)
@@ -867,8 +872,157 @@ export function FinancialLedgerPanel() {
     onError: (e: any) => showError(e?.message ?? "Falha ao atualizar entidade"),
   });
 
+  // --------------------------
+  // Reconciliation
+  // --------------------------
+  const [reconcileTxId, setReconcileTxId] = useState<string | null>(null);
+  const [reconcileIsRecurrent, setReconcileIsRecurrent] = useState(false);
+  const [reconcileInstallments, setReconcileInstallments] = useState("12");
+  const [reconcileDialogOpen, setReconcileDialogOpen] = useState(false);
+
+  const selectedTx = useMemo(() =>
+    transactionsQ.data?.find(t => t.id === reconcileTxId),
+    [transactionsQ.data, reconcileTxId]
+  );
+
+  const reconcileSuggestionsQ = useQuery({
+    queryKey: ["financial_suggest_reconciliation", activeTenantId, reconcileTxId],
+    enabled: Boolean(activeTenantId && reconcileTxId && reconcileDialogOpen),
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("financial_suggest_reconciliation", {
+        p_tenant_id: activeTenantId!,
+        p_transaction_id: reconcileTxId!
+      });
+      if (error) throw error;
+      return data as any;
+    }
+  });
+
+  const reconcileTxM = useMutation({
+    mutationFn: async ({ linkedId, type }: { linkedId: string, type: string }) => {
+      if (!activeTenantId || !reconcileTxId) throw new Error("Parâmetros inválidos");
+      const { data, error } = await supabase.rpc("financial_reconcile_transaction", {
+        p_tenant_id: activeTenantId,
+        p_transaction_id: reconcileTxId,
+        p_linked_id: linkedId,
+        p_type: type
+      });
+      if (error) throw error;
+      if (data?.ok === false) throw new Error(data.error || "Erro desconhecido");
+    },
+    onSuccess: async () => {
+      showSuccess("Transação conciliada com sucesso.");
+      setReconcileDialogOpen(false);
+      setReconcileTxId(null);
+      await qc.invalidateQueries({ queryKey: ["financial_transactions", activeTenantId] });
+      await qc.invalidateQueries({ queryKey: ["financial_cash_projection", activeTenantId] });
+    },
+    onError: (e: any) => showError(e?.message ?? "Falha ao conciliar")
+  });
+
+  const createLinkedPayableM = useMutation({
+    mutationFn: async (tx: any) => {
+      if (!activeTenantId) throw new Error("Tenant inválido");
+      
+      const count = reconcileIsRecurrent ? parseInt(reconcileInstallments) || 1 : 1;
+      const groupId = reconcileIsRecurrent ? crypto.randomUUID() : null;
+      const items = [];
+      const baseDate = new Date(`${tx.transaction_date}T12:00:00`);
+
+      for (let i = 0; i < count; i++) {
+        const itemDate = addMonths(baseDate, i);
+        items.push({
+          tenant_id: activeTenantId,
+          description: count > 1 ? `${tx.description} (${i+1}/${count})` : tx.description,
+          amount: tx.amount,
+          due_date: format(itemDate, "yyyy-MM-dd"),
+          status: 'paid', // A primeira parcela (pelo menos) é marcada como paga pois veio do extrato
+          recurrence_group_id: groupId,
+          installment_number: i + 1,
+          installments_total: count > 1 ? count : null,
+          entity_id: tx.entity_id,
+          category_id: tx.category_id
+        });
+      }
+
+      const { data: insertedItems, error: payErr } = await supabase.from("financial_payables")
+        .insert(items)
+        .select();
+      
+      if (payErr) throw payErr;
+      const firstItem = insertedItems[0];
+
+      const { error: txErr } = await supabase
+        .from("financial_transactions")
+        .update({ linked_payable_id: firstItem.id })
+        .eq("id", tx.id)
+        .eq("tenant_id", activeTenantId);
+      if (txErr) throw txErr;
+    },
+    onSuccess: async () => {
+      showSuccess("Pagamento criado e vinculado.");
+      setReconcileDialogOpen(false);
+      setReconcileTxId(null);
+      await qc.invalidateQueries({ queryKey: ["financial_transactions", activeTenantId] });
+      await qc.invalidateQueries({ queryKey: ["financial_payables", activeTenantId] });
+      await qc.invalidateQueries({ queryKey: ["financial_cash_projection", activeTenantId] });
+    },
+    onError: (e: any) => showError(e?.message ?? "Falha ao criar")
+  });
+
+  const createLinkedReceivableM = useMutation({
+    mutationFn: async (tx: any) => {
+      if (!activeTenantId) throw new Error("Tenant inválido");
+      
+      const count = reconcileIsRecurrent ? parseInt(reconcileInstallments) || 1 : 1;
+      const groupId = reconcileIsRecurrent ? crypto.randomUUID() : null;
+      const items = [];
+      const baseDate = new Date(`${tx.transaction_date}T12:00:00`);
+
+      for (let i = 0; i < count; i++) {
+        const itemDate = addMonths(baseDate, i);
+        items.push({
+          tenant_id: activeTenantId,
+          description: count > 1 ? `${tx.description} (${i+1}/${count})` : tx.description,
+          amount: tx.amount,
+          due_date: format(itemDate, "yyyy-MM-dd"),
+          status: 'paid',
+          recurrence_group_id: groupId,
+          installment_number: i + 1,
+          installments_total: count > 1 ? count : null,
+          entity_id: tx.entity_id,
+          category_id: tx.category_id
+        });
+      }
+
+      const { data: insertedItems, error: recvErr } = await supabase.from("financial_receivables")
+        .insert(items)
+        .select();
+      
+      if (recvErr) throw recvErr;
+      const firstItem = insertedItems[0];
+
+      const { error: txErr } = await supabase
+        .from("financial_transactions")
+        .update({ linked_receivable_id: firstItem.id })
+        .eq("id", tx.id)
+        .eq("tenant_id", activeTenantId);
+      if (txErr) throw txErr;
+    },
+    onSuccess: async () => {
+      showSuccess("Recebível criado e vinculado.");
+      setReconcileDialogOpen(false);
+      setReconcileTxId(null);
+      await qc.invalidateQueries({ queryKey: ["financial_transactions", activeTenantId] });
+      await qc.invalidateQueries({ queryKey: ["financial_receivables", activeTenantId] });
+      await qc.invalidateQueries({ queryKey: ["financial_cash_projection", activeTenantId] });
+    },
+    onError: (e: any) => showError(e?.message ?? "Falha ao criar")
+  });
+
   return (
-    <Tabs value={activeTab} onValueChange={setActiveTab} className="grid gap-4">
+    <>
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="grid gap-4">
       <TabsList className="w-fit rounded-2xl">
         <TabsTrigger value="transactions" className="rounded-2xl">
           Lançamentos
@@ -1130,6 +1284,7 @@ export function FinancialLedgerPanel() {
                       )}
                     </div>
                   </TableHead>
+                  <TableHead className="w-[120px]">Conciliação</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -1235,6 +1390,36 @@ export function FinancialLedgerPanel() {
                               </Button>
                             )}
                           </div>
+                        </TableCell>
+                        <TableCell className="w-[120px]">
+                          {t.linked_payable_id || t.linked_receivable_id ? (
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <div className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400 font-medium text-xs">
+                                    <CheckCircle2 className="h-4 w-4" />
+                                    Conciliado
+                                  </div>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  {t.linked_payable_id ? "Vinculado a um Conta a Pagar" : "Vinculado a um Conta a Receber"}
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          ) : (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 rounded-xl text-slate-500 hover:text-[hsl(var(--byfrost-accent))] hover:bg-[hsl(var(--byfrost-accent)/0.1)] gap-1.5 px-2"
+                              onClick={() => {
+                                setReconcileTxId(t.id);
+                                setReconcileDialogOpen(true);
+                              }}
+                            >
+                              <Link2 className="h-3.5 w-3.5" />
+                              <span className="text-[11px]">Conciliar</span>
+                            </Button>
+                          )}
                         </TableCell>
                       </TableRow>
                     );
@@ -1789,5 +1974,126 @@ export function FinancialLedgerPanel() {
         </Card>
       </TabsContent>
     </Tabs>
+
+      <Dialog open={reconcileDialogOpen} onOpenChange={setReconcileDialogOpen}>
+        <DialogContent className="sm:max-w-[600px]">
+          <DialogHeader>
+            <DialogTitle>Conciliação Bancária</DialogTitle>
+            <DialogDescription>
+              Vincule esta transação a um registro de conta a pagar ou receber existente.
+            </DialogDescription>
+          </DialogHeader>
+
+          {selectedTx && (
+            <div className="grid gap-4 py-4">
+              <div className="rounded-2xl bg-slate-50 p-4 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800">
+                <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Transação do Extrato</div>
+                <div className="flex justify-between items-start">
+                  <div>
+                    <div className="font-semibold text-slate-900 dark:text-slate-100">{selectedTx.description}</div>
+                    <div className="text-sm text-slate-600 dark:text-slate-400">{selectedTx.transaction_date}</div>
+                  </div>
+                  <div className={cn("text-lg font-bold", selectedTx.type === 'credit' ? 'text-emerald-600' : 'text-slate-900 dark:text-slate-100')}>
+                    {formatMoneyBRL(selectedTx.amount)}
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                    <Search className="h-4 w-4" />
+                    Sugestões de correspondência
+                  </h4>
+                  <Badge variant="outline" className="text-[10px] uppercase">
+                    Valor Idêntico
+                  </Badge>
+                </div>
+
+                <div className="grid gap-2">
+                  {reconcileSuggestionsQ.isLoading ? (
+                    <div className="py-8 text-center text-sm text-slate-500">Buscando correspondências...</div>
+                  ) : (reconcileSuggestionsQ.data?.matches?.length ?? 0) > 0 ? (
+                    reconcileSuggestionsQ.data.matches.map((match: any) => (
+                      <div
+                        key={match.id}
+                        className="group flex items-center justify-between p-3 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 hover:border-[hsl(var(--byfrost-accent)/0.5)] hover:bg-[hsl(var(--byfrost-accent)/0.02)] transition-all cursor-pointer"
+                        onClick={() => reconcileTxM.mutate({ linkedId: match.id, type: match.type })}
+                      >
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-slate-900 dark:text-slate-100">{match.description}</span>
+                          <span className="text-xs text-slate-500 flex items-center gap-2">
+                            Vencimento: {match.due_date} 
+                            <span className={cn(
+                              "text-[10px] px-1.5 py-0.5 rounded-full border",
+                              match.days_diff === 0 ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-slate-100 text-slate-600 border-slate-200"
+                            )}>
+                              {match.days_diff === 0 ? "Mesma data" : `${match.days_diff} dias de diferença`}
+                            </span>
+                          </span>
+                        </div>
+                        <Button size="sm" variant="outline" className="h-8 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity">
+                          Vincular
+                        </Button>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="flex flex-col items-center py-6 px-4 text-center rounded-2xl border border-dashed border-slate-200 dark:border-slate-800 bg-slate-50/30">
+                      <div className="h-10 w-10 rounded-full bg-slate-50 dark:bg-slate-900 flex items-center justify-center mb-3">
+                        <Info className="h-5 w-5 text-slate-400" />
+                      </div>
+                      <p className="text-sm text-slate-600 dark:text-slate-400">Nenhuma conta pendente com valor de {formatMoneyBRL(selectedTx.amount)}.</p>
+                      
+                      <div className="mt-5 w-full max-w-[280px] p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950">
+                        <div className="flex items-center gap-2 mb-3">
+                          <Checkbox 
+                            id="dlg-recurrent" 
+                            checked={reconcileIsRecurrent} 
+                            onCheckedChange={(v) => setReconcileIsRecurrent(!!v)} 
+                          />
+                          <Label htmlFor="dlg-recurrent" className="text-xs cursor-pointer">Lançamento Recorrente</Label>
+                        </div>
+                        
+                        {reconcileIsRecurrent && (
+                          <div className="flex items-center justify-between gap-3">
+                            <Label className="text-[10px] uppercase text-slate-500">Meses</Label>
+                            <Input 
+                              type="number" 
+                              className="h-8 w-16 text-xs rounded-lg" 
+                              value={reconcileInstallments} 
+                              onChange={(e) => setReconcileInstallments(e.target.value)} 
+                              min="2"
+                              max="60"
+                            />
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="mt-4 flex flex-wrap gap-2 justify-center">
+                        <Button 
+                          variant="secondary" 
+                          size="sm" 
+                          className="h-9 rounded-xl text-xs px-4"
+                          onClick={() => selectedTx.type === 'debit' ? createLinkedPayableM.mutate(selectedTx) : createLinkedReceivableM.mutate(selectedTx)}
+                        >
+                          <Plus className="mr-2 h-4 w-4" />
+                          Criar e Vincular agora
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter className="flex-col sm:flex-row gap-2">
+            <Button variant="ghost" className="h-10 rounded-2xl" onClick={() => setReconcileDialogOpen(false)}>
+              Fechar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

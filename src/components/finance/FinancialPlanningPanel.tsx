@@ -10,6 +10,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { showError, showSuccess } from "@/utils/toast";
+import { Checkbox } from "@/components/ui/checkbox";
+import { addMonths, format } from "date-fns";
+import { AsyncSelect } from "@/components/ui/async-select";
+import { cn } from "@/lib/utils";
 
 type CategoryRow = {
   id: string;
@@ -72,7 +76,7 @@ export function FinancialPlanningPanel() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("financial_receivables")
-        .select("id,tenant_id,description,amount,due_date,status")
+        .select("id,tenant_id,description,amount,due_date,status,entity_id,core_entities(display_name)")
         .eq("tenant_id", activeTenantId!)
         .order("due_date", { ascending: true })
         .limit(400);
@@ -87,7 +91,7 @@ export function FinancialPlanningPanel() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("financial_payables")
-        .select("id,tenant_id,description,amount,due_date,status")
+        .select("id,tenant_id,description,amount,due_date,status,entity_id,core_entities(display_name)")
         .eq("tenant_id", activeTenantId!)
         .order("due_date", { ascending: true })
         .limit(400);
@@ -162,6 +166,9 @@ export function FinancialPlanningPanel() {
   const [recvAmount, setRecvAmount] = useState<string>("");
   const [recvDueDate, setRecvDueDate] = useState<string>("");
   const [recvStatus, setRecvStatus] = useState<string>("pending");
+  const [recvIsRecurrent, setRecvIsRecurrent] = useState(false);
+  const [recvInstallments, setRecvInstallments] = useState("12");
+  const [recvEntityId, setRecvEntityId] = useState<string | null>(null);
 
   const createReceivableM = useMutation({
     mutationFn: async () => {
@@ -171,13 +178,28 @@ export function FinancialPlanningPanel() {
       if (!Number.isFinite(amt)) throw new Error("Valor inválido");
       if (!/^\d{4}-\d{2}-\d{2}$/.test(recvDueDate)) throw new Error("Data inválida");
 
-      const { error } = await supabase.from("financial_receivables").insert({
-        tenant_id: activeTenantId,
-        description: recvDesc.trim(),
-        amount: Number(amt.toFixed(2)),
-        due_date: recvDueDate,
-        status: recvStatus,
-      });
+      const count = recvIsRecurrent ? parseInt(recvInstallments) || 1 : 1;
+      const groupId = recvIsRecurrent ? crypto.randomUUID() : null;
+      
+      const items = [];
+      const baseDate = new Date(`${recvDueDate}T12:00:00`);
+
+      for (let i = 0; i < count; i++) {
+        const itemDate = addMonths(baseDate, i);
+        items.push({
+          tenant_id: activeTenantId,
+          description: count > 1 ? `${recvDesc.trim()} (${i+1}/${count})` : recvDesc.trim(),
+          amount: Number(amt.toFixed(2)),
+          due_date: format(itemDate, "yyyy-MM-dd"),
+          status: recvStatus,
+          recurrence_group_id: groupId,
+          installment_number: i + 1,
+          installments_total: count > 1 ? count : null,
+          entity_id: recvEntityId
+        });
+      }
+
+      const { error } = await supabase.from("financial_receivables").insert(items);
       if (error) throw error;
     },
     onSuccess: async () => {
@@ -195,6 +217,9 @@ export function FinancialPlanningPanel() {
   const [payAmount, setPayAmount] = useState<string>("");
   const [payDueDate, setPayDueDate] = useState<string>("");
   const [payStatus, setPayStatus] = useState<string>("pending");
+  const [payIsRecurrent, setPayIsRecurrent] = useState(false);
+  const [payInstallments, setPayInstallments] = useState("12");
+  const [payEntityId, setPayEntityId] = useState<string | null>(null);
 
   const createPayableM = useMutation({
     mutationFn: async () => {
@@ -204,13 +229,28 @@ export function FinancialPlanningPanel() {
       if (!Number.isFinite(amt)) throw new Error("Valor inválido");
       if (!/^\d{4}-\d{2}-\d{2}$/.test(payDueDate)) throw new Error("Data inválida");
 
-      const { error } = await supabase.from("financial_payables").insert({
-        tenant_id: activeTenantId,
-        description: payDesc.trim(),
-        amount: Number(amt.toFixed(2)),
-        due_date: payDueDate,
-        status: payStatus,
-      });
+      const count = payIsRecurrent ? parseInt(payInstallments) || 1 : 1;
+      const groupId = payIsRecurrent ? crypto.randomUUID() : null;
+
+      const items = [];
+      const baseDate = new Date(`${payDueDate}T12:00:00`);
+
+      for (let i = 0; i < count; i++) {
+        const itemDate = addMonths(baseDate, i);
+        items.push({
+          tenant_id: activeTenantId,
+          description: count > 1 ? `${payDesc.trim()} (${i+1}/${count})` : payDesc.trim(),
+          amount: Number(amt.toFixed(2)),
+          due_date: format(itemDate, "yyyy-MM-dd"),
+          status: payStatus,
+          recurrence_group_id: groupId,
+          installment_number: i + 1,
+          installments_total: count > 1 ? count : null,
+          entity_id: payEntityId
+        });
+      }
+
+      const { error } = await supabase.from("financial_payables").insert(items);
       if (error) throw error;
     },
     onSuccess: async () => {
@@ -436,10 +476,30 @@ export function FinancialPlanningPanel() {
           <Card className="rounded-[22px] border-slate-200 bg-white/70 p-4 shadow-sm backdrop-blur dark:border-slate-800 dark:bg-slate-950/40">
             <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">Contas a receber</div>
 
-            <div className="mt-4 grid gap-3 md:grid-cols-5">
+            <div className="mt-4 grid gap-3 md:grid-cols-6">
               <div className="md:col-span-2">
                 <Label className="text-xs">Descrição</Label>
                 <Input className="mt-1 rounded-2xl" value={recvDesc} onChange={(e) => setRecvDesc(e.target.value)} />
+              </div>
+              <div className="md:col-span-2">
+                <Label className="text-xs">Entidade (Cliente/Inscritível)</Label>
+                <AsyncSelect
+                  className="mt-1 h-10 rounded-2xl"
+                  value={recvEntityId}
+                  onChange={setRecvEntityId}
+                  placeholder="Buscar..."
+                  loadOptions={async (val) => {
+                    if (!activeTenantId || val.length < 2) return [];
+                    const { data } = await supabase
+                      .from("core_entities")
+                      .select("id, display_name")
+                      .eq("tenant_id", activeTenantId)
+                      .ilike("display_name", `%${val}%`)
+                      .is("deleted_at", null)
+                      .limit(10);
+                    return (data || []).map((d) => ({ value: d.id, label: d.display_name }));
+                  }}
+                />
               </div>
               <div>
                 <Label className="text-xs">Valor</Label>
@@ -472,7 +532,31 @@ export function FinancialPlanningPanel() {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="md:col-span-5">
+
+              <div className="flex items-center gap-2 pt-6">
+                <Checkbox 
+                  id="recv-recurrent" 
+                  checked={recvIsRecurrent} 
+                  onCheckedChange={(v) => setRecvIsRecurrent(!!v)} 
+                />
+                <Label htmlFor="recv-recurrent" className="text-xs cursor-pointer">Recorrente</Label>
+              </div>
+
+              {recvIsRecurrent && (
+                <div>
+                  <Label className="text-xs">Meses</Label>
+                  <Input 
+                    type="number" 
+                    className="mt-1 rounded-2xl" 
+                    value={recvInstallments} 
+                    onChange={(e) => setRecvInstallments(e.target.value)} 
+                    min="2"
+                    max="60"
+                  />
+                </div>
+              )}
+
+              <div className="md:col-span-5 flex items-end">
                 <Button
                   onClick={() => createReceivableM.mutate()}
                   disabled={!activeTenantId || createReceivableM.isPending}
@@ -488,16 +572,27 @@ export function FinancialPlanningPanel() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Descrição</TableHead>
+                    <TableHead>Entidade</TableHead>
                     <TableHead>Valor</TableHead>
                     <TableHead>Vencimento</TableHead>
                     <TableHead>Status</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {(receivablesQ.data ?? []).map((r) => (
+                  {(receivablesQ.data ?? []).map((r: any) => (
                     <TableRow key={r.id}>
-                      <TableCell className="font-medium">{r.description}</TableCell>
+                      <TableCell className="font-medium">
+                        {r.description}
+                        {r.installments_total && (
+                          <span className="ml-2 text-[10px] text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded-full">
+                            {r.installment_number}/{r.installments_total}
+                          </span>
+                        )}
+                      </TableCell>
                       <TableCell>{formatMoneyBRL(Number(r.amount ?? 0))}</TableCell>
+                      <TableCell className="text-xs text-slate-600">
+                        {r.core_entities?.display_name ?? "—"}
+                      </TableCell>
                       <TableCell>{r.due_date}</TableCell>
                       <TableCell>
                         <Select
@@ -519,7 +614,7 @@ export function FinancialPlanningPanel() {
 
                   {!receivablesQ.isLoading && !(receivablesQ.data ?? []).length ? (
                     <TableRow>
-                      <TableCell colSpan={4} className="text-slate-600 dark:text-slate-400">
+                      <TableCell colSpan={5} className="text-slate-600 dark:text-slate-400">
                         Nenhum recebível ainda.
                       </TableCell>
                     </TableRow>
@@ -534,10 +629,30 @@ export function FinancialPlanningPanel() {
           <Card className="rounded-[22px] border-slate-200 bg-white/70 p-4 shadow-sm backdrop-blur dark:border-slate-800 dark:bg-slate-950/40">
             <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">Contas a pagar</div>
 
-            <div className="mt-4 grid gap-3 md:grid-cols-5">
+            <div className="mt-4 grid gap-3 md:grid-cols-6">
               <div className="md:col-span-2">
                 <Label className="text-xs">Descrição</Label>
                 <Input className="mt-1 rounded-2xl" value={payDesc} onChange={(e) => setPayDesc(e.target.value)} />
+              </div>
+              <div className="md:col-span-2">
+                <Label className="text-xs">Entidade (Fornecedor/Destino)</Label>
+                <AsyncSelect
+                  className="mt-1 h-10 rounded-2xl"
+                  value={payEntityId}
+                  onChange={setPayEntityId}
+                  placeholder="Buscar..."
+                  loadOptions={async (val) => {
+                    if (!activeTenantId || val.length < 2) return [];
+                    const { data } = await supabase
+                      .from("core_entities")
+                      .select("id, display_name")
+                      .eq("tenant_id", activeTenantId)
+                      .ilike("display_name", `%${val}%`)
+                      .is("deleted_at", null)
+                      .limit(10);
+                    return (data || []).map((d) => ({ value: d.id, label: d.display_name }));
+                  }}
+                />
               </div>
               <div>
                 <Label className="text-xs">Valor</Label>
@@ -570,7 +685,31 @@ export function FinancialPlanningPanel() {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="md:col-span-5">
+
+              <div className="flex items-center gap-2 pt-6">
+                <Checkbox 
+                  id="pay-recurrent" 
+                  checked={payIsRecurrent} 
+                  onCheckedChange={(v) => setPayIsRecurrent(!!v)} 
+                />
+                <Label htmlFor="pay-recurrent" className="text-xs cursor-pointer">Recorrente</Label>
+              </div>
+
+              {payIsRecurrent && (
+                <div>
+                  <Label className="text-xs">Meses</Label>
+                  <Input 
+                    type="number" 
+                    className="mt-1 rounded-2xl" 
+                    value={payInstallments} 
+                    onChange={(e) => setPayInstallments(e.target.value)} 
+                    min="2"
+                    max="60"
+                  />
+                </div>
+              )}
+
+              <div className="md:col-span-5 flex items-end">
                 <Button
                   onClick={() => createPayableM.mutate()}
                   disabled={!activeTenantId || createPayableM.isPending}
@@ -586,16 +725,27 @@ export function FinancialPlanningPanel() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Descrição</TableHead>
+                    <TableHead>Entidade</TableHead>
                     <TableHead>Valor</TableHead>
                     <TableHead>Vencimento</TableHead>
                     <TableHead>Status</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {(payablesQ.data ?? []).map((p) => (
+                  {(payablesQ.data ?? []).map((p: any) => (
                     <TableRow key={p.id}>
-                      <TableCell className="font-medium">{p.description}</TableCell>
+                      <TableCell className="font-medium">
+                        {p.description}
+                        {p.installments_total && (
+                          <span className="ml-2 text-[10px] text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded-full">
+                            {p.installment_number}/{p.installments_total}
+                          </span>
+                        )}
+                      </TableCell>
                       <TableCell>{formatMoneyBRL(Number(p.amount ?? 0))}</TableCell>
+                      <TableCell className="text-xs text-slate-600">
+                        {p.core_entities?.display_name ?? "—"}
+                      </TableCell>
                       <TableCell>{p.due_date}</TableCell>
                       <TableCell>
                         <Select value={p.status} onValueChange={(v) => updatePayableStatusM.mutate({ id: p.id, status: v })}>
@@ -614,7 +764,7 @@ export function FinancialPlanningPanel() {
 
                   {!payablesQ.isLoading && !(payablesQ.data ?? []).length ? (
                     <TableRow>
-                      <TableCell colSpan={4} className="text-slate-600 dark:text-slate-400">
+                      <TableCell colSpan={5} className="text-slate-600 dark:text-slate-400">
                         Nenhum pagável ainda.
                       </TableCell>
                     </TableRow>

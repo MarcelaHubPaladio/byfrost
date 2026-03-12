@@ -42,12 +42,18 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 
-type BlockType = 'header' | 'hero' | 'text' | 'image' | 'links' | 'divider' | 'html';
+type BlockType = 'header' | 'hero' | 'text' | 'image' | 'links' | 'divider' | 'html' | 'slider' | 'info-cards';
 
 type Block = {
     id: string;
     type: BlockType;
     content: any;
+};
+
+type PageSettings = {
+    layout?: 'default' | 'sidebar';
+    sidebarLogo?: string;
+    socialLinks?: { type: string, url: string }[];
 };
 
 type Section = {
@@ -148,6 +154,8 @@ export default function PortalEditor() {
                      type === 'text' ? { text: 'Seu texto aqui...' } :
                      type === 'links' ? { items: [{ label: 'Botão 1', url: '#' }] } :
                      type === 'html' ? { html: '<div class="p-4 bg-slate-100 rounded-xl">Custom HTML</div>' } :
+                     type === 'slider' ? { items: [{ title: 'Thinking differently', subtitle: 'Creative territory', image: 'https://images.unsplash.com/photo-1622979135225-d2ba2697133e?q=80&w=2070' }] } :
+                     type === 'info-cards' ? { items: [{ title: 'Explore Now', date: '08 November 2020', text: 'Monshaat and CJ discuss ways to support SMEs in Saudi Arabia', image: 'https://images.unsplash.com/photo-1614850523296-d8c1af93d400?q=80&w=2070' }] } :
                      {},
         };
         setSections(sections.map(s => s.id === sectionId ? { ...s, blocks: [...s.blocks, newBlock] } : s));
@@ -216,6 +224,8 @@ export default function PortalEditor() {
                         <div className="grid grid-cols-2 gap-3">
                             <BlockButton icon={<Layout />} label="Header" onClick={() => activeSectionId && addBlock(activeSectionId, 'header')} active={!!activeSectionId} />
                             <BlockButton icon={<Layout />} label="Hero" onClick={() => activeSectionId && addBlock(activeSectionId, 'hero')} active={!!activeSectionId} />
+                            <BlockButton icon={<ImageIcon />} label="Slider" onClick={() => activeSectionId && addBlock(activeSectionId, 'slider')} active={!!activeSectionId} />
+                            <BlockButton icon={<Layout />} label="Cards" onClick={() => activeSectionId && addBlock(activeSectionId, 'info-cards')} active={!!activeSectionId} />
                             <BlockButton icon={<Type />} label="Texto" onClick={() => activeSectionId && addBlock(activeSectionId, 'text')} active={!!activeSectionId} />
                             <BlockButton icon={<ImageIcon />} label="Imagem" onClick={() => activeSectionId && addBlock(activeSectionId, 'image')} active={!!activeSectionId} />
                             <BlockButton icon={<LinkIcon />} label="Links" onClick={() => activeSectionId && addBlock(activeSectionId, 'links')} active={!!activeSectionId} />
@@ -239,6 +249,23 @@ export default function PortalEditor() {
                             <div className="space-y-2">
                                 <Label className="text-sm">URL da Página</Label>
                                 <Input value={page?.slug} readOnly className="bg-slate-50 text-xs h-9 rounded-lg" />
+                            </div>
+                            <div className="pt-4 space-y-3">
+                                <Label className="text-xs text-slate-400 font-bold uppercase">Layout Premium</Label>
+                                <div className="grid grid-cols-2 gap-2">
+                                    <Button 
+                                        variant={(page?.page_settings?.layout || 'default') === 'default' ? 'secondary' : 'outline'} 
+                                        size="sm" 
+                                        className="text-[10px] h-8"
+                                        onClick={() => saveM.mutate({ page_settings: { ...page?.page_settings, layout: 'default' } })}
+                                    >Padrão</Button>
+                                    <Button 
+                                        variant={page?.page_settings?.layout === 'sidebar' ? 'secondary' : 'outline'} 
+                                        size="sm" 
+                                        className="text-[10px] h-8"
+                                        onClick={() => saveM.mutate({ page_settings: { ...page?.page_settings, layout: 'sidebar' } })}
+                                    >Sidebar</Button>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -572,6 +599,120 @@ function EditorBlockItem({ block, onUpdate, onRemove }: any) {
                         items.push({ label: 'Novo Botão', url: '#' });
                         onUpdate({ items });
                     }}>+ Adicionar Botão</Button>
+                </div>
+            )}
+
+            {block.type === 'slider' && (
+                <div className="space-y-4">
+                    <Label className="text-[10px] font-bold text-slate-400 uppercase">Premium Slider</Label>
+                    {(block.content.items || []).map((item: any, idx: number) => (
+                        <div key={idx} className="p-4 bg-slate-50 rounded-2xl border border-slate-100 space-y-3">
+                            <div className="flex justify-between items-center">
+                                <span className="text-[10px] font-bold">SLIDE {idx + 1}</span>
+                                <Button variant="ghost" size="icon" className="h-6 w-6 text-red-500" onClick={() => {
+                                    const items = block.content.items.filter((_: any, i: number) => i !== idx);
+                                    onUpdate({ items });
+                                }}>
+                                    <Trash2 className="h-3 w-3" />
+                                </Button>
+                            </div>
+                            <Input 
+                                placeholder="Título" 
+                                className="h-8 text-sm" 
+                                value={item.title} 
+                                onChange={(e) => {
+                                    const items = [...block.content.items];
+                                    items[idx].title = e.target.value;
+                                    onUpdate({ items });
+                                }}
+                            />
+                            <Input 
+                                placeholder="Subtítulo" 
+                                className="h-8 text-xs text-slate-500" 
+                                value={item.subtitle} 
+                                onChange={(e) => {
+                                    const items = [...block.content.items];
+                                    items[idx].subtitle = e.target.value;
+                                    onUpdate({ items });
+                                }}
+                            />
+                            <Input 
+                                placeholder="Image URL" 
+                                className="h-8 text-[10px]" 
+                                value={item.image} 
+                                onChange={(e) => {
+                                    const items = [...block.content.items];
+                                    items[idx].image = e.target.value;
+                                    onUpdate({ items });
+                                }}
+                            />
+                        </div>
+                    ))}
+                    <Button variant="outline" className="w-full h-10 rounded-xl gap-2 dashed" onClick={() => {
+                        const items = [...(block.content.items || [])];
+                        items.push({ title: 'Novo Slide', subtitle: 'Texto aqui', image: '' });
+                        onUpdate({ items });
+                    }}>
+                        <Plus className="h-4 w-4" /> Adicionar Slide
+                    </Button>
+                </div>
+            )}
+
+            {block.type === 'info-cards' && (
+                <div className="space-y-4">
+                    <Label className="text-[10px] font-bold text-slate-400 uppercase">Info Cards (Notícias)</Label>
+                    {(block.content.items || []).map((item: any, idx: number) => (
+                        <div key={idx} className="p-4 bg-slate-50 rounded-2xl border border-slate-100 space-y-3">
+                            <div className="flex justify-between items-center">
+                                <span className="text-[10px] font-bold">CARD {idx + 1}</span>
+                                <Button variant="ghost" size="icon" className="h-6 w-6 text-red-500" onClick={() => {
+                                    const items = block.content.items.filter((_: any, i: number) => i !== idx);
+                                    onUpdate({ items });
+                                }}>
+                                    <Trash2 className="h-3 w-3" />
+                                </Button>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2">
+                                <Input 
+                                    placeholder="Data" 
+                                    className="h-8 text-xs" 
+                                    value={item.date} 
+                                    onChange={(e) => {
+                                        const items = [...block.content.items];
+                                        items[idx].date = e.target.value;
+                                        onUpdate({ items });
+                                    }}
+                                />
+                                <Input 
+                                    placeholder="Label Botão" 
+                                    className="h-8 text-xs" 
+                                    value={item.title} 
+                                    onChange={(e) => {
+                                        const items = [...block.content.items];
+                                        items[idx].title = e.target.value;
+                                        onUpdate({ items });
+                                    }}
+                                />
+                            </div>
+                            <textarea 
+                                placeholder="Chamada/Texto" 
+                                className="w-full text-xs p-2 rounded-lg border bg-white min-h-[60px]" 
+                                value={item.text} 
+                                onChange={(e) => {
+                                    const items = [...block.content.items];
+                                    items[idx].text = e.target.value;
+                                    onUpdate({ items });
+                                }}
+                            />
+                        </div>
+                    ))}
+                    <Button variant="outline" className="w-full h-10 rounded-xl gap-2 dashed" onClick={() => {
+                        const items = [...(block.content.items || [])];
+                        items.push({ title: 'Explore', date: 'Date here', text: 'Text here', image: '' });
+                        onUpdate({ items });
+                    }}>
+                        <Plus className="h-4 w-4" /> Adicionar Card
+                    </Button>
                 </div>
             )}
         </div>

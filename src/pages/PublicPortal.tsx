@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 
 type Block = {
     id: string;
-    type: 'hero' | 'text' | 'image' | 'links' | 'divider';
+    type: 'header' | 'hero' | 'text' | 'image' | 'links' | 'divider';
     content: any;
 };
 
@@ -69,6 +69,52 @@ export default function PublicPortal() {
                                 </p>
                             </div>
                         </div>
+                    )}
+
+                    {block.type === 'header' && (
+                        <header className={cn(
+                            "w-full py-6 px-6 md:px-12 flex items-center transition-all bg-white/80 backdrop-blur-md sticky top-0 z-[100] border-b border-slate-100",
+                            block.content.variant === 'logo-center' && "flex-col gap-6"
+                        )}>
+                            <div className={cn(
+                                "flex items-center gap-2",
+                                block.content.variant === 'logo-center' && "w-full justify-center"
+                            )}>
+                                <span className="text-2xl font-black tracking-tighter text-slate-900">
+                                    {block.content.logoText}
+                                </span>
+                            </div>
+
+                            <nav className={cn(
+                                "hidden md:flex flex-1 items-center gap-8 mx-auto",
+                                block.content.variant === 'logo-left' && "ml-12",
+                                block.content.variant === 'logo-center' && "justify-center"
+                            )}>
+                                {(block.content.links || []).map((link: any, idx: number) => (
+                                    <a 
+                                        key={idx} 
+                                        href={link.url} 
+                                        className="text-sm font-bold text-slate-600 hover:text-slate-900 transition-colors"
+                                    >
+                                        {link.label}
+                                    </a>
+                                ))}
+                            </nav>
+
+                            <div className={cn(
+                                "flex items-center gap-4",
+                                block.content.variant === 'logo-center' && "hidden"
+                            )}>
+                                {block.content.cta?.label && (
+                                    <a 
+                                        href={block.content.cta.url}
+                                        className="h-11 px-6 flex items-center justify-center rounded-2xl bg-slate-900 text-white text-sm font-bold hover:scale-105 transition-transform"
+                                    >
+                                        {block.content.cta.label}
+                                    </a>
+                                )}
+                            </div>
+                        </header>
                     )}
 
                     {block.type === 'text' && (

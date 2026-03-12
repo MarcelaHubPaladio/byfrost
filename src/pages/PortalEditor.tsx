@@ -27,7 +27,7 @@ import { cn } from "@/lib/utils";
 
 type Block = {
     id: string;
-    type: 'hero' | 'text' | 'image' | 'links' | 'divider';
+    type: 'header' | 'hero' | 'text' | 'image' | 'links' | 'divider';
     content: any;
 };
 
@@ -79,7 +79,13 @@ export default function PortalEditor() {
         const newBlock: Block = {
             id: crypto.randomUUID(),
             type,
-            content: type === 'hero' ? { title: 'Bem-vindo', subtitle: 'Subtítulo aqui' } :
+            content: type === 'header' ? { 
+                        variant: 'logo-left', 
+                        logoText: page?.title || 'Byfrost',
+                        links: [{ label: 'Início', url: '#' }, { label: 'Sobre', url: '#' }],
+                        cta: { label: 'Contato', url: '#' }
+                     } :
+                     type === 'hero' ? { title: 'Bem-vindo', subtitle: 'Subtítulo aqui' } :
                      type === 'text' ? { text: 'Seu texto aqui...' } :
                      type === 'links' ? { items: [{ label: 'Botão 1', url: '#' }] } :
                      {},
@@ -118,6 +124,7 @@ export default function PortalEditor() {
                 <div className="p-6 space-y-4 flex-1 overflow-y-auto">
                     <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Adicionar Blocos</p>
                     <div className="grid grid-cols-2 gap-3">
+                        <BlockButton icon={<Layout />} label="Header" onClick={() => addBlock('header')} />
                         <BlockButton icon={<Layout />} label="Hero" onClick={() => addBlock('hero')} />
                         <BlockButton icon={<Type />} label="Texto" onClick={() => addBlock('text')} />
                         <BlockButton icon={<ImageIcon />} label="Imagem" onClick={() => addBlock('image')} />
@@ -206,6 +213,71 @@ export default function PortalEditor() {
                                             </div>
                                             
                                             <div className="p-8">
+                                                {block.type === 'header' && (
+                                                    <div className="space-y-6">
+                                                        <div className="flex items-center justify-between border-b border-slate-100 pb-4 mb-4">
+                                                            <div className="flex gap-2">
+                                                                <Button 
+                                                                    variant={block.content.variant === 'logo-left' ? 'secondary' : 'outline'} 
+                                                                    size="sm" 
+                                                                    className="text-[10px] h-7 px-2 rounded-lg"
+                                                                    onClick={() => updateBlockContent(block.id, { variant: 'logo-left' })}
+                                                                >Logo Left</Button>
+                                                                <Button 
+                                                                    variant={block.content.variant === 'logo-center' ? 'secondary' : 'outline'} 
+                                                                    size="sm" 
+                                                                    className="text-[10px] h-7 px-2 rounded-lg"
+                                                                    onClick={() => updateBlockContent(block.id, { variant: 'logo-center' })}
+                                                                >Logo Center</Button>
+                                                            </div>
+                                                            <div className="text-[11px] text-slate-400 font-medium">Header Modelo</div>
+                                                        </div>
+
+                                                        {/* Preview-ish render in editor */}
+                                                        <div className={cn(
+                                                            "flex items-center gap-8 py-4 px-6 bg-slate-50 dark:bg-slate-800/50 rounded-2xl",
+                                                            block.content.variant === 'logo-center' && "flex-col gap-4"
+                                                        )}>
+                                                            <Input 
+                                                                className="w-auto min-w-[120px] font-bold text-xl border-none bg-transparent p-0 h-auto"
+                                                                value={block.content.logoText}
+                                                                onChange={(e) => updateBlockContent(block.id, { logoText: e.target.value })}
+                                                            />
+                                                            
+                                                            <div className={cn(
+                                                                "flex-1 flex gap-6",
+                                                                block.content.variant === 'logo-center' && "justify-center"
+                                                            )}>
+                                                                {(block.content.links || []).map((link: any, idx: number) => (
+                                                                    <Input 
+                                                                        key={idx}
+                                                                        className="w-20 text-xs font-semibold border-none bg-transparent p-0 h-auto text-slate-600"
+                                                                        value={link.label}
+                                                                        onChange={(e) => {
+                                                                            const links = [...block.content.links];
+                                                                            links[idx].label = e.target.value;
+                                                                            updateBlockContent(block.id, { links });
+                                                                        }}
+                                                                    />
+                                                                ))}
+                                                                <Button variant="ghost" size="sm" className="h-6 w-6 rounded-full p-0" onClick={() => {
+                                                                    const links = [...(block.content.links || [])];
+                                                                    links.push({ label: 'Item', url: '#' });
+                                                                    updateBlockContent(block.id, { links });
+                                                                }}>+</Button>
+                                                            </div>
+
+                                                            <div className="flex items-center gap-2">
+                                                                <Input 
+                                                                    className="w-24 text-center text-xs font-bold border-none bg-slate-900 text-white dark:bg-white dark:text-slate-900 rounded-lg h-8"
+                                                                    value={block.content.cta?.label}
+                                                                    onChange={(e) => updateBlockContent(block.id, { cta: { ...block.content.cta, label: e.target.value } })}
+                                                                />
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                )}
+
                                                 {block.type === 'hero' && (
                                                     <div className="text-center py-12">
                                                         <Input 

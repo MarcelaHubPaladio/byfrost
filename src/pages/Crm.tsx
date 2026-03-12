@@ -918,7 +918,19 @@ export default function Crm() {
               </Button>
 
               {activeTenantId && selectedJourney ? (
-                <NewLeadDialog tenantId={activeTenantId} journey={selectedJourney as any} actorUserId={user?.id ?? null} />
+                <>
+                  <div className="hidden sm:block">
+                    <NewLeadDialog tenantId={activeTenantId} journey={selectedJourney as any} actorUserId={user?.id ?? null} />
+                  </div>
+                  <div className="fixed bottom-0 left-0 right-0 z-[60] border-t border-slate-200 bg-white/80 p-4 backdrop-blur-md sm:hidden">
+                    <NewLeadDialog 
+                      tenantId={activeTenantId} 
+                      journey={selectedJourney as any} 
+                      actorUserId={user?.id ?? null} 
+                      className="h-12 w-full text-base shadow-lg"
+                    />
+                  </div>
+                </>
               ) : null}
 
               {activeTenantId && selectedJourney ? (
@@ -938,7 +950,7 @@ export default function Crm() {
           )}
 
           {selectedJourney?.key && (
-            <div className="mt-4 overflow-x-auto pb-4 snap-x snap-mandatory">
+            <div className="mt-4 overflow-x-auto pb-4 snap-x snap-mandatory sm:pb-4 pb-24">
               <div className="flex w-max gap-4 px-1">
                 {columns.map((col) => (
                   <div

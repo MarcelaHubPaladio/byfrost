@@ -306,54 +306,54 @@ export function NewLeadDialog({
         </Button>
       </DialogTrigger>
 
-      <DialogContent className="w-[95vw] max-w-[560px] max-h-[90vh] flex flex-col overflow-hidden rounded-[22px] border-slate-200 bg-white p-0 shadow-xl">
-        <div className="flex-1 overflow-y-auto p-4 sm:p-5">
+      <DialogContent className="flex h-[92vh] w-[96vw] max-w-[560px] flex-col overflow-hidden rounded-[24px] border-slate-200 bg-white p-0 shadow-2xl sm:h-auto sm:max-h-[90vh]">
+        <div className="flex-1 overflow-y-auto p-5 sm:p-6">
           <DialogHeader>
-            <DialogTitle className="text-base font-semibold text-slate-900">Novo lead</DialogTitle>
-            <DialogDescription className="text-sm text-slate-600">
-              Cria um lead no CRM em <span className="font-medium">{journey.name}</span>.
+            <DialogTitle className="text-lg font-bold text-slate-900">Novo lead</DialogTitle>
+            <DialogDescription className="text-sm text-slate-500">
+              Cria um lead no CRM em <span className="font-semibold text-slate-700">{journey.name}</span>.
             </DialogDescription>
           </DialogHeader>
 
-          <div className="mt-4 grid gap-3">
-            <div>
-              <Label className="text-xs">Nome</Label>
+          <div className="mt-6 grid gap-5">
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold uppercase tracking-wider text-slate-500">Nome</Label>
               <Input
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                className="mt-1 h-11 rounded-2xl"
+                className="h-12 rounded-2xl border-slate-200 bg-slate-50/50 px-4 focus:bg-white focus:ring-byfrost-accent/20"
                 placeholder="Ex: Maria Souza"
               />
             </div>
 
-            <div>
-              <Label className="text-xs">WhatsApp</Label>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold uppercase tracking-wider text-slate-500">WhatsApp</Label>
               <Input
                 value={whatsapp}
                 onChange={(e) => setWhatsapp(e.target.value)}
-                className="mt-1 h-11 rounded-2xl"
+                className="h-12 rounded-2xl border-slate-200 bg-slate-50/50 px-4 focus:bg-white focus:ring-byfrost-accent/20"
                 placeholder="+5511999999999"
               />
-              <div className="mt-1 text-[11px] text-slate-500">Aceita com ou sem +55 (DDDs BR).</div>
+              <div className="text-[10px] text-slate-400">Aceita com ou sem +55 (DDDs brasileiros).</div>
             </div>
 
-            <div>
-              <Label className="text-xs">E-mail (opcional)</Label>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold uppercase tracking-wider text-slate-500">E-mail (opcional)</Label>
               <Input
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="mt-1 h-11 rounded-2xl"
+                className="h-12 rounded-2xl border-slate-200 bg-slate-50/50 px-4 focus:bg-white focus:ring-byfrost-accent/20"
                 placeholder="maria@empresa.com"
               />
             </div>
 
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-              <Label className="text-xs mb-2 block font-semibold">Vínculo de Entidade</Label>
-              <div className="flex flex-wrap gap-2 mb-3">
+            <div className="rounded-2xl border border-slate-200 bg-slate-50/50 p-4">
+              <Label className="mb-3 block text-xs font-bold uppercase tracking-wider text-slate-500">Vínculo de Entidade</Label>
+              <div className="mb-4 flex flex-wrap gap-2">
                 <Button
                   type="button"
                   variant={entityHandling === "none" ? "default" : "outline"}
-                  className="rounded-xl h-8 text-[11px]"
+                  className={cn("h-9 rounded-xl px-4 text-xs font-medium", entityHandling === "none" ? "bg-slate-900 text-white" : "border-slate-200 bg-white")}
                   onClick={() => setEntityHandling("none")}
                 >
                   Não vincular
@@ -361,19 +361,19 @@ export function NewLeadDialog({
                 <Button
                   type="button"
                   variant={entityHandling === "create" ? "default" : "outline"}
-                  className="rounded-xl h-8 text-[11px]"
+                  className={cn("h-9 rounded-xl px-4 text-xs font-medium", entityHandling === "create" ? "bg-slate-900 text-white" : "border-slate-200 bg-white")}
                   onClick={() => setEntityHandling("create")}
                 >
-                  <Plus className="h-3 w-3 mr-1" />
+                  <Plus className="mr-1.5 h-3.5 w-3.5" />
                   Criar entidade
                 </Button>
                 <Button
                   type="button"
                   variant={entityHandling === "link" ? "default" : "outline"}
-                  className="rounded-xl h-8 text-[11px]"
+                  className={cn("h-9 rounded-xl px-4 text-xs font-medium", entityHandling === "link" ? "bg-slate-900 text-white" : "border-slate-200 bg-white")}
                   onClick={() => setEntityHandling("link")}
                 >
-                  Relacionar existente
+                  Existente
                 </Button>
               </div>
 
@@ -384,14 +384,14 @@ export function NewLeadDialog({
                       variant="outline"
                       role="combobox"
                       aria-expanded={openEntity}
-                      className="flex h-11 w-full justify-between items-center rounded-2xl border-slate-200 px-3 py-2 font-normal text-slate-900 bg-white"
+                      className="flex h-12 w-full items-center justify-between rounded-2xl border-slate-200 bg-white px-4 text-sm font-normal text-slate-900"
                     >
-                      <div className="truncate text-sm">
+                      <div className="truncate">
                         {selectedEntityId
                           ? entitiesQ.data?.find(e => e.id === selectedEntityId)?.display_name || "Entidade selecionada"
-                          : <span className="text-slate-500">Selecione uma entidade...</span>}
+                          : <span className="text-slate-400">Selecione uma entidade...</span>}
                       </div>
-                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-40" />
                     </Button>
                   </PopoverTrigger>
                   <PopoverContent className="w-[300px] rounded-2xl p-0" align="start">
@@ -400,10 +400,11 @@ export function NewLeadDialog({
                         placeholder="Buscar entidade..."
                         value={searchEntity}
                         onValueChange={setSearchEntity}
+                        className="h-11"
                       />
-                      <CommandList>
+                      <CommandList className="max-h-[250px]">
                         <CommandEmpty>
-                          <div className="p-3 text-sm text-slate-500">
+                          <div className="p-4 text-center text-sm text-slate-500">
                             Nenhuma entidade encontrada.
                           </div>
                         </CommandEmpty>
@@ -415,8 +416,9 @@ export function NewLeadDialog({
                               setSelectedEntityId(ent.id);
                               setOpenEntity(false);
                             }}
+                            className="m-1 rounded-xl"
                           >
-                            <Check className={cn("mr-2 h-4 w-4", selectedEntityId === ent.id ? "opacity-100" : "opacity-0")} />
+                            <Check className={cn("mr-2 h-4 w-4 text-emerald-600", selectedEntityId === ent.id ? "opacity-100" : "opacity-0")} />
                             {ent.display_name}
                           </CommandItem>
                         ))}
@@ -426,27 +428,27 @@ export function NewLeadDialog({
                 </Popover>
               )}
             </div>
-
-            <div className="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-              <Button
-                type="button"
-                variant="secondary"
-                className="h-11 w-full sm:w-auto rounded-2xl"
-                onClick={() => setOpen(false)}
-                disabled={saving}
-              >
-                Cancelar
-              </Button>
-              <Button
-                type="button"
-                className="h-11 w-full sm:w-auto rounded-2xl bg-[hsl(var(--byfrost-accent))] px-5 text-white hover:bg-[hsl(var(--byfrost-accent)/0.92)]"
-                onClick={createLead}
-                disabled={saving || !name.trim()}
-              >
-                {saving ? "Criando…" : "Criar lead"}
-              </Button>
-            </div>
           </div>
+        </div>
+
+        <div className="flex border-t border-slate-100 bg-slate-50/30 p-4 gap-3 sm:justify-end sm:p-5">
+          <Button
+            type="button"
+            variant="ghost"
+            className="h-12 flex-1 rounded-2xl text-slate-600 hover:bg-slate-100 sm:flex-none sm:px-8"
+            onClick={() => setOpen(false)}
+            disabled={saving}
+          >
+            Cancelar
+          </Button>
+          <Button
+            type="button"
+            className="h-12 flex-1 rounded-2xl bg-[hsl(var(--byfrost-accent))] text-white shadow-md shadow-byfrost-accent/20 hover:bg-[hsl(var(--byfrost-accent)/0.92)] sm:flex-none sm:px-10"
+            onClick={createLead}
+            disabled={saving || !name.trim()}
+          >
+            {saving ? "Criando…" : "Criar lead"}
+          </Button>
         </div>
       </DialogContent>
     </Dialog>

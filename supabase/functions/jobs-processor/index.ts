@@ -257,12 +257,7 @@ function extractTotalCents(text: string) {
   return null;
 }
 
-async function sha256Hex(text: string) {
-  const bytes = new TextEncoder().encode(text);
-  const hash = await crypto.subtle.digest("SHA-256", bytes);
-  const arr = Array.from(new Uint8Array(hash));
-  return arr.map((b) => b.toString(16).padStart(2, "0")).join("");
-}
+
 
 async function computeSalesOrderFingerprint(args: {
   clientKey: string;
@@ -1291,7 +1286,7 @@ function addDaysIsoDate(dateIso: string, days: number) {
   return d.toISOString().slice(0, 10);
 }
 
-serve(async (req) => {
+serve(async (req: any) => {
   const fn = "jobs-processor";
   try {
     if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -1817,27 +1812,85 @@ serve(async (req) => {
           }
 
           // Se o case foi consolidado em outro, escrevemos os campos no case "keep".
-          const upserts: any[] = [];
-          if (extracted.name) upserts.push({ tenant_id: tenantId, case_id: targetCaseId, key: "name", value_text: extracted.name, confidence: 0.75, source: "ocr", last_updated_by: "extract" });
-          if (extracted.customer_code) upserts.push({ tenant_id: tenantId, case_id: targetCaseId, key: "customer_code", value_text: extracted.customer_code, confidence: 0.8, source: "ocr", last_updated_by: "extract" });
-          if (extracted.email) upserts.push({ tenant_id: tenantId, case_id: targetCaseId, key: "email", value_text: extracted.email, confidence: 0.75, source: "ocr", last_updated_by: "extract" });
-          if (extracted.address) upserts.push({ tenant_id: tenantId, case_id: targetCaseId, key: "address", value_text: extracted.address, confidence: 0.7, source: "ocr", last_updated_by: "extract" });
-          if (extracted.city) upserts.push({ tenant_id: tenantId, case_id: targetCaseId, key: "city", value_text: extracted.city, confidence: 0.75, source: "ocr", last_updated_by: "extract" });
-          if (extracted.cep) upserts.push({ tenant_id: tenantId, case_id: targetCaseId, key: "cep", value_text: extracted.cep, confidence: 0.75, source: "ocr", last_updated_by: "extract" });
-          if (extracted.state) upserts.push({ tenant_id: tenantId, case_id: targetCaseId, key: "state", value_text: extracted.state, confidence: 0.7, source: "ocr", last_updated_by: "extract" });
-          if (extracted.uf) upserts.push({ tenant_id: tenantId, case_id: targetCaseId, key: "uf", value_text: extracted.uf, confidence: 0.85, source: "ocr", last_updated_by: "extract" });
-          if (extracted.order_local) upserts.push({ tenant_id: tenantId, case_id: targetCaseId, key: "order_local", value_text: extracted.order_local, confidence: 0.75, source: "ocr", last_updated_by: "extract" });
-          if (extracted.order_date_text) upserts.push({ tenant_id: tenantId, case_id: targetCaseId, key: "order_date_text", value_text: extracted.order_date_text, confidence: 0.65, source: "ocr", last_updated_by: "extract" });
-          if (extracted.inscr_est) upserts.push({ tenant_id: tenantId, case_id: targetCaseId, key: "inscr_est", value_text: extracted.inscr_est, confidence: 0.6, source: "ocr", last_updated_by: "extract" });
+          const { data: existingFields } = await supabase
+            .from("case_fields")
+            .select("key, source")
+            .eq("case_id", targetCaseId);
+          
+          const sourceMap = new Map((existingFields || []).map((f: any) => [f.key, f.source]));
 
-          if (extracted.cpf) upserts.push({ tenant_id: tenantId, case_id: targetCaseId, key: "cpf", value_text: extracted.cpf, confidence: extracted.cpf.length === 11 ? 0.85 : 0.45, source: "ocr", last_updated_by: "extract" });
-          if (extracted.rg) upserts.push({ tenant_id: tenantId, case_id: targetCaseId, key: "rg", value_text: extracted.rg, confidence: extracted.rg.length >= 7 ? 0.75 : 0.45, source: "ocr", last_updated_by: "extract" });
-          if (extracted.birth_date_text) upserts.push({ tenant_id: tenantId, case_id: targetCaseId, key: "birth_date_text", value_text: extracted.birth_date_text, confidence: 0.75, source: "ocr", last_updated_by: "extract" });
-          if (extracted.phone_raw) upserts.push({ tenant_id: tenantId, case_id: targetCaseId, key: "phone", value_text: extracted.phone_raw, confidence: 0.75, source: "ocr", last_updated_by: "extract" });
-          if (extracted.total_raw) upserts.push({ tenant_id: tenantId, case_id: targetCaseId, key: "total_raw", value_text: extracted.total_raw, confidence: 0.6, source: "ocr", last_updated_by: "extract" });
-          upserts.push({ tenant_id: tenantId, case_id: targetCaseId, key: "signature_present", value_text: extracted.signaturePresent ? "yes" : "no", confidence: 0.5, source: "ocr", last_updated_by: "extract" });
+          const upserts: any[] = [];
+          const pushSafe = (key: string, value: any, confidence: number) => {
+            if (!value) return;
+            const currentSource = sourceMap.get(key);
+            // Don't overwrite admin or crm_generation fields
+            if (currentSource === 'admin' || currentSource === 'crm_generation') return;
+            
+            upserts.push({ 
+              tenant_id: tenantId, 
+              case_id: targetCaseId, 
+              key, 
+              value_text: String(value), 
+              confidence, 
+              source: "ocr", 
+              last_updated_by: "extract" 
+            });
+          };
+
+          pushSafe("name", extracted.name, 0.75);
+          pushSafe("customer_code", extracted.customer_code, 0.8);
+          pushSafe("email", extracted.email, 0.75);
+          pushSafe("address", extracted.address, 0.7);
+          pushSafe("city", extracted.city, 0.75);
+          pushSafe("cep", extracted.cep, 0.75);
+          pushSafe("state", extracted.state, 0.7);
+          pushSafe("uf", extracted.uf, 0.85);
+          pushSafe("order_local", extracted.order_local, 0.75);
+          pushSafe("order_date_text", extracted.order_date_text, 0.65);
+          pushSafe("inscr_est", extracted.inscr_est, 0.6);
+          pushSafe("cpf", extracted.cpf, extracted.cpf?.length === 11 ? 0.85 : 0.45);
+          pushSafe("rg", extracted.rg, (extracted.rg?.length ?? 0) >= 7 ? 0.75 : 0.45);
+          pushSafe("birth_date_text", extracted.birth_date_text, 0.75);
+          pushSafe("phone", extracted.phone_raw, 0.75);
+          pushSafe("total_raw", extracted.total_raw, 0.6);
+          pushSafe("signature_present", extracted.signaturePresent ? "yes" : "no", 0.5);
 
           if (upserts.length) await supabase.from("case_fields").upsert(upserts);
+
+          // Items insertion (Agroforte / Sales Order)
+          // Only insert if the case currently has NO items
+          const { data: anyItem } = await supabase
+            .from("case_items")
+            .select("id")
+            .eq("case_id", targetCaseId)
+            .limit(1)
+            .maybeSingle();
+
+          if (!(anyItem as any)?.id && Array.isArray(extracted.itemLines) && extracted.itemLines.length > 0) {
+            console.log(`[${fn}] Attempting to insert ${extracted.itemLines.length} items for case ${targetCaseId}`);
+            const itemRows = extracted.itemLines.map((line, idx) => {
+              // Rough parsing of item line: "Description R$ Value"
+              const moneyPart = line.match(/R\$\s*([0-9\.,]+)/);
+              const total = moneyPart ? parsePtBrMoneyToCents(moneyPart[1]) / 100 : null;
+              const description = line.replace(/R\$\s*[0-9\.,]+/, "").trim();
+              
+              return {
+                tenant_id: tenantId,
+                case_id: targetCaseId,
+                line_no: idx + 1,
+                description: description || "Item extraído",
+                qty: 1, // Default to 1 as raw OCR text extraction is limited
+                price: total, // qty is 1, so price = total
+                total: total,
+                confidence_json: { source: "ocr_rough", raw_line: line }
+              };
+            });
+
+            if (itemRows.length > 0) {
+              const { error: itemsErr } = await supabase.from("case_items").insert(itemRows);
+              if (itemsErr) console.error(`[${fn}] Failed to insert items:`, itemsErr);
+            }
+          }
 
           await supabase.from("decision_logs").insert({
             tenant_id: tenantId,
@@ -2000,7 +2053,7 @@ serve(async (req) => {
           }
 
           const list = pends
-            .map((p, idx) => `${idx + 1}) ${p.question_text}${p.required ? "" : " (opcional)"}`)
+            .map((p: any, idx: number) => `${idx + 1}) ${p.question_text}${p.required ? "" : " (opcional)"}`)
             .join("\n");
 
           const msg = `Byfrost.ia — Pendências do pedido:\n\n${list}\n\nVocê pode responder por texto ou áudio (MVP).`;

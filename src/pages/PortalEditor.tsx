@@ -45,13 +45,19 @@ import {
 import { ImageUpload } from "@/components/portal/ImageUpload";
 import { useTenant } from "@/providers/TenantProvider";
 import { 
-  DndContext, 
-  closestCenter,
-  KeyboardSensor,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  DragOverlay,
+    DndContext, 
+    closestCenter,
+    KeyboardSensor,
+    PointerSensor,
+    useSensor,
+    useSensors,
+    DragOverlay,
+    useDraggable,
+    useDroppable,
+    DragStartEvent,
+    DragOverEvent,
+    DragEndEvent,
+    defaultDropAnimationSideEffects,
 } from '@dnd-kit/core';
 import {
   arrayMove,
@@ -62,12 +68,19 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 
-type BlockType = 'header' | 'hero' | 'text' | 'image' | 'links' | 'divider' | 'html' | 'slider' | 'info-cards';
+type BlockType = 'header' | 'hero' | 'text' | 'image' | 'links' | 'divider' | 'html' | 'slider' | 'info-cards' | 'grid' | 'gallery';
 
 type Block = {
     id: string;
     type: BlockType;
     content: any;
+    blocks?: Block[];
+    settings?: {
+        height?: 'auto' | 'sm' | 'md' | 'lg' | 'screen';
+        textAlign?: 'left' | 'center' | 'right';
+        backgroundColor?: string;
+        padding?: string;
+    };
 };
 
 type PageSettings = {
@@ -97,10 +110,16 @@ export default function PortalEditor() {
     const [sections, setSections] = useState<Section[]>([]);
     const [previewMode, setPreviewMode] = useState<'desktop' | 'mobile'>('desktop');
     const [activeSectionId, setActiveSectionId] = useState<string | null>(null);
+    const [activeId, setActiveId] = useState<string | null>(null);
+    const [activeData, setActiveData] = useState<any>(null);
 
     const { activeTenant } = useTenant();
     const sensors = useSensors(
-        useSensor(PointerSensor),
+        useSensor(PointerSensor, {
+            activationConstraint: {
+                distance: 8,
+            },
+        }),
         useSensor(KeyboardSensor, {
             coordinateGetter: sortableKeyboardCoordinates,
         })
@@ -153,32 +172,38 @@ export default function PortalEditor() {
         }
     });
 
-    const addSection = () => {
+    const addSection = (type?: BlockType) => {
         const newSection: Section = {
-            id: crypto.randomUUID(),
-            settings: { paddingY: '12', backgroundColor: '#ffffff' },
-            blocks: []
+            id: Math.random().toString(36).substr(2, 9),
+            settings: { paddingY: '12', maxWidth: '1400' },
+            blocks: type ? [
+                { id: Math.random().toString(36).substr(2, 9), type, content: type === 'grid' ? { columns: 2 } : type === 'gallery' ? { items: [] } : {} }
+            ] : []
         };
         setSections([...sections, newSection]);
     };
 
     const addBlock = (sectionId: string, type: BlockType) => {
+        let content = {};
+        if (type === 'header') content = { 
+            variant: 'logo-left', 
+            logoText: page?.title || 'Byfrost',
+            links: [{ label: 'Início', url: '#' }, { label: 'Sobre', url: '#' }],
+            cta: { label: 'Contato', url: '#' }
+        };
+        if (type === 'hero') content = { title: 'Bem-vindo', subtitle: 'Subtítulo aqui' };
+        if (type === 'text') content = { text: 'Seu texto aqui...' };
+        if (type === 'links') content = { items: [{ label: 'Botão 1', url: '#' }] };
+        if (type === 'html') content = { html: '<div class="p-4 bg-slate-100 rounded-xl">Custom HTML</div>' };
+        if (type === 'slider') content = { items: [{ title: 'Slide 1', subtitle: 'Subtítulo', image: '' }] };
+        if (type === 'info-cards') content = { items: [{ title: 'Explore', date: 'Hoje', text: 'Descrição curta...', image: '' }] };
+        if (type === 'grid') content = { columns: 2 };
+        if (type === 'gallery') content = { items: [] };
+
         const newBlock: Block = {
-            id: crypto.randomUUID(),
+            id: Math.random().toString(36).substr(2, 9),
             type,
-            content: type === 'header' ? { 
-                        variant: 'logo-left', 
-                        logoText: page?.title || 'Byfrost',
-                        links: [{ label: 'Início', url: '#' }, { label: 'Sobre', url: '#' }],
-                        cta: { label: 'Contato', url: '#' }
-                     } :
-                     type === 'hero' ? { title: 'Bem-vindo', subtitle: 'Subtítulo aqui' } :
-                     type === 'text' ? { text: 'Seu texto aqui...' } :
-                     type === 'links' ? { items: [{ label: 'Botão 1', url: '#' }] } :
-                     type === 'html' ? { html: '<div class="p-4 bg-slate-100 rounded-xl">Custom HTML</div>' } :
-                     type === 'slider' ? { items: [{ title: 'Thinking differently', subtitle: 'Creative territory', image: 'https://images.unsplash.com/photo-1622979135225-d2ba2697133e?q=80&w=2070' }] } :
-                     type === 'info-cards' ? { items: [{ title: 'Explore Now', date: '08 November 2020', text: 'Monshaat and CJ discuss ways to support SMEs in Saudi Arabia', image: 'https://images.unsplash.com/photo-1614850523296-d8c1af93d400?q=80&w=2070' }] } :
-                     {},
+            content
         };
         setSections(sections.map(s => s.id === sectionId ? { ...s, blocks: [...s.blocks, newBlock] } : s));
     };
@@ -202,16 +227,132 @@ export default function PortalEditor() {
         setSections(sections.map(s => s.id === sectionId ? { ...s, settings: { ...s.settings, ...settings } } : s));
     };
 
-    const handleDragEnd = (event: any) => {
+    const handleDragStart = (event: DragStartEvent) => {
+        setActiveId(event.active.id as string);
+        setActiveData(event.active.data.current);
+    };
+
+    const handleDragOver = (event: DragOverEvent) => {
         const { active, over } = event;
         if (!over) return;
 
-        if (active.id !== over.id) {
-            setSections((items) => {
-                const oldIndex = items.findIndex((i) => i.id === active.id);
-                const newIndex = items.findIndex((i) => i.id === over.id);
-                return arrayMove(items, oldIndex, newIndex);
-            });
+        const activeId = active.id;
+        const overId = over.id;
+
+        // Find the containers
+        const activeContainer = sections.find(s => s.id === activeId || s.blocks.some(b => b.id === activeId));
+        const overContainer = sections.find(s => s.id === overId || s.blocks.some(b => b.id === overId));
+
+        if (!activeContainer || !overContainer || activeContainer === overContainer) {
+            return;
+        }
+
+        // If dragging sidebar block into a section
+        if (active.data.current?.type === 'new-block') {
+            return;
+        }
+
+        setSections(prev => {
+            const activeSectionIndex = prev.findIndex(s => s.id === activeContainer.id);
+            const overSectionIndex = prev.findIndex(s => s.id === overContainer.id);
+
+            const activeBlockIndex = activeContainer.blocks.findIndex(b => b.id === activeId);
+            const overBlockIndex = overContainer.blocks.findIndex(b => b.id === overId);
+
+            let newIndex;
+            if (overId in prev.map(s => s.id)) {
+                newIndex = overContainer.blocks.length + 1;
+            } else {
+                const isBelowOverItem =
+                    over &&
+                    active.rect.current.translated &&
+                    active.rect.current.translated.top >
+                    over.rect.top + over.rect.height;
+
+                const modifier = isBelowOverItem ? 1 : 0;
+                newIndex = overBlockIndex >= 0 ? overBlockIndex + modifier : overContainer.blocks.length + 1;
+            }
+
+            const newSections = [...prev];
+            const [movedBlock] = newSections[activeSectionIndex].blocks.splice(activeBlockIndex, 1);
+            newSections[overSectionIndex].blocks.splice(newIndex, 0, movedBlock);
+
+            return newSections;
+        });
+    };
+
+    const handleDragEnd = (event: DragEndEvent) => {
+        const { active, over } = event;
+        setActiveId(null);
+        setActiveData(null);
+
+        if (!over) return;
+
+        const activeId = active.id;
+        const overId = over.id;
+
+        // Case 1: Dragging Sidebar Item to Section
+        if (active.data.current?.type === 'new-block') {
+            const blockType = active.data.current.blockType;
+            const overSection = sections.find(s => s.id === overId || s.blocks.some(b => b.id === overId));
+            
+            if (overSection) {
+                // Initialize default content
+                let content = {};
+                if (blockType === 'header') content = { variant: 'logo-left', logoText: page?.title || 'Byfrost', links: [], cta: { label: 'CTA', url: '#' } };
+                if (blockType === 'hero') content = { title: 'Destaque', subtitle: 'Complemento' };
+                if (blockType === 'text') content = { text: 'Conteúdo de texto' };
+                if (blockType === 'grid') content = { columns: 2 };
+                if (blockType === 'gallery') content = { items: [] };
+
+                const newBlock: Block = {
+                    id: Math.random().toString(36).substr(2, 9),
+                    type: blockType,
+                    content
+                };
+
+                setSections(prev => prev.map(s => {
+                    if (s.id === overSection.id) {
+                        const overBlockIndex = s.blocks.findIndex(b => b.id === overId);
+                        const newBlocks = [...s.blocks];
+                        if (overBlockIndex >= 0) {
+                            newBlocks.splice(overBlockIndex, 0, newBlock);
+                        } else {
+                            newBlocks.push(newBlock);
+                        }
+                        return { ...s, blocks: newBlocks };
+                    }
+                    return s;
+                }));
+            }
+            return;
+        }
+
+        // Case 2: Reordering Sections
+        const activeSectionIndex = sections.findIndex(s => s.id === activeId);
+        const overSectionIndex = sections.findIndex(s => s.id === overId);
+
+        if (activeSectionIndex !== -1 && overSectionIndex !== -1) {
+            if (activeId !== overId) {
+                setSections(items => arrayMove(items, activeSectionIndex, overSectionIndex));
+            }
+            return;
+        }
+
+        // Case 3: Reordering Blocks within same Section (handleDragOver handles different sections)
+        const currentSection = sections.find(s => s.blocks.some(b => b.id === activeId));
+        if (currentSection) {
+            const activeBlockIndex = currentSection.blocks.findIndex(b => b.id === activeId);
+            const overBlockIndex = currentSection.blocks.findIndex(b => b.id === overId);
+
+            if (activeBlockIndex !== -1 && overBlockIndex !== -1 && activeBlockIndex !== overBlockIndex) {
+                setSections(prev => prev.map(s => {
+                    if (s.id === currentSection.id) {
+                        return { ...s, blocks: arrayMove(s.blocks, activeBlockIndex, overBlockIndex) };
+                    }
+                    return s;
+                }));
+            }
         }
     };
 
@@ -237,25 +378,25 @@ export default function PortalEditor() {
                 
                 <div className="p-6 space-y-4 flex-1 overflow-y-auto">
                     <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Estrutura</p>
-                    <Button variant="outline" className="w-full rounded-xl gap-2 border-dashed" onClick={addSection}>
+                    <Button variant="outline" className="w-full rounded-xl gap-2 border-dashed" onClick={() => addSection()}>
                         <Plus className="h-4 w-4" /> Nova Seção
                     </Button>
 
                     <div className="pt-4 space-y-4">
                         <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Componentes</p>
                         <div className="grid grid-cols-2 gap-3">
-                            <BlockButton icon={<Layout />} label="Header" onClick={() => activeSectionId && addBlock(activeSectionId, 'header')} active={!!activeSectionId} />
-                            <BlockButton icon={<Layout />} label="Hero" onClick={() => activeSectionId && addBlock(activeSectionId, 'hero')} active={!!activeSectionId} />
-                            <BlockButton icon={<ImageIcon />} label="Slider" onClick={() => activeSectionId && addBlock(activeSectionId, 'slider')} active={!!activeSectionId} />
-                            <BlockButton icon={<Layout />} label="Cards" onClick={() => activeSectionId && addBlock(activeSectionId, 'info-cards')} active={!!activeSectionId} />
-                            <BlockButton icon={<Type />} label="Texto" onClick={() => activeSectionId && addBlock(activeSectionId, 'text')} active={!!activeSectionId} />
-                            <BlockButton icon={<ImageIcon />} label="Imagem" onClick={() => activeSectionId && addBlock(activeSectionId, 'image')} active={!!activeSectionId} />
-                            <BlockButton icon={<LinkIcon />} label="Links" onClick={() => activeSectionId && addBlock(activeSectionId, 'links')} active={!!activeSectionId} />
-                            <BlockButton icon={<Plus />} label="HTML" onClick={() => activeSectionId && addBlock(activeSectionId, 'html')} active={!!activeSectionId} />
+                            <DraggableBlockButton icon={<Layout />} label="Header" type="header" />
+                            <DraggableBlockButton icon={<Layout />} label="Hero" type="hero" />
+                            <DraggableBlockButton icon={<ImageIcon />} label="Slider" type="slider" />
+                            <DraggableBlockButton icon={<Layout />} label="Cards" type="info-cards" />
+                            <DraggableBlockButton icon={<Type />} label="Texto" type="text" />
+                            <DraggableBlockButton icon={<ImageIcon />} label="Imagem" type="image" />
+                            <DraggableBlockButton icon={<LinkIcon />} label="Links" type="links" />
+                            <DraggableBlockButton icon={<Plus />} label="HTML" type="html" />
                         </div>
-                        {!activeSectionId && (
-                            <p className="text-[10px] text-amber-600 bg-amber-50 p-2 rounded-lg">Selecione uma seção no palco para adicionar blocos.</p>
-                        )}
+                        <p className="text-[10px] text-blue-600 bg-blue-50 p-3 rounded-xl leading-relaxed">
+                            <strong>Dica:</strong> Arraste os componentes diretamente para dentro das seções no palco.
+                        </p>
                     </div>
 
                     <div className="pt-8 space-y-6">
@@ -369,6 +510,29 @@ export default function PortalEditor() {
                                         </div>
                                     )}
                                 </SortableContext>
+                                <DragOverlay dropAnimation={{
+                                    sideEffects: defaultDropAnimationSideEffects({
+                                        styles: {
+                                            active: {
+                                                opacity: '0.5',
+                                            },
+                                        },
+                                    }),
+                                }}>
+                                    {activeId ? (
+                                        activeData?.type === 'new-block' ? (
+                                            <div className="p-4 bg-white border-2 border-blue-500 rounded-2xl shadow-2xl opacity-80 flex items-center gap-3">
+                                                <Layout className="h-5 w-5 text-blue-500" />
+                                                <span className="font-bold text-sm text-slate-700 capitalize">{activeData.blockType}</span>
+                                            </div>
+                                        ) : (
+                                            <div className="p-4 bg-white border-2 border-blue-500 rounded-2xl shadow-2xl opacity-80 w-80">
+                                                <div className="h-4 w-2/3 bg-slate-100 rounded mb-2"></div>
+                                                <div className="h-3 w-full bg-slate-50 rounded"></div>
+                                            </div>
+                                        )
+                                    ) : null}
+                                </DragOverlay>
                             </DndContext>
                         </div>
                     </div>
@@ -378,19 +542,38 @@ export default function PortalEditor() {
     );
 }
 
-function BlockButton({ icon, label, onClick, active }: { icon: React.ReactNode, label: string, onClick: () => void, active?: boolean }) {
+function DraggableBlockButton({ icon, label, type, active }: { icon: React.ReactNode, label: string, type: BlockType, active?: boolean }) {
+    const {
+        attributes,
+        listeners,
+        setNodeRef,
+        transform,
+        isDragging
+    } = useDraggable({
+        id: `sidebar-${type}`,
+        data: {
+            type: 'new-block',
+            blockType: type,
+        },
+    });
+
+    const style = transform ? {
+        transform: CSS.Translate.toString(transform),
+    } : undefined;
+
     return (
         <button 
-            disabled={!active && label !== 'Header' /* temporary fix to force section select */}
-            onClick={onClick}
+            ref={setNodeRef}
+            style={style}
+            {...listeners}
+            {...attributes}
             className={cn(
                 "flex flex-col items-center justify-center gap-3 p-4 rounded-2xl border transition-all text-slate-600 dark:text-slate-400",
-                active 
-                  ? "border-blue-200 bg-blue-50/50 hover:border-blue-500 hover:text-blue-600" 
-                  : "border-slate-100 dark:border-slate-800 opacity-50 cursor-not-allowed"
+                "border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 group hover:border-blue-500 hover:text-blue-600",
+                isDragging && "opacity-50 border-blue-500 ring-2 ring-blue-500/20"
             )}
         >
-            <div className={cn("p-2 rounded-xl", active ? "bg-blue-100" : "bg-slate-50")}>
+            <div className={cn("p-2 rounded-xl bg-slate-50 group-hover:bg-blue-100 transition-colors")}>
                 {icon}
             </div>
             <span className="text-xs font-medium">{label}</span>
@@ -406,6 +589,13 @@ function SortableSectionItem({ section, active, onSelect, onRemove, onUpdateSett
         transform,
         transition,
     } = useSortable({ id: section.id });
+
+    const { setNodeRef: setDroppableRef } = useDroppable({
+        id: `droppable-${section.id}`,
+        data: {
+            sectionId: section.id,
+        }
+    });
 
     const style = {
         transform: CSS.Transform.toString(transform),
@@ -512,36 +702,109 @@ function SortableSectionItem({ section, active, onSelect, onRemove, onUpdateSett
                 </div>
             </div>
 
-            <div className="relative z-10 space-y-4 px-8">
-                {section.blocks.length === 0 && (
-                    <div className="py-20 text-center border-2 border-dashed border-slate-200 rounded-3xl opacity-40">
-                        <Plus className="h-8 w-8 mx-auto mb-2" />
-                        <p className="text-sm font-medium">Seção vazia.<br/>Adicione componentes.</p>
-                    </div>
-                )}
-                {section.blocks.map((block: Block) => (
-                    <EditorBlockItem 
-                        key={block.id} 
-                        block={block} 
-                        onUpdate={(content: any) => onUpdateBlock(block.id, content)}
-                        onRemove={() => onRemoveBlock(block.id)}
-                    />
-                ))}
+            <div ref={setDroppableRef} className="relative z-10 space-y-4 px-8 min-h-[100px]">
+                <SortableContext 
+                    items={section.blocks.map((b: Block) => b.id)}
+                    strategy={verticalListSortingStrategy}
+                >
+                    {section.blocks.length === 0 && (
+                        <div className="py-20 text-center border-2 border-dashed border-slate-200 rounded-3xl opacity-40">
+                            <Plus className="h-8 w-8 mx-auto mb-2" />
+                            <p className="text-sm font-medium">Seção vazia.<br/>Arraste componentes para cá.</p>
+                        </div>
+                    )}
+                    {section.blocks.map((block: Block) => (
+                        <SortableBlockItem 
+                            key={block.id} 
+                            block={block} 
+                            onUpdate={(content: any) => onUpdateBlock(block.id, content)}
+                            onRemove={() => onRemoveBlock(block.id)}
+                        />
+                    ))}
+                </SortableContext>
             </div>
         </div>
     );
 }
 
-function EditorBlockItem({ block, onUpdate, onRemove }: any) {
+function SortableBlockItem({ block, onUpdate, onRemove }: any) {
+    const {
+        attributes,
+        listeners,
+        setNodeRef,
+        transform,
+        transition,
+        isDragging
+    } = useSortable({ id: block.id });
+
+    const style = {
+        transform: CSS.Transform.toString(transform),
+        transition,
+        opacity: isDragging ? 0.3 : 1,
+    };
+
     return (
-        <div className="group/block relative p-4 rounded-2xl hover:bg-slate-50 transition-all border border-transparent hover:border-slate-100">
-            <Button 
-                variant="ghost" size="icon" 
-                className="absolute -right-2 -top-2 h-7 w-7 rounded-full bg-white shadow-sm border border-slate-100 opacity-0 group-hover/block:opacity-100 transition-opacity z-30"
-                onClick={onRemove}
-            >
-                <Trash2 className="h-3.5 w-3.5 text-red-500" />
-            </Button>
+        <div 
+            ref={setNodeRef} 
+            style={style}
+            className="group/block relative p-4 rounded-2xl hover:bg-slate-50 transition-all border border-transparent hover:border-slate-100"
+        >
+            <div className="absolute -left-3 top-1/2 -translate-y-1/2 opacity-0 group-hover/block:opacity-100 transition-opacity cursor-grab active:cursor-grabbing z-40 bg-white shadow-sm border border-slate-100 rounded-lg p-1" {...attributes} {...listeners}>
+                <GripVertical className="h-3 w-3 text-slate-400" />
+            </div>
+            <div className="absolute -right-2 -top-2 flex gap-1 opacity-0 group-hover/block:opacity-100 transition-opacity z-30">
+                <Popover>
+                    <PopoverTrigger asChild>
+                        <Button variant="ghost" size="icon" className="h-7 w-7 rounded-full bg-white shadow-sm border border-slate-100">
+                            <Settings className="h-3.5 w-3.5 text-slate-400" />
+                        </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-56 p-4 rounded-2xl shadow-xl border-slate-100" side="left">
+                        <div className="space-y-4">
+                            <div className="space-y-1.5">
+                                <Label className="text-[10px] uppercase text-slate-400 font-bold">Altura do Bloco</Label>
+                                <div className="grid grid-cols-2 gap-1">
+                                    {['auto', 'sm', 'md', 'lg', 'screen'].map((h) => (
+                                        <Button 
+                                            key={h} 
+                                            variant={(block.settings?.height || 'auto') === h ? 'secondary' : 'outline'}
+                                            size="sm" 
+                                            className="text-[10px] h-7"
+                                            onClick={() => onUpdate({ settings: { ...(block.settings || {}), height: h } })}
+                                        >
+                                            {h}
+                                        </Button>
+                                    ))}
+                                </div>
+                            </div>
+                            <div className="space-y-1.5">
+                                <Label className="text-[10px] uppercase text-slate-400 font-bold">Alinhamento</Label>
+                                <div className="flex gap-1">
+                                    {(['left', 'center', 'right'] as const).map((a) => (
+                                        <Button 
+                                            key={a} 
+                                            variant={(block.settings?.textAlign || 'left') === a ? 'secondary' : 'outline'}
+                                            size="sm" 
+                                            className="text-[10px] h-7 flex-1"
+                                            onClick={() => onUpdate({ settings: { ...(block.settings || {}), textAlign: a } })}
+                                        >
+                                            <AlignCenter className={cn("h-3 w-3", a === 'left' && "-rotate-90", a === 'right' && "rotate-90")} />
+                                        </Button>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+                    </PopoverContent>
+                </Popover>
+
+                <Button 
+                    variant="ghost" size="icon" 
+                    className="h-7 w-7 rounded-full bg-white shadow-sm border border-slate-100"
+                    onClick={onRemove}
+                >
+                    <Trash2 className="h-3.5 w-3.5 text-red-500" />
+                </Button>
+            </div>
 
             {block.type === 'header' && (
                 <div className="space-y-4">
@@ -771,6 +1034,98 @@ function EditorBlockItem({ block, onUpdate, onRemove }: any) {
                     }}>
                         <Plus className="h-4 w-4" /> Adicionar Card
                     </Button>
+                </div>
+            )}
+            {block.type === 'grid' && (
+                <div className="space-y-4">
+                    <div className="flex items-center gap-4">
+                        <Label className="text-[10px] font-bold text-slate-400 uppercase">Configuração da Grade</Label>
+                        <Select 
+                            value={String(block.content.columns || 2)} 
+                            onValueChange={(val) => onUpdate({ columns: parseInt(val) })}
+                        >
+                            <SelectTrigger className="h-8 w-32 rounded-lg text-xs">
+                                <SelectValue placeholder="Colunas" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="1">1 Coluna</SelectItem>
+                                <SelectItem value="2">2 Colunas</SelectItem>
+                                <SelectItem value="3">3 Colunas</SelectItem>
+                                <SelectItem value="4">4 Colunas</SelectItem>
+                            </SelectContent>
+                        </Select>
+                    </div>
+                    <div className={cn(
+                        "grid gap-4 min-h-[100px] border-2 border-dashed border-slate-100 rounded-2xl p-4",
+                        block.content.columns === 1 || block.content.columns === undefined ? "grid-cols-1" :
+                        block.content.columns === 2 ? "grid-cols-2" :
+                        block.content.columns === 3 ? "grid-cols-3" :
+                        "grid-cols-4"
+                    )}>
+                        {(block.blocks || []).map((innerBlock: Block) => (
+                            <SortableBlockItem 
+                                key={innerBlock.id} 
+                                block={innerBlock}
+                                onUpdate={(content: any) => {
+                                    const blocks = block.blocks?.map(b => b.id === innerBlock.id ? { ...b, content: { ...b.content, ...content } } : b);
+                                    onUpdate({ blocks });
+                                }}
+                                onRemove={() => {
+                                    const blocks = block.blocks?.filter(b => b.id !== innerBlock.id);
+                                    onUpdate({ blocks });
+                                }}
+                            />
+                        ))}
+                        <Button 
+                            variant="ghost" 
+                            className="h-full min-h-[120px] rounded-xl border-dashed border-2 flex-col gap-1 text-slate-400 hover:text-blue-500 hover:border-blue-200 transition-all"
+                            onClick={() => {
+                                const newInner: Block = { id: Math.random().toString(36).substr(2, 9), type: 'text', content: { text: 'Novo Bloco' } };
+                                const blocks = [...(block.blocks || []), newInner];
+                                onUpdate({ blocks });
+                            }}
+                        >
+                            <Plus className="h-4 w-4" />
+                            <span className="text-[10px]">Novo Bloco</span>
+                        </Button>
+                    </div>
+                </div>
+            )}
+
+            {block.type === 'gallery' && (
+                <div className="space-y-4">
+                    <Label className="text-[10px] font-bold text-slate-400 uppercase">Galeria de Imagens</Label>
+                    <div className="grid grid-cols-4 gap-3">
+                        {(block.content.items || []).map((item: any, idx: number) => (
+                            <div key={idx} className="relative aspect-square rounded-xl overflow-hidden group/item border border-slate-100">
+                                {item.url ? (
+                                    <img src={item.url} className="w-full h-full object-cover" alt="" />
+                                ) : (
+                                    <div className="w-full h-full bg-slate-50 flex items-center justify-center">
+                                        <ImageIcon className="h-4 w-4 text-slate-200" />
+                                    </div>
+                                )}
+                                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/item:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                                    <Button variant="ghost" size="icon" className="h-8 w-8 text-white hover:text-red-400" onClick={() => {
+                                        const items = block.content.items.filter((_: any, i: number) => i !== idx);
+                                        onUpdate({ items });
+                                    }}>
+                                        <Trash2 className="h-4 w-4" />
+                                    </Button>
+                                </div>
+                            </div>
+                        ))}
+                        <div className="aspect-square">
+                            <ImageUpload 
+                                label="+"
+                                value=""
+                                onChange={(url) => {
+                                    const items = [...(block.content.items || []), { url }];
+                                    onUpdate({ items });
+                                }}
+                            />
+                        </div>
+                    </div>
                 </div>
             )}
         </div>

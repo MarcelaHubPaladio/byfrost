@@ -18,12 +18,19 @@ import {
 } from "lucide-react";
 import { useState, useEffect } from "react";
 
-type BlockType = 'header' | 'hero' | 'text' | 'image' | 'links' | 'divider' | 'html' | 'slider' | 'info-cards';
+type BlockType = 'header' | 'hero' | 'text' | 'image' | 'links' | 'divider' | 'html' | 'slider' | 'info-cards' | 'grid' | 'gallery';
 
 type Block = {
     id: string;
     type: BlockType;
     content: any;
+    blocks?: Block[];
+    settings?: {
+        height?: 'auto' | 'sm' | 'md' | 'lg' | 'screen';
+        textAlign?: 'left' | 'center' | 'right';
+        backgroundColor?: string;
+        padding?: string;
+    };
 };
 
 type Section = {
@@ -39,6 +46,156 @@ type Section = {
     };
     blocks: Block[];
 };
+
+function BlockRenderer({ block, isPremium }: { block: Block; isPremium: boolean }) {
+    const heightClass = block.settings?.height === 'sm' ? 'min-h-[200px]' :
+                        block.settings?.height === 'md' ? 'min-h-[400px]' :
+                        block.settings?.height === 'lg' ? 'min-h-[600px]' :
+                        block.settings?.height === 'screen' ? 'min-h-screen' : '';
+
+    const alignClass = block.settings?.textAlign === 'center' ? 'text-center' :
+                       block.settings?.textAlign === 'right' ? 'text-right' : 'text-left';
+
+    return (
+        <div className={cn(
+            "animate-in fade-in slide-in-from-bottom-4 duration-1000",
+            heightClass,
+            alignClass
+        )}>
+            {block.type === 'slider' && <PremiumSlider items={block.content.items} />}
+            
+            {block.type === 'info-cards' && <InfoCards items={block.content.items} />}
+
+            {block.type === 'hero' && (
+                <div className="py-12">
+                    <div className="max-w-4xl mx-auto">
+                        <h1 className="text-5xl md:text-7xl font-extrabold tracking-tight mb-6">
+                            {block.content.title}
+                        </h1>
+                        <p className="text-xl md:text-2xl text-slate-500 max-w-2xl mx-auto leading-relaxed">
+                            {block.content.subtitle}
+                        </p>
+                    </div>
+                </div>
+            )}
+
+            {block.type === 'header' && (
+                <header className={cn(
+                    "w-full py-6 px-6 md:px-12 flex items-center transition-all bg-white/80 backdrop-blur-md sticky top-0 z-[100] border-b border-slate-100 rounded-[32px] mb-8 shadow-sm",
+                    isPremium && "bg-transparent border-none text-white backdrop-blur-none static px-12",
+                    block.content.variant === 'logo-center' && "flex-col gap-6"
+                )}>
+                    <div className={cn(
+                        "flex items-center gap-2",
+                        block.content.variant === 'logo-center' && "w-full justify-center"
+                    )}>
+                        <span className="text-2xl font-black tracking-tighter">
+                            {block.content.logoText}
+                        </span>
+                    </div>
+
+                    <nav className={cn(
+                        "hidden md:flex flex-1 items-center gap-8 mx-auto",
+                        block.content.variant === 'logo-left' && "ml-12",
+                        block.content.variant === 'logo-center' && "justify-center"
+                    )}>
+                        {(block.content.links || []).map((link: any, idx: number) => (
+                            <a 
+                                key={idx} 
+                                href={link.url} 
+                                className={cn(
+                                    "text-sm font-bold transition-colors",
+                                    isPremium ? "text-white/70 hover:text-white" : "text-slate-600 hover:text-slate-900"
+                                )}
+                            >
+                                {link.label}
+                            </a>
+                        ))}
+                    </nav>
+
+                    <div className={cn(
+                        "flex items-center gap-8",
+                        block.content.variant === 'logo-center' && "hidden"
+                    )}>
+                        <button className="text-white/80 hover:text-white transition-colors">
+                            <Search className="h-5 w-5" />
+                        </button>
+                        {block.content.cta?.label && !isPremium && (
+                            <a 
+                                href={block.content.cta.url}
+                                className="h-11 px-6 flex items-center justify-center rounded-2xl bg-slate-900 text-white text-sm font-bold hover:scale-105 transition-transform"
+                            >
+                                {block.content.cta.label}
+                            </a>
+                        )}
+                    </div>
+                </header>
+            )}
+
+            {block.type === 'text' && (
+                <div className="max-w-3xl mx-auto py-8">
+                    <div className="prose prose-slate dark:prose-invert max-w-none text-lg leading-relaxed whitespace-pre-wrap">
+                        {block.content.text}
+                    </div>
+                </div>
+            )}
+
+            {block.type === 'html' && (
+                <div className="w-full py-4 text-white" dangerouslySetInnerHTML={{ __html: block.content.html }} />
+            )}
+
+            {block.type === 'links' && (
+                <div className="max-w-xl mx-auto py-12">
+                    <div className="flex flex-col gap-4">
+                        {block.content.items?.map((item: any, idx: number) => (
+                            <a 
+                                key={idx} 
+                                href={item.url} 
+                                className={cn(
+                                    "w-full py-5 px-8 rounded-[24px] flex items-center justify-center font-bold text-lg shadow-xl hover:scale-[1.02] active:scale-[0.98] transition-all",
+                                    isPremium ? "bg-white text-[#0a0b10]" : "bg-slate-900 text-white"
+                                )}
+                            >
+                                {item.label}
+                            </a>
+                        ))}
+                    </div>
+                </div>
+            )}
+
+            {block.type === 'grid' && (
+                <div className={cn(
+                    "grid gap-8 py-8",
+                    block.content.columns === 1 || !block.content.columns ? "grid-cols-1" :
+                    block.content.columns === 2 ? "grid-cols-2" :
+                    block.content.columns === 3 ? "grid-cols-1 md:grid-cols-3" :
+                    "grid-cols-1 md:grid-cols-4"
+                )}>
+                    {(block.blocks || []).map((innerBlock) => (
+                        <BlockRenderer key={innerBlock.id} block={innerBlock} isPremium={isPremium} />
+                    ))}
+                </div>
+            )}
+
+            {block.type === 'gallery' && (
+                <div className="py-12">
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        {(block.content.items || []).map((item: any, idx: number) => (
+                            <div key={idx} className="aspect-square rounded-[32px] overflow-hidden group relative border border-white/5">
+                                <img 
+                                    src={item.url} 
+                                    alt="" 
+                                    className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
+                                />
+                                <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity" />
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
 
 export default function PublicPortal() {
     const { tenantSlug, slug } = useParams();
@@ -172,108 +329,7 @@ export default function PublicPortal() {
                             isPremium ? "max-w-[1600px] px-0" : "max-w-7xl px-6"
                         )}>
                             {section.blocks.map((block) => (
-                                <div key={block.id} className="animate-in fade-in slide-in-from-bottom-4 duration-1000">
-                                    {block.type === 'slider' && <PremiumSlider items={block.content.items} />}
-                                    
-                                    {block.type === 'info-cards' && <InfoCards items={block.content.items} />}
-
-                                    {block.type === 'hero' && (
-                                        <div className="py-12 text-center">
-                                            <div className="max-w-4xl mx-auto">
-                                                <h1 className="text-5xl md:text-7xl font-extrabold tracking-tight mb-6">
-                                                    {block.content.title}
-                                                </h1>
-                                                <p className="text-xl md:text-2xl text-slate-500 max-w-2xl mx-auto leading-relaxed">
-                                                    {block.content.subtitle}
-                                                </p>
-                                            </div>
-                                        </div>
-                                    )}
-
-                                    {block.type === 'header' && (
-                                        <header className={cn(
-                                            "w-full py-6 px-6 md:px-12 flex items-center transition-all bg-white/80 backdrop-blur-md sticky top-0 z-[100] border-b border-slate-100 rounded-[32px] mb-8 shadow-sm",
-                                            isPremium && "bg-transparent border-none text-white backdrop-blur-none static px-12",
-                                            block.content.variant === 'logo-center' && "flex-col gap-6"
-                                        )}>
-                                            <div className={cn(
-                                                "flex items-center gap-2",
-                                                block.content.variant === 'logo-center' && "w-full justify-center"
-                                            )}>
-                                                <span className="text-2xl font-black tracking-tighter">
-                                                    {block.content.logoText}
-                                                </span>
-                                            </div>
-
-                                            <nav className={cn(
-                                                "hidden md:flex flex-1 items-center gap-8 mx-auto",
-                                                block.content.variant === 'logo-left' && "ml-12",
-                                                block.content.variant === 'logo-center' && "justify-center"
-                                            )}>
-                                                {(block.content.links || []).map((link: any, idx: number) => (
-                                                    <a 
-                                                        key={idx} 
-                                                        href={link.url} 
-                                                        className={cn(
-                                                            "text-sm font-bold transition-colors",
-                                                            isPremium ? "text-white/70 hover:text-white" : "text-slate-600 hover:text-slate-900"
-                                                        )}
-                                                    >
-                                                        {link.label}
-                                                    </a>
-                                                ))}
-                                            </nav>
-
-                                            <div className={cn(
-                                                "flex items-center gap-8",
-                                                block.content.variant === 'logo-center' && "hidden"
-                                            )}>
-                                                <button className="text-white/80 hover:text-white transition-colors">
-                                                    <Search className="h-5 w-5" />
-                                                </button>
-                                                {block.content.cta?.label && !isPremium && (
-                                                    <a 
-                                                        href={block.content.cta.url}
-                                                        className="h-11 px-6 flex items-center justify-center rounded-2xl bg-slate-900 text-white text-sm font-bold hover:scale-105 transition-transform"
-                                                    >
-                                                        {block.content.cta.label}
-                                                    </a>
-                                                )}
-                                            </div>
-                                        </header>
-                                    )}
-
-                                    {block.type === 'text' && (
-                                        <div className="max-w-3xl mx-auto py-8 text-center">
-                                            <div className="prose prose-slate dark:prose-invert max-w-none text-lg leading-relaxed whitespace-pre-wrap">
-                                                {block.content.text}
-                                            </div>
-                                        </div>
-                                    )}
-
-                                    {block.type === 'html' && (
-                                        <div className="w-full py-4 text-white" dangerouslySetInnerHTML={{ __html: block.content.html }} />
-                                    )}
-
-                                    {block.type === 'links' && (
-                                        <div className="max-w-xl mx-auto py-12">
-                                            <div className="flex flex-col gap-4">
-                                                {block.content.items?.map((item: any, idx: number) => (
-                                                    <a 
-                                                        key={idx} 
-                                                        href={item.url} 
-                                                        className={cn(
-                                                            "w-full py-5 px-8 rounded-[24px] flex items-center justify-center font-bold text-lg shadow-xl hover:scale-[1.02] active:scale-[0.98] transition-all",
-                                                            isPremium ? "bg-white text-[#0a0b10]" : "bg-slate-900 text-white"
-                                                        )}
-                                                    >
-                                                        {item.label}
-                                                    </a>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    )}
-                                </div>
+                                <BlockRenderer key={block.id} block={block} isPremium={isPremium} />
                             ))}
                         </div>
                     </section>

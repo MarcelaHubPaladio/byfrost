@@ -410,27 +410,84 @@ export default function PortalEditor() {
             const stage = document.getElementById('editor-stage');
             if (!stage) throw new Error("Stage not found");
 
-            // Clone to sanitize
+            // Clone to sanitize and optimize
             const clone = stage.cloneNode(true) as HTMLElement;
-            // Remove editor-only elements (buttons, drag handles, etc.)
-            clone.querySelectorAll('.editor-controls, [data-editor-only]').forEach(el => el.remove());
             
-            const html = clone.innerHTML;
+            // Remove editor-only elements (buttons, drag handles, settings, etc.)
+            clone.querySelectorAll('.editor-controls, [data-editor-only], .absolute.top-4.right-4, button:not([class*="cta"])').forEach(el => el.remove());
+            
+            // Optimization: Image Hints (LCP & Lazy Loading)
+            const images = clone.querySelectorAll('img');
+            images.forEach((img, idx) => {
+                if (idx === 0) {
+                    img.setAttribute('fetchpriority', 'high');
+                } else {
+                    img.setAttribute('loading', 'lazy');
+                }
+            });
 
-            // 2. Capture CSS
-            // We'll grab all styles from the document to ensure everything is included
-            // In a production app, we'd be more selective, but this ensures no missing styles
+            const html = clone.innerHTML
+                .replace(/\s+/g, ' ')
+                .replace(/>\s+</g, '><')
+                .trim();
+
+            // 2. Optimized CSS Purging (Client-side)
             let styles = "";
+            const usedSelectors = new Set<string>();
+            
+            // Collect all unique classes and IDs used in the clone to speed up matching
+            const allElements = clone.querySelectorAll('*');
+            const usedClasses = new Set<string>();
+            allElements.forEach(el => {
+                el.classList.forEach(cls => usedClasses.add(cls));
+                if (el.id) usedSelectors.add(`#${el.id}`);
+            });
+
             for (let i = 0; i < document.styleSheets.length; i++) {
                 try {
                     const sheet = document.styleSheets[i];
                     for (let j = 0; j < sheet.cssRules.length; j++) {
-                        styles += sheet.cssRules[j].cssText + "\n";
+                        const rule = sheet.cssRules[j];
+                        
+                        // Keep essential rules (keyframes, fonts, media queries)
+                        if (rule.type === CSSRule.KEYFRAMES_RULE || 
+                            rule.type === CSSRule.FONT_FACE_RULE || 
+                            rule.type === CSSRule.MEDIA_RULE) {
+                            styles += rule.cssText + "\n";
+                            continue;
+                        }
+
+                        if (rule instanceof CSSStyleRule) {
+                            const selector = rule.selectorText;
+                            
+                            // Simple heuristic check: if any part of the selector matches our used tags/classes/ids
+                            // This is much faster than full DOM matches for every rule
+                            const shouldKeep = 
+                                selector === '*' || 
+                                selector.includes('html') || 
+                                selector.includes('body') ||
+                                selector.split(/[\s,>+~:]+/).some(part => {
+                                    if (part.startsWith('.')) return usedClasses.has(part.slice(1));
+                                    if (part.startsWith('#')) return usedSelectors.has(part);
+                                    return false; // Could check tags too if needed
+                                });
+
+                            if (shouldKeep) {
+                                styles += rule.cssText + "\n";
+                            }
+                        }
                     }
                 } catch (e) {
                     // Ignore cross-origin stylesheet errors
                 }
             }
+
+            // Minify CSS
+            styles = styles
+                .replace(/\/\*[\s\S]*?\*\//g, '') // remove comments
+                .replace(/\s+/g, ' ')
+                .replace(/\s*([{}:;,])\s*/g, '$1')
+                .trim();
 
             const { error } = await supabase
                 .from("portal_pages")
@@ -447,7 +504,7 @@ export default function PortalEditor() {
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["portal_page", id] });
-            toast.success("Site publicado com sucesso em HTML estático!");
+            toast.success("Site publicado com otimização turbo! 🚀");
         },
         onError: (err: any) => {
             toast.error(err.message || "Erro ao publicar");

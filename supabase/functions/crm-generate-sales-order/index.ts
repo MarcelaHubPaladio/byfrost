@@ -35,16 +35,19 @@ serve(async (req: Request) => {
       });
     }
 
-    // 2. Get the sales_order Journey
-    console.log(`[${fn}] Fetching sales_order journey`);
-    const { data: salesOrderJourney, error: jrnErr } = await supabase
-      .from("journeys")
-      .select("id")
-      .eq("key", "sales_order")
+    // 2. Get the sales_order Journey for THIS tenant
+    console.log(`[${fn}] Fetching sales_order journey for tenant ${tenantId}`);
+    const { data: tjData, error: jrnErr } = await supabase
+      .from("tenant_journeys")
+      .select("journey_id, journeys!inner(id, key)")
+      .eq("tenant_id", tenantId)
+      .eq("journeys.key", "sales_order")
       .maybeSingle();
 
+    const salesOrderJourney = tjData?.journeys as any;
+
     if (jrnErr || !salesOrderJourney) {
-      return new Response(JSON.stringify({ ok: false, error: "Sales Order journey not found in database" }), {
+      return new Response(JSON.stringify({ ok: false, error: "Sales Order journey not found or enabled for this tenant" }), {
         status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" }
       });
     }

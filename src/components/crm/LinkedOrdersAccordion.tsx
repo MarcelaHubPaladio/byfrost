@@ -16,19 +16,23 @@ export function LinkedOrdersAccordion({ tenantId, caseId }: { tenantId: string; 
         queryKey: ["crm_linked_orders", tenantId, caseId],
         enabled: Boolean(tenantId && caseId),
         queryFn: async () => {
-            // Find cases where journey_id is sales_order and parent_case_id in meta_json matches this case
-            const { data: journeyData } = await supabase
-                .from("journeys")
-                .select("id, default_state_machine_json")
-                .eq("key", "sales_order")
+            // 1. Get the correct 'sales_order' journey ID for THIS tenant
+            // This avoids issues if there are multiple journeys with the same key globaly
+            const { data: tjData } = await supabase
+                .from("tenant_journeys")
+                .select("journey_id, journeys!inner(id, key, default_state_machine_json)")
+                .eq("tenant_id", tenantId)
+                .eq("journeys.key", "sales_order")
                 .maybeSingle();
 
+            const journeyData = tjData?.journeys as any;
+
             if (!journeyData) {
-                console.log("[LinkedOrdersAccordion] Journey 'sales_order' not found");
+                console.log(`[LinkedOrdersAccordion] Journey 'sales_order' not enabled for tenant ${tenantId}`);
                 return { orders: [], journey: null };
             }
 
-            console.log(`[LinkedOrdersAccordion] Fetching orders linked to case ${caseId} in tenant ${tenantId}`);
+            console.log(`[LinkedOrdersAccordion] Fetching orders for case ${caseId} (Journey ID: ${journeyData.id})`);
 
             const { data, error } = await supabase
                 .from("cases")
@@ -44,7 +48,7 @@ export function LinkedOrdersAccordion({ tenantId, caseId }: { tenantId: string; 
                 throw error;
             }
             
-            console.log(`[LinkedOrdersAccordion] Found ${data?.length || 0} linked orders`);
+            console.log(`[LinkedOrdersAccordion] Query complete. Found ${data?.length || 0} orders.`);
             return { orders: data ?? [], journey: journeyData };
         },
     });

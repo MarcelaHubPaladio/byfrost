@@ -173,6 +173,21 @@ serve(async (req: Request) => {
 
       const { error: attErr } = await supabase.from("case_attachments").insert(attachmentsToInsert);
       if (attErr) console.error(`[${fn}] Failed to link case attachments:`, attErr);
+
+      // 4.4 Enqueue OCR job if there's an image
+      const hasImage = attachmentsToInsert.some(att => att.kind === "image");
+      if (hasImage) {
+        console.log(`[${fn}] Enqueuing OCR job for order case ${orderCase.id}`);
+        const { error: jobErr } = await supabase.from("job_queue").insert({
+          tenant_id: tenantId,
+          type: "OCR_IMAGE",
+          payload_json: { case_id: orderCase.id },
+          status: "pending",
+          run_after: new Date().toISOString(),
+          idempotency_key: `OCR_IMAGE:${orderCase.id}`
+        });
+        if (jobErr) console.error(`[${fn}] Failed to enqueue OCR job:`, jobErr);
+      }
     }
 
     // 5. Audit & Timeline

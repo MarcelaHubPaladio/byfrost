@@ -153,11 +153,13 @@ serve(async (req: Request) => {
     console.log(`[${fn}] Duplicating existing attachments from CRM case`);
     const { data: existingAtts } = await supabase
       .from("case_attachments")
-      .select("id, kind, storage_path, original_filename, content_type, meta_json")
+      .select("*")
+      .eq("tenant_id", tenantId)
       .eq("case_id", caseId);
 
     if (existingAtts && existingAtts.length > 0) {
       const attsToInsert = existingAtts.map((att: any) => ({
+        tenant_id: tenantId,
         case_id: orderCase.id,
         kind: att.kind,
         storage_path: att.storage_path,
@@ -176,6 +178,7 @@ serve(async (req: Request) => {
     if (attachments && Array.isArray(attachments) && attachments.length > 0) {
       console.log(`[${fn}] Linking ${attachments.length} attachments`);
       const attachmentsToInsert = attachments.map((att: any) => ({
+        tenant_id: tenantId,
         case_id: orderCase.id,
         kind: att.content_type?.startsWith("image/") ? "image" : (att.content_type?.startsWith("audio/") ? "audio" : "doc"),
         storage_path: att.storage_path,

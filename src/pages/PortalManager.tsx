@@ -320,6 +320,9 @@ function PageSettingsDialog({ page, open, onOpenChange, onSave, isPending }: any
                                                 <code className="text-blue-600 font-mono">cname.vercel-dns.com</code>
                                             </div>
                                         </div>
+                                        <p className="text-[9px] text-slate-400 mt-3 pt-2 border-t border-slate-200 dark:border-slate-800 italic">
+                                            * Verifique o dashboard da Vercel para confirmar o IP exato do seu projeto.
+                                        </p>
                                     </div>
                                 </div>
                             </div>

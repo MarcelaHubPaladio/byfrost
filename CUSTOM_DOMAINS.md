@@ -18,7 +18,10 @@ O cliente que comprou o domínio deve configurar os registros DNS no painel da r
 
 | Tipo | Nome | Valor |
 | :--- | :--- | :--- |
-| **A** | `@` | `76.76.21.21` |
+| **A** | `@` | `76.76.21.21` (ou o IP indicado no seu Vercel) |
+
+> [!NOTE]
+> A Vercel está expandindo seus intervalos de IP. Embora `76.76.21.21` continue funcionando, o painel do seu projeto na Vercel pode sugerir um IP diferente (ex: `216.150.1.1`). **Sempre dê preferência ao valor mostrado no dashboard da Vercel.**
 
 ---
 

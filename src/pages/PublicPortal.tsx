@@ -440,7 +440,7 @@ export default function PublicPortal() {
                 "relative transition-all duration-700",
                 isPremium && "lg:pl-[80px]"
             )}>
-                {portal.sections.map((section: Section) => {
+                {sections.map((section: Section) => {
                     const effectiveSettings = getEffectiveSettings(section.settings, section.mobileSettings, isMobile);
                     return (
                         <section 
@@ -470,7 +470,7 @@ export default function PublicPortal() {
                                     <BlockRenderer 
                                         key={block.id} 
                                         block={block} 
-                                        isPremium={!!portal?.is_premium} 
+                                        isPremium={isPremium} 
                                         isMobile={isMobile}
                                     />
                                 ))}

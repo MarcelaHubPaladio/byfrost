@@ -43,6 +43,7 @@ type Section = {
         paddingX?: string;
         maxWidth?: '1200' | '1400' | 'full';
         columns?: number;
+        height?: 'auto' | 'screen';
     };
     blocks: Block[];
 };
@@ -319,6 +320,7 @@ export default function PublicPortal() {
                             backgroundColor: section.settings.backgroundColor || 'transparent',
                             paddingTop: `${(Number(section.settings.paddingY) || 0) * 4}px`,
                             paddingBottom: `${(Number(section.settings.paddingY) || 0) * 4}px`,
+                            minHeight: section.settings.height === 'screen' ? '100vh' : 'auto',
                         }}
                     >
                         <div className={cn(

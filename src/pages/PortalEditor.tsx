@@ -99,6 +99,7 @@ type Section = {
         paddingX?: string;
         maxWidth?: '1200' | '1400' | 'full';
         columns?: number;
+        height?: 'auto' | 'screen';
     };
     blocks: Block[];
 };
@@ -252,6 +253,11 @@ export default function PortalEditor() {
             return;
         }
 
+        // If dragging a section
+        if (activeContainer.id === activeId || overContainer.id === overId) {
+            return;
+        }
+
         setSections(prev => {
             const activeSectionIndex = prev.findIndex(s => s.id === activeContainer.id);
             const overSectionIndex = prev.findIndex(s => s.id === overContainer.id);
@@ -294,7 +300,8 @@ export default function PortalEditor() {
         // Case 1: Dragging Sidebar Item to Section
         if (active.data.current?.type === 'new-block') {
             const blockType = active.data.current.blockType;
-            const overSection = sections.find(s => s.id === overId || s.blocks.some(b => b.id === overId));
+            const overSectionId = over.data.current?.sectionId || overId;
+            const overSection = sections.find(s => s.id === overSectionId || s.blocks.some(b => b.id === overSectionId));
             
             if (overSection) {
                 // Initialize default content
@@ -366,7 +373,14 @@ export default function PortalEditor() {
     if (isLoading) return <div className="p-20"><Skeleton className="h-full w-full rounded-3xl" /></div>;
 
     return (
-        <div className="flex h-screen bg-slate-50 dark:bg-slate-950 overflow-hidden">
+        <DndContext 
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragStart={handleDragStart}
+            onDragOver={handleDragOver}
+            onDragEnd={handleDragEnd}
+        >
+            <div className="flex h-screen bg-slate-50 dark:bg-slate-950 overflow-hidden">
             {/* Sidebar - Blocks */}
             <div className="w-80 border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-col">
                 <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex items-center gap-3">
@@ -389,6 +403,8 @@ export default function PortalEditor() {
                             <DraggableBlockButton icon={<Layout />} label="Hero" type="hero" />
                             <DraggableBlockButton icon={<ImageIcon />} label="Slider" type="slider" />
                             <DraggableBlockButton icon={<Layout />} label="Cards" type="info-cards" />
+                            <DraggableBlockButton icon={<Plus />} label="Grid" type="grid" />
+                            <DraggableBlockButton icon={<ImageIcon />} label="Galeria" type="gallery" />
                             <DraggableBlockButton icon={<Type />} label="Texto" type="text" />
                             <DraggableBlockButton icon={<ImageIcon />} label="Imagem" type="image" />
                             <DraggableBlockButton icon={<LinkIcon />} label="Links" type="links" />
@@ -478,67 +494,63 @@ export default function PortalEditor() {
                         previewMode === 'desktop' ? "w-full max-w-[95%] rounded-[40px]" : "w-[375px] rounded-[60px] border-[12px] border-slate-800"
                     )}>
                         {/* Render Editor Blocks */}
-                        <div className="h-full">
-                            <DndContext 
-                                sensors={sensors}
-                                collisionDetection={closestCenter}
-                                onDragEnd={handleDragEnd}
+                        <div className="h-full relative">
+                            <SortableContext 
+                                items={sections.map(s => s.id)}
+                                strategy={verticalListSortingStrategy}
                             >
-                                <SortableContext 
-                                    items={sections.map(s => s.id)}
-                                    strategy={verticalListSortingStrategy}
-                                >
-                                    {sections.length === 0 ? (
-                                        <div className="h-full flex flex-col items-center justify-center p-20 text-center opacity-40">
-                                            <Layout className="h-12 w-12 mb-4" />
-                                            <p>Sua página está vazia.<br/>Comece adicionando uma seção.</p>
-                                        </div>
-                                    ) : (
-                                        <div className="space-y-4 p-4">
-                                            {sections.map((section) => (
-                                                <SortableSectionItem 
-                                                    key={section.id}
-                                                    section={section}
-                                                    active={activeSectionId === section.id}
-                                                    onSelect={() => setActiveSectionId(section.id)}
-                                                    onRemove={() => removeSection(section.id)}
-                                                    onUpdateSettings={(sets) => updateSectionSettings(section.id, sets)}
-                                                    onUpdateBlock={(bid, content) => updateBlockContent(section.id, bid, content)}
-                                                    onRemoveBlock={(bid) => removeBlock(section.id, bid)}
-                                                />
-                                            ))}
-                                        </div>
-                                    )}
-                                </SortableContext>
-                                <DragOverlay dropAnimation={{
-                                    sideEffects: defaultDropAnimationSideEffects({
-                                        styles: {
-                                            active: {
-                                                opacity: '0.5',
-                                            },
-                                        },
-                                    }),
-                                }}>
-                                    {activeId ? (
-                                        activeData?.type === 'new-block' ? (
-                                            <div className="p-4 bg-white border-2 border-blue-500 rounded-2xl shadow-2xl opacity-80 flex items-center gap-3">
-                                                <Layout className="h-5 w-5 text-blue-500" />
-                                                <span className="font-bold text-sm text-slate-700 capitalize">{activeData.blockType}</span>
-                                            </div>
-                                        ) : (
-                                            <div className="p-4 bg-white border-2 border-blue-500 rounded-2xl shadow-2xl opacity-80 w-80">
-                                                <div className="h-4 w-2/3 bg-slate-100 rounded mb-2"></div>
-                                                <div className="h-3 w-full bg-slate-50 rounded"></div>
-                                            </div>
-                                        )
-                                    ) : null}
-                                </DragOverlay>
-                            </DndContext>
+                                {sections.length === 0 ? (
+                                    <div className="h-full flex flex-col items-center justify-center p-20 text-center opacity-40">
+                                        <Layout className="h-12 w-12 mb-4" />
+                                        <p>Sua página está vazia.<br/>Comece adicionando uma seção.</p>
+                                    </div>
+                                ) : (
+                                    <div className="space-y-4 p-4">
+                                        {sections.map((section) => (
+                                            <SortableSectionItem 
+                                                key={section.id}
+                                                section={section}
+                                                active={activeSectionId === section.id}
+                                                onSelect={() => setActiveSectionId(section.id)}
+                                                onRemove={() => removeSection(section.id)}
+                                                onUpdateSettings={(sets: any) => updateSectionSettings(section.id, sets)}
+                                                onUpdateBlock={(bid: string, content: any) => updateBlockContent(section.id, bid, content)}
+                                                onRemoveBlock={(bid: string) => removeBlock(section.id, bid)}
+                                            />
+                                        ))}
+                                    </div>
+                                )}
+                            </SortableContext>
                         </div>
                     </div>
                 </div>
+                </div>
             </div>
-        </div>
+
+            <DragOverlay dropAnimation={{
+                sideEffects: defaultDropAnimationSideEffects({
+                    styles: {
+                        active: {
+                            opacity: '0.5',
+                        },
+                    },
+                }),
+            }}>
+                {activeId ? (
+                    activeData?.type === 'new-block' ? (
+                        <div className="p-4 bg-white border-2 border-blue-500 rounded-2xl shadow-2xl opacity-80 flex items-center gap-3">
+                            <Layout className="h-5 w-5 text-blue-500" />
+                            <span className="font-bold text-sm text-slate-700 capitalize">{activeData.blockType}</span>
+                        </div>
+                    ) : (
+                        <div className="p-4 bg-white border-2 border-blue-500 rounded-2xl shadow-2xl opacity-80 w-80">
+                            <div className="h-4 w-2/3 bg-slate-100 rounded mb-2"></div>
+                            <div className="h-3 w-full bg-slate-50 rounded"></div>
+                        </div>
+                    )
+                ) : null}
+            </DragOverlay>
+        </DndContext>
     );
 }
 
@@ -600,6 +612,7 @@ function SortableSectionItem({ section, active, onSelect, onRemove, onUpdateSett
     const style = {
         transform: CSS.Transform.toString(transform),
         transition,
+        minHeight: section.settings?.height === 'screen' ? 'calc(100vh - 64px)' : 'auto'
     };
 
     return (
@@ -645,6 +658,23 @@ function SortableSectionItem({ section, active, onSelect, onRemove, onUpdateSett
                                     value={section.settings.backgroundImage}
                                     onChange={(url) => onUpdateSettings({ backgroundImage: url })}
                                 />
+
+                                <div className="space-y-2">
+                                    <Label className="text-[10px] uppercase text-slate-400 font-bold tracking-wider">Altura da Seção</Label>
+                                    <div className="grid grid-cols-3 gap-2">
+                                        {(['auto', 'screen'] as const).map((h) => (
+                                            <Button
+                                                key={h}
+                                                variant={(section.settings.height || 'auto') === h ? 'secondary' : 'outline'}
+                                                size="sm"
+                                                className="text-[10px] h-8 rounded-lg capitalize"
+                                                onClick={() => onUpdateSettings({ height: h })}
+                                            >
+                                                {h === 'auto' ? 'Automática' : 'Tela Cheia'}
+                                            </Button>
+                                        ))}
+                                    </div>
+                                </div>
 
                                 <div className="space-y-2">
                                     <Label className="text-[10px] uppercase text-slate-400 font-bold tracking-wider">Largura do Conteúdo</Label>
@@ -717,6 +747,7 @@ function SortableSectionItem({ section, active, onSelect, onRemove, onUpdateSett
                         <SortableBlockItem 
                             key={block.id} 
                             block={block} 
+                            sectionId={section.id}
                             onUpdate={(content: any) => onUpdateBlock(block.id, content)}
                             onRemove={() => onRemoveBlock(block.id)}
                         />
@@ -727,7 +758,7 @@ function SortableSectionItem({ section, active, onSelect, onRemove, onUpdateSett
     );
 }
 
-function SortableBlockItem({ block, onUpdate, onRemove }: any) {
+function SortableBlockItem({ block, sectionId, onUpdate, onRemove }: any) {
     const {
         attributes,
         listeners,
@@ -735,7 +766,13 @@ function SortableBlockItem({ block, onUpdate, onRemove }: any) {
         transform,
         transition,
         isDragging
-    } = useSortable({ id: block.id });
+    } = useSortable({ 
+        id: block.id,
+        data: {
+            type: 'existing-block',
+            sectionId: sectionId
+        }
+    });
 
     const style = {
         transform: CSS.Transform.toString(transform),

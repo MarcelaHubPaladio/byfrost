@@ -35,7 +35,7 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { showError, showSuccess } from "@/utils/toast";
 import { cn } from "@/lib/utils";
-import { CalendarClock, Lock, Plus, Trophy, Upload, Users } from "lucide-react";
+import { CalendarClock, Lock, Plus, Trash2, Trophy, Upload, Users } from "lucide-react";
 import { ParticipantsMultiSelect } from "@/components/admin/ParticipantsMultiSelect";
 
 const BUCKET = "tenant-assets";
@@ -463,6 +463,29 @@ export function IncentivesPanel() {
       showError(`Falha ao criar campanha: ${e?.message ?? "erro"}`);
     } finally {
       setCreatingCampaign(false);
+    }
+  };
+
+  const deleteCampaign = async (campaignId: string) => {
+    if (!activeTenantId) return;
+    if (
+      !confirm(
+        "Tem certeza que deseja excluir esta campanha? Todas as participações e eventos vinculados serão removidos. Esta ação não pode ser desfeita."
+      )
+    )
+      return;
+
+    try {
+      const { error } = await supabase
+        .from("campaigns")
+        .delete()
+        .eq("tenant_id", activeTenantId)
+        .eq("id", campaignId);
+      if (error) throw error;
+      showSuccess("Campanha excluída.");
+      await qc.invalidateQueries({ queryKey: ["incentives_campaigns", activeTenantId] });
+    } catch (e: any) {
+      showError(`Falha ao excluir campanha: ${e?.message ?? "erro"}`);
     }
   };
 
@@ -897,6 +920,13 @@ export function IncentivesPanel() {
                               onClick={() => finalizeCampaign(c.id)}
                             >
                               <Lock className="mr-2 h-4 w-4" /> Finalizar
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              className="h-9 w-9 rounded-full p-0 text-slate-400 hover:text-red-600"
+                              onClick={() => deleteCampaign(c.id)}
+                            >
+                              <Trash2 className="h-4 w-4" />
                             </Button>
                           </div>
                         </TableCell>

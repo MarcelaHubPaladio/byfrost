@@ -32,6 +32,8 @@ type Block = {
         padding?: string;
         direction?: 'row' | 'col';
         alignment?: 'start' | 'center' | 'end' | 'between';
+        animation?: 'none' | 'fade-up' | 'zoom-in' | 'fade-left' | 'fade-right';
+        imageWidth?: '25' | '50' | '75' | '100';
     };
 };
 
@@ -61,11 +63,17 @@ function BlockRenderer({ block, isPremium }: { block: Block; isPremium: boolean 
     const alignClass = block.settings?.textAlign === 'center' ? 'text-center' :
                        block.settings?.textAlign === 'right' ? 'text-right' : 'text-left';
 
+    const animationClass = block.settings?.animation === 'fade-up' ? 'animate-fade-up' :
+                          block.settings?.animation === 'zoom-in' ? 'animate-zoom-in' :
+                          block.settings?.animation === 'fade-left' ? 'animate-fade-left' :
+                          block.settings?.animation === 'fade-right' ? 'animate-fade-right' : '';
+
     return (
         <div className={cn(
-            "animate-in fade-in slide-in-from-bottom-4 duration-1000",
+            "duration-1000 fill-mode-forwards",
             heightClass,
-            alignClass
+            alignClass,
+            animationClass
         )}>
             {block.type === 'slider' && <PremiumSlider items={block.content.items} />}
             
@@ -147,7 +155,12 @@ function BlockRenderer({ block, isPremium }: { block: Block; isPremium: boolean 
 
             {block.type === 'image' && block.content.url && (
                 <div className="w-full py-8">
-                    <div className="relative rounded-[40px] overflow-hidden shadow-2xl">
+                    <div className={cn(
+                        "relative rounded-[40px] overflow-hidden shadow-2xl mx-auto transition-all duration-300",
+                        (block.settings?.imageWidth === '25') ? "w-1/4" :
+                        (block.settings?.imageWidth === '50') ? "w-1/2" :
+                        (block.settings?.imageWidth === '75') ? "w-3/4" : "w-full"
+                    )}>
                         <img src={block.content.url} className="w-full h-auto" alt="" />
                     </div>
                 </div>

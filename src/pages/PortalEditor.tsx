@@ -82,6 +82,8 @@ type Block = {
         padding?: string;
         direction?: 'row' | 'col';
         alignment?: 'start' | 'center' | 'end' | 'between';
+        animation?: 'none' | 'fade-up' | 'zoom-in' | 'fade-left' | 'fade-right';
+        imageWidth?: '25' | '50' | '75' | '100';
     };
 };
 
@@ -861,6 +863,24 @@ function SortableBlockItem({ block, sectionId, onUpdate, onRemove }: any) {
                                 </div>
                             </div>
                             <div className="space-y-1.5">
+                                 <Label className="text-[10px] uppercase text-slate-400 font-bold">Animação de Entrada</Label>
+                                 <Select 
+                                    value={block.settings?.animation || 'none'} 
+                                    onValueChange={(val) => onUpdate({ settings: { ...(block.settings || {}), animation: val } })}
+                                 >
+                                     <SelectTrigger className="h-7 text-[10px] rounded-lg">
+                                         <SelectValue placeholder="Escolha" />
+                                     </SelectTrigger>
+                                     <SelectContent>
+                                         <SelectItem value="none">Nenhuma</SelectItem>
+                                         <SelectItem value="fade-up">Subir Suave</SelectItem>
+                                         <SelectItem value="zoom-in">Zoom In</SelectItem>
+                                         <SelectItem value="fade-left">Vindo da Esquerda</SelectItem>
+                                         <SelectItem value="fade-right">Vindo da Direita</SelectItem>
+                                     </SelectContent>
+                                 </Select>
+                             </div>
+                            <div className="space-y-1.5">
                                 <Label className="text-[10px] uppercase text-slate-400 font-bold">Alinhamento</Label>
                                 <div className="flex gap-1">
                                     {(['left', 'center', 'right'] as const).map((a) => (
@@ -960,8 +980,29 @@ function SortableBlockItem({ block, sectionId, onUpdate, onRemove }: any) {
 
             {block.type === 'image' && (
                 <div className="space-y-4">
+                    <div className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100">
+                        <Label className="text-[10px] font-bold text-slate-400 uppercase">Tamanho da Imagem</Label>
+                        <div className="flex gap-1">
+                            {(['25', '50', '75', '100'] as const).map((w) => (
+                                <Button 
+                                    key={w} 
+                                    variant={(block.settings?.imageWidth || '100') === w ? 'secondary' : 'outline'}
+                                    size="sm" 
+                                    className="h-6 text-[9px] px-2"
+                                    onClick={() => onUpdate({ settings: { ...(block.settings || {}), imageWidth: w } })}
+                                >
+                                    {w}%
+                                </Button>
+                            ))}
+                        </div>
+                    </div>
                     {block.content.url ? (
-                        <div className="relative w-full aspect-video rounded-2xl overflow-hidden border border-slate-100 group/img">
+                        <div className={cn(
+                            "relative aspect-video rounded-2xl overflow-hidden border border-slate-100 group/img mx-auto transition-all duration-300",
+                            (block.settings?.imageWidth === '25') ? "w-1/4" :
+                            (block.settings?.imageWidth === '50') ? "w-1/2" :
+                            (block.settings?.imageWidth === '75') ? "w-3/4" : "w-full"
+                        )}>
                             <img src={block.content.url} className="w-full h-full object-cover" alt="" />
                             <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center">
                                 <Button variant="secondary" size="sm" onClick={() => onUpdate({ url: '' })}>Trocar Imagem</Button>

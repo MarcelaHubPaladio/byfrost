@@ -74,7 +74,9 @@ serve(async (req: Request) => {
           customer_phone: customerPhone,
           customer_email: customerEmail,
           linked_goal_metric: linked_goal_metric || null
-        }
+        },
+        created_by_user_id: user.id,
+        assigned_user_id: user.id
       })
       .select("id")
       .single();

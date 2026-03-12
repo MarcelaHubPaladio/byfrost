@@ -814,7 +814,7 @@ function MyGoalsDashboard() {
     const progressQ = useQuery({
         queryKey: ["my_goals_progress", activeTenantId, user?.id],
         queryFn: async () => {
-            if (!activeTenantId || !user?.id) return {};
+            if (!activeTenantId || !user?.id) return [];
 
             const startOfMonth = new Date();
             startOfMonth.setDate(1);
@@ -828,7 +828,7 @@ function MyGoalsDashboard() {
                 .eq("user_id", user.id)
                 .maybeSingle();
 
-            if (!participant) return {};
+            if (!participant) return [];
 
             const { data: events } = await supabase
                 .from("incentive_events")
@@ -856,7 +856,7 @@ function MyGoalsDashboard() {
         const events = progressQ.data || [];
 
         return goals.map(g => {
-            const relevantEvents = (events as any[]).filter(e => e.event_type === g.metric_key);
+            const relevantEvents = (Array.isArray(events) ? events : []).filter(e => e.event_type === g.metric_key);
             let achieved = 0;
             if (g.target_type === 'money') {
                 achieved = relevantEvents.reduce((acc, curr) => acc + (Number(curr.value) || 0), 0);
@@ -1133,7 +1133,7 @@ function TeamGoalsTab() {
             if (eErr) throw eErr;
 
             const goalsWithProgress = goals.map(g => {
-                const relevantEvents = userEvents.filter(e => e.event_type === g.metric_key);
+                const relevantEvents = (userEvents || []).filter(e => e.event_type === g.metric_key);
                 let achieved = 0;
                 if (g.target_type === 'money') {
                     achieved = relevantEvents.reduce((acc, curr) => acc + (Number(curr.value) || 0), 0);

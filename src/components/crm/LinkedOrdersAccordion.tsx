@@ -23,7 +23,12 @@ export function LinkedOrdersAccordion({ tenantId, caseId }: { tenantId: string; 
                 .eq("key", "sales_order")
                 .maybeSingle();
 
-            if (!journeyData) return { orders: [], journey: null };
+            if (!journeyData) {
+                console.log("[LinkedOrdersAccordion] Journey 'sales_order' not found");
+                return { orders: [], journey: null };
+            }
+
+            console.log(`[LinkedOrdersAccordion] Fetching orders linked to case ${caseId} in tenant ${tenantId}`);
 
             const { data, error } = await supabase
                 .from("cases")
@@ -34,7 +39,12 @@ export function LinkedOrdersAccordion({ tenantId, caseId }: { tenantId: string; 
                 .is("deleted_at", null)
                 .order("created_at", { ascending: false });
 
-            if (error) throw error;
+            if (error) {
+                console.error("[LinkedOrdersAccordion] Error fetching orders:", error);
+                throw error;
+            }
+            
+            console.log(`[LinkedOrdersAccordion] Found ${data?.length || 0} linked orders`);
             return { orders: data ?? [], journey: journeyData };
         },
     });

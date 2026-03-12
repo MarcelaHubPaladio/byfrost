@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { useTenant } from "@/providers/TenantProvider";
@@ -8,6 +8,7 @@ import { Plus, Globe, Settings, Trash2, Edit3, ExternalLink } from "lucide-react
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ImageUpload } from "@/components/portal/ImageUpload";
 import {
     Dialog,
     DialogContent,
@@ -27,6 +28,7 @@ export default function PortalManager() {
     const [isCreateOpen, setIsCreateOpen] = useState(false);
     const [newPageTitle, setNewPageTitle] = useState("");
     const [newPageSlug, setNewPageSlug] = useState("");
+    const [editPage, setEditPage] = useState<any>(null);
 
     const { data: pages, isLoading } = useQuery({
         queryKey: ["portal_pages", activeTenantId],
@@ -41,7 +43,6 @@ export default function PortalManager() {
         },
         enabled: !!activeTenantId,
     });
-
     const createPageM = useMutation({
         mutationFn: async (payload: { title: string; slug: string; tenant_id: string }) => {
             const { data, error } = await supabase
@@ -60,6 +61,38 @@ export default function PortalManager() {
         },
         onError: (err: any) => {
             toast.error(err.message || "Erro ao criar página");
+        }
+    });
+
+    const updatePageM = useMutation({
+        mutationFn: async ({ id, ...payload }: any) => {
+            const { error } = await supabase
+                .from("portal_pages")
+                .update(payload)
+                .eq("id", id);
+            if (error) throw error;
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["portal_pages", activeTenantId] });
+            toast.success("Configurações salvas!");
+            setEditPage(null);
+        },
+        onError: (err: any) => {
+            toast.error(err.message || "Erro ao salvar");
+        }
+    });
+
+    const deletePageM = useMutation({
+        mutationFn: async (id: string) => {
+            const { error } = await supabase
+                .from("portal_pages")
+                .update({ deleted_at: new Date().toISOString() })
+                .eq("id", id);
+            if (error) throw error;
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["portal_pages", activeTenantId] });
+            toast.success("Página removida");
         }
     });
 
@@ -151,10 +184,20 @@ export default function PortalManager() {
                                     <Globe className="h-6 w-6" />
                                 </div>
                                 <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full" onClick={() => setEditPage(page)}>
+                                        <Settings className="h-4 w-4" />
+                                    </Button>
                                     <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full" onClick={() => navigate(`/app/portal/edit/${page.id}`)}>
                                         <Edit3 className="h-4 w-4" />
                                     </Button>
-                                    <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full text-red-500 hover:text-red-600 hover:bg-red-50">
+                                    <Button 
+                                        variant="ghost" size="icon" className="h-9 w-9 rounded-full text-red-500 hover:text-red-600 hover:bg-red-50"
+                                        onClick={() => {
+                                            if (confirm("Deseja realmente excluir esta página?")) {
+                                                deletePageM.mutate(page.id);
+                                            }
+                                        }}
+                                    >
                                         <Trash2 className="h-4 w-4" />
                                     </Button>
                                 </div>
@@ -190,6 +233,139 @@ export default function PortalManager() {
                     </div>
                 )}
             </div>
+
+            <PageSettingsDialog 
+                page={editPage} 
+                open={!!editPage} 
+                onOpenChange={(open) => !open && setEditPage(null)}
+                onSave={(updates) => updatePageM.mutate({ id: editPage.id, ...updates })}
+                isPending={updatePageM.isPending}
+            />
         </div>
+    );
+}
+
+function PageSettingsDialog({ page, open, onOpenChange, onSave, isPending }: any) {
+    const [title, setTitle] = useState("");
+    const [slug, setSlug] = useState("");
+    const [settings, setSettings] = useState<any>({});
+
+    useEffect(() => {
+        if (page) {
+            setTitle(page.title || "");
+            setSlug(page.slug || "");
+            setSettings(page.page_settings || {});
+        }
+    }, [page]);
+
+    const handleSave = () => {
+        onSave({
+            title,
+            slug: slug.toLowerCase().replace(/[^a-z0-9-]/g, "-"),
+            page_settings: settings
+        });
+    };
+
+    return (
+        <Dialog open={open} onOpenChange={onOpenChange}>
+            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto rounded-[32px] border-none shadow-2xl">
+                <DialogHeader>
+                    <DialogTitle>Configurações da Página</DialogTitle>
+                    <DialogDescription>
+                        Ajuste as configurações gerais, SEO e domínio da sua página.
+                    </DialogDescription>
+                </DialogHeader>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8 py-6">
+                    <div className="space-y-6">
+                        <div className="space-y-2">
+                            <Label className="text-xs font-bold uppercase text-slate-400">Geral</Label>
+                            <div className="space-y-4">
+                                <div>
+                                    <Label htmlFor="edit-title">Título da Página</Label>
+                                    <Input 
+                                        id="edit-title" 
+                                        className="rounded-xl mt-1" 
+                                        value={title} 
+                                        onChange={(e) => setTitle(e.target.value)} 
+                                    />
+                                </div>
+                                <div>
+                                    <Label htmlFor="edit-slug">Caminho (slug)</Label>
+                                    <Input 
+                                        id="edit-slug" 
+                                        className="rounded-xl mt-1" 
+                                        value={slug} 
+                                        onChange={(e) => setSlug(e.target.value)} 
+                                    />
+                                </div>
+                                <div>
+                                    <Label htmlFor="custom-domain">Domínio Personalizado</Label>
+                                    <Input 
+                                        id="custom-domain" 
+                                        placeholder="ex: site.empresa.com" 
+                                        className="rounded-xl mt-1" 
+                                        value={settings.custom_domain || ""} 
+                                        onChange={(e) => setSettings({ ...settings, custom_domain: e.target.value })} 
+                                    />
+                                    <p className="text-[10px] text-slate-400 mt-1">Requer apontamento CNAME para nossa infraestrutura.</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="space-y-2">
+                            <Label className="text-xs font-bold uppercase text-slate-400">Imagens</Label>
+                            <div className="grid grid-cols-1 gap-4">
+                                <ImageUpload 
+                                    label="Favicon"
+                                    value={settings.favicon_url}
+                                    onChange={(url) => setSettings({ ...settings, favicon_url: url })}
+                                />
+                                <ImageUpload 
+                                    label="Imagem OG (Social)"
+                                    value={settings.og_image_url}
+                                    onChange={(url) => setSettings({ ...settings, og_image_url: url })}
+                                />
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="space-y-6">
+                        <div className="space-y-2">
+                            <Label className="text-xs font-bold uppercase text-slate-400">SEO</Label>
+                            <div className="space-y-4">
+                                <div>
+                                    <Label htmlFor="seo-title">Título SEO</Label>
+                                    <Input 
+                                        id="seo-title" 
+                                        placeholder="Título da aba" 
+                                        className="rounded-xl mt-1" 
+                                        value={settings.seo_title || ""} 
+                                        onChange={(e) => setSettings({ ...settings, seo_title: e.target.value })} 
+                                    />
+                                </div>
+                                <div>
+                                    <Label htmlFor="seo-desc">Descrição SEO</Label>
+                                    <textarea 
+                                        id="seo-desc" 
+                                        className="w-full text-sm p-3 rounded-xl border border-slate-200 mt-1 min-h-[120px] focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                                        placeholder="Descrição para Google e Redes Sociais"
+                                        value={settings.seo_description || ""} 
+                                        onChange={(e) => setSettings({ ...settings, seo_description: e.target.value })} 
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <DialogFooter>
+                    <Button variant="ghost" onClick={() => onOpenChange(false)} className="rounded-xl">Cancelar</Button>
+                    <Button onClick={handleSave} disabled={isPending} className="rounded-xl px-8">
+                        {isPending ? "Salvando..." : "Salvar Configurações"}
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
     );
 }

@@ -481,43 +481,6 @@ export default function PortalEditor() {
                             </div>
                         </div>
                     </div>
-
-                    <div className="pt-8 space-y-6">
-                        <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">SEO & Redes Sociais</p>
-                        <div className="space-y-4">
-                            <div className="space-y-2">
-                                <Label className="text-xs">Título SEO</Label>
-                                <Input 
-                                    placeholder="Título da aba"
-                                    className="text-xs h-9 rounded-lg"
-                                    value={page?.page_settings?.seo_title || ''}
-                                    onChange={(e) => saveM.mutate({ page_settings: { ...page?.page_settings, seo_title: e.target.value } })}
-                                    onKeyDown={(e) => e.stopPropagation()}
-                                />
-                            </div>
-                            <div className="space-y-2">
-                                <Label className="text-xs">Descrição SEO</Label>
-                                <textarea 
-                                    placeholder="Descrição para Google/Redes"
-                                    className="w-full text-xs p-3 rounded-lg border border-slate-200 bg-white min-h-[80px] focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                                    value={page?.page_settings?.seo_description || ''}
-                                    onChange={(e) => saveM.mutate({ page_settings: { ...page?.page_settings, seo_description: e.target.value } })}
-                                    onPointerDown={(e) => e.stopPropagation()}
-                                    onKeyDown={(e) => e.stopPropagation()}
-                                />
-                            </div>
-                            <ImageUpload 
-                                label="Favicon (Ícone da Aba)"
-                                value={page?.page_settings?.favicon_url}
-                                onChange={(url) => saveM.mutate({ page_settings: { ...page?.page_settings, favicon_url: url } })}
-                            />
-                            <ImageUpload 
-                                label="Imagem OG (Redes Sociais)"
-                                value={page?.page_settings?.og_image_url}
-                                onChange={(url) => saveM.mutate({ page_settings: { ...page?.page_settings, og_image_url: url } })}
-                            />
-                        </div>
-                    </div>
                 </div>
 
                 <div className="p-6 border-t border-slate-100 dark:border-slate-800">

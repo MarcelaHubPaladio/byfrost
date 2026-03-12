@@ -22,12 +22,8 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import { Check, ChevronsUpDown, Plus, UserPlus2 } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Check, ChevronsUpDown, MapPin, Navigation, Plus, UserPlus2 } from "lucide-react";
 
 type JourneyInfo = {
   id: string;
@@ -86,6 +82,10 @@ export function NewLeadDialog({
   const [name, setName] = useState("");
   const [whatsapp, setWhatsapp] = useState("+55");
   const [email, setEmail] = useState("");
+  const [captureMode, setCaptureMode] = useState<"email" | "location">("email");
+  const [latitude, setLatitude] = useState<number | null>(null);
+  const [longitude, setLongitude] = useState<number | null>(null);
+  const [capturingLoc, setCapturingLoc] = useState(false);
 
   const [entityHandling, setEntityHandling] = useState<"none" | "create" | "link">("none");
   const [selectedEntityId, setSelectedEntityId] = useState<string | null>(null);
@@ -131,9 +131,30 @@ export function NewLeadDialog({
     setName("");
     setWhatsapp("+55");
     setEmail("");
+    setCaptureMode("email");
+    setLatitude(null);
+    setLongitude(null);
     setEntityHandling("none");
     setSelectedEntityId(null);
     setSearchEntity("");
+  };
+
+  const handleCaptureLocation = () => {
+    setCapturingLoc(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setLatitude(pos.coords.latitude);
+        setLongitude(pos.coords.longitude);
+        setCapturingLoc(false);
+        showSuccess("Localização capturada!");
+      },
+      (err) => {
+        console.error("Geo error", err);
+        showError(`Erro ao capturar localização: ${err.message}`);
+        setCapturingLoc(false);
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
   };
 
 
@@ -173,7 +194,9 @@ export function NewLeadDialog({
       let ownerUserId: string | null = isAdm ? null : actorUserId;
 
       const phoneE164 = normalizeWhatsappOrThrow(whatsapp);
-      const emailNorm = email.trim().toLowerCase() || null;
+      const emailNorm = captureMode === "email" ? (email.trim().toLowerCase() || null) : null;
+      const lat = captureMode === "location" ? latitude : null;
+      const lng = captureMode === "location" ? longitude : null;
 
       // 1) Customer (lookup by exact phone)
       const { data: existing, error: selErr } = await supabase
@@ -200,7 +223,9 @@ export function NewLeadDialog({
           metadata: {
             source: "crm_manual",
             whatsapp: phoneE164.replace(/\D/g, ""),
-            email: emailNorm
+            email: emailNorm,
+            latitude: lat,
+            longitude: lng,
           }
         }).select("id").single();
         if (entityRes.error) throw entityRes.error;
@@ -217,7 +242,11 @@ export function NewLeadDialog({
             deleted_at: null,
             assigned_user_id: ownerUserId,
             entity_id: finalEntityId ?? (existing as any).entity_id,
-            meta_json: { lead_source: "panel_manual" },
+            meta_json: { 
+              lead_source: "panel_manual",
+              latitude: lat,
+              longitude: lng,
+            },
           } as any)
           .eq("tenant_id", tenantId)
           .eq("id", customerId);
@@ -232,7 +261,11 @@ export function NewLeadDialog({
             email: emailNorm,
             assigned_user_id: ownerUserId,
             entity_id: finalEntityId,
-            meta_json: { lead_source: "panel_manual" },
+            meta_json: { 
+              lead_source: "panel_manual",
+              latitude: lat,
+              longitude: lng,
+            },
           } as any)
           .select("id")
           .single();
@@ -257,6 +290,8 @@ export function NewLeadDialog({
             journey_key: journey.key,
             lead_name: displayName,
             lead_email: emailNorm,
+            latitude: lat,
+            longitude: lng,
             owner_user_id: ownerUserId,
             owner_source: "panel_manual_creator",
           },
@@ -347,14 +382,92 @@ export function NewLeadDialog({
               <div className="text-[10px] text-slate-400">Aceita com ou sem +55 (DDDs brasileiros).</div>
             </div>
 
-            <div className="space-y-1.5">
-              <Label className="text-xs font-semibold uppercase tracking-wider text-slate-500">E-mail (opcional)</Label>
-              <Input
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="h-12 rounded-2xl border-slate-200 bg-slate-50/50 px-4 focus:bg-white focus:ring-byfrost-accent/20"
-                placeholder="maria@empresa.com"
-              />
+            <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50/50 p-4">
+              <div className="flex items-center justify-between border-b border-slate-200 pb-3">
+                <Label className="text-xs font-bold uppercase tracking-wider text-slate-500">Contato / Localização</Label>
+                <div className="flex gap-1 rounded-xl bg-slate-200/50 p-1">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className={cn(
+                      "h-8 rounded-lg px-3 text-[11px] font-bold uppercase",
+                      captureMode === "email" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"
+                    )}
+                    onClick={() => setCaptureMode("email")}
+                  >
+                    E-mail
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className={cn(
+                      "h-8 rounded-lg px-3 text-[11px] font-bold uppercase",
+                      captureMode === "location" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"
+                    )}
+                    onClick={() => setCaptureMode("location")}
+                  >
+                    Localização
+                  </Button>
+                </div>
+              </div>
+
+              {captureMode === "email" ? (
+                <div className="pt-1">
+                  <Input
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="h-11 rounded-2xl border-slate-200 bg-white px-4 text-sm"
+                    placeholder="maria@empresa.com"
+                  />
+                  <div className="mt-1.5 text-[10px] text-slate-400 font-medium">O e-mail é opcional para o cadastro.</div>
+                </div>
+              ) : (
+                <div className="pt-1">
+                  <div className="grid gap-3">
+                    {latitude !== null && longitude !== null ? (
+                      <div className="flex items-center gap-3 rounded-2xl border border-emerald-100 bg-emerald-50/50 p-3">
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-100 text-emerald-600">
+                          <Navigation className="h-5 w-5" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="text-[11px] font-bold uppercase tracking-tight text-emerald-700">Coordenadas Fixadas</div>
+                          <div className="mt-0.5 truncate font-mono text-xs text-emerald-600">
+                            {latitude.toFixed(6)}, {longitude.toFixed(6)}
+                          </div>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 rounded-lg px-2 text-rose-500 hover:bg-rose-50"
+                          onClick={() => {
+                            setLatitude(null);
+                            setLongitude(null);
+                          }}
+                        >
+                          Limpar
+                        </Button>
+                      </div>
+                    ) : (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="h-14 w-full rounded-2xl border-dashed border-slate-300 bg-white hover:border-byfrost-accent hover:bg-byfrost-accent/5 hover:text-byfrost-accent"
+                        onClick={handleCaptureLocation}
+                        disabled={capturingLoc}
+                      >
+                        <MapPin className={cn("mr-2 h-5 w-5", capturingLoc && "animate-pulse")} />
+                        {capturingLoc ? "Capturando GPS..." : "Fixar Localização Atual (Pin)"}
+                      </Button>
+                    )}
+                    <div className="text-[10px] text-slate-400 font-medium italic">
+                      Ideal para atendimentos externos onde o e-mail não foi fornecido.
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="rounded-2xl border border-slate-200 bg-slate-50/50 p-4">

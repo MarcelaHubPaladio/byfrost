@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { supabase } from "@/lib/supabase";
 import { showError, showSuccess } from "@/utils/toast";
 import { cn } from "@/lib/utils";
-import { Phone, UserRound, Mail, Link2, ExternalLink } from "lucide-react";
+import { Phone, UserRound, Mail, Link2, ExternalLink, MapPin } from "lucide-react";
 import { useSession } from "@/providers/SessionProvider";
 
 type CustomerRow = {
@@ -19,6 +19,7 @@ type CustomerRow = {
   name: string | null;
   email: string | null;
   deleted_at: string | null;
+  meta_json?: any;
 };
 
 function normalizePhoneLoose(v: string) {
@@ -46,7 +47,7 @@ export function CaseCustomerCard(props: {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("customer_accounts")
-        .select("id,tenant_id,entity_id,phone_e164,name,email,deleted_at")
+        .select("id,tenant_id,entity_id,phone_e164,name,email,deleted_at,meta_json")
         .eq("tenant_id", props.tenantId)
         .eq("id", props.customerId!)
         .is("deleted_at", null)
@@ -106,6 +107,10 @@ export function CaseCustomerCard(props: {
             phone_e164: p,
             name: name.trim() || null,
             email: email.trim() || null,
+            meta_json: {
+              ...(customerQ.data?.meta_json || {}),
+              email: email.trim() || null,
+            }
           })
           .eq("tenant_id", props.tenantId)
           .eq("id", props.customerId);
@@ -283,6 +288,33 @@ export function CaseCustomerCard(props: {
           </div>
         </div>
       </div>
+
+      {(customerQ.data?.meta_json?.latitude || customerQ.data?.meta_json?.longitude) && (
+        <div className="mt-4 flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50/50 p-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-100 text-blue-600">
+            <MapPin className="h-5 w-5" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="text-[11px] font-bold uppercase tracking-tight text-slate-500">Localização Fixada</div>
+            <div className="mt-0.5 truncate font-mono text-xs text-slate-600">
+              {customerQ.data.meta_json.latitude?.toFixed(6) ?? "0"}, {customerQ.data.meta_json.longitude?.toFixed(6) ?? "0"}
+            </div>
+          </div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-9 rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+            onClick={() => {
+              const lat = customerQ.data?.meta_json?.latitude;
+              const lng = customerQ.data?.meta_json?.longitude;
+              window.open(`https://www.google.com/maps?q=${lat},${lng}`, "_blank");
+            }}
+          >
+            Abrir Mapa
+          </Button>
+        </div>
+      )}
 
       <div className="mt-3 text-[11px] text-slate-500">
         Dica: ao salvar, o cliente do CRM também fica sincronizado com o módulo Entidades (core_entities).

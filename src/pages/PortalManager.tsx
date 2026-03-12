@@ -34,6 +34,7 @@ export default function PortalManager() {
             const { data, error } = await supabase
                 .from("portal_pages")
                 .select("*")
+                .eq("tenant_id", activeTenantId)
                 .order("created_at", { ascending: false });
             if (error) throw error;
             return data;
@@ -52,7 +53,7 @@ export default function PortalManager() {
             return data;
         },
         onSuccess: (data) => {
-            queryClient.invalidateQueries({ queryKey: ["portal_pages"] });
+            queryClient.invalidateQueries({ queryKey: ["portal_pages", activeTenantId] });
             toast.success("Página criada com sucesso!");
             setIsCreateOpen(false);
             navigate(`/app/portal/edit/${data.id}`);

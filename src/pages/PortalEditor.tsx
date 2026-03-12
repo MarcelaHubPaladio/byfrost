@@ -139,6 +139,7 @@ export default function PortalEditor() {
                 .from("portal_pages")
                 .select("*")
                 .eq("id", id)
+                .eq("tenant_id", activeTenant?.id)
                 .single();
             if (error) throw error;
             return data;

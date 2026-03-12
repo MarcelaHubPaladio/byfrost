@@ -247,18 +247,8 @@ export default function PublicPortal() {
             }
 
             if (!effectiveTenantSlug) {
-                // If we still don't have a tenant slug, we try to find the page by slug only
-                // but this is risky if slugs overlap across tenants.
-                // For now, let's at least try.
-                const { data, error: pError } = await supabase
-                    .from("portal_pages")
-                    .select("*, tenants(slug)")
-                    .eq("slug", slug)
-                    .eq("is_published", true)
-                    .limit(1)
-                    .maybeSingle();
-                if (pError) throw pError;
-                return data;
+                console.error("Tenant not identified. Host:", window.location.host);
+                return null;
             }
 
             const { data: tenant, error: tError } = await supabase

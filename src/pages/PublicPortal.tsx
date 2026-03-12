@@ -30,6 +30,8 @@ type Block = {
         textAlign?: 'left' | 'center' | 'right';
         backgroundColor?: string;
         padding?: string;
+        direction?: 'row' | 'col';
+        alignment?: 'start' | 'center' | 'end' | 'between';
     };
 };
 
@@ -44,6 +46,8 @@ type Section = {
         maxWidth?: '1200' | '1400' | 'full';
         columns?: number;
         height?: 'auto' | 'screen';
+        justifyContent?: 'flex-start' | 'center' | 'flex-end';
+        alignItems?: 'flex-start' | 'center' | 'flex-end' | 'stretch';
     };
     blocks: Block[];
 };
@@ -174,13 +178,18 @@ function BlockRenderer({ block, isPremium }: { block: Block; isPremium: boolean 
 
             {block.type === 'grid' && (
                 <div className={cn(
-                    "grid gap-8 py-8",
-                    block.content.columns === 1 || !block.content.columns ? "grid-cols-1" :
-                    block.content.columns === 2 ? "grid-cols-2" :
-                    block.content.columns === 3 ? "grid-cols-1 md:grid-cols-3" :
-                    "grid-cols-1 md:grid-cols-4"
+                    "grid gap-8 py-8 w-full",
+                    block.settings?.direction === 'col' ? "flex flex-col" : (
+                        block.content.columns === 1 || !block.content.columns ? "grid-cols-1" :
+                        block.content.columns === 2 ? "grid-cols-2" :
+                        block.content.columns === 3 ? "grid-cols-1 md:grid-cols-3" :
+                        "grid-cols-1 md:grid-cols-4"
+                    ),
+                    block.settings?.alignment === 'center' ? (block.settings?.direction === 'col' ? "items-center text-center" : "items-center justify-items-center") :
+                    block.settings?.alignment === 'between' ? (block.settings?.direction === 'col' ? "justify-between" : "justify-between") :
+                    block.settings?.alignment === 'end' ? (block.settings?.direction === 'col' ? "items-end text-right" : "items-end justify-items-end") : ""
                 )}>
-                    {(block.blocks || []).map((innerBlock) => (
+                    {(block.blocks || []).map((innerBlock: Block) => (
                         <BlockRenderer key={innerBlock.id} block={innerBlock} isPremium={isPremium} />
                     ))}
                 </div>
@@ -329,6 +338,10 @@ export default function PublicPortal() {
                             paddingTop: `${(Number(section.settings.paddingY) || 0) * 4}px`,
                             paddingBottom: `${(Number(section.settings.paddingY) || 0) * 4}px`,
                             minHeight: section.settings.height === 'screen' ? '100vh' : 'auto',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            justifyContent: section.settings.justifyContent || 'flex-start',
+                            alignItems: section.settings.alignItems || 'stretch',
                         }}
                     >
                         <div className={cn(

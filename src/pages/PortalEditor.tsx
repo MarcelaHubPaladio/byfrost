@@ -80,6 +80,8 @@ type Block = {
         textAlign?: 'left' | 'center' | 'right';
         backgroundColor?: string;
         padding?: string;
+        direction?: 'row' | 'col';
+        alignment?: 'start' | 'center' | 'end' | 'between';
     };
 };
 
@@ -100,6 +102,8 @@ type Section = {
         maxWidth?: '1200' | '1400' | 'full';
         columns?: number;
         height?: 'auto' | 'screen';
+        justifyContent?: 'flex-start' | 'center' | 'flex-end';
+        alignItems?: 'flex-start' | 'center' | 'flex-end' | 'stretch';
     };
     blocks: Block[];
 };
@@ -612,7 +616,11 @@ function SortableSectionItem({ section, active, onSelect, onRemove, onUpdateSett
     const style = {
         transform: CSS.Transform.toString(transform),
         transition,
-        minHeight: section.settings?.height === 'screen' ? 'calc(100vh - 64px)' : 'auto'
+        minHeight: section.settings?.height === 'screen' ? 'calc(100vh - 64px)' : 'auto',
+        display: 'flex',
+        flexDirection: 'column' as const,
+        justifyContent: section.settings?.justifyContent || 'flex-start',
+        alignItems: section.settings?.alignItems || 'stretch',
     };
 
     return (
@@ -653,6 +661,44 @@ function SortableSectionItem({ section, active, onSelect, onRemove, onUpdateSett
                             </div>
 
                             <div className="space-y-4">
+                                <div className="space-y-2">
+                                    <Label className="text-[10px] uppercase text-slate-400 font-bold tracking-wider">Alinhamento do Conteúdo</Label>
+                                    <div className="space-y-4 pt-2">
+                                        <div className="space-y-2">
+                                            <Label className="text-[9px] text-slate-500 uppercase">Vertical</Label>
+                                            <div className="grid grid-cols-3 gap-1">
+                                                {(['flex-start', 'center', 'flex-end'] as const).map((a) => (
+                                                    <Button
+                                                        key={a}
+                                                        variant={(section.settings.alignItems || 'flex-start') === a ? 'secondary' : 'outline'}
+                                                        size="sm"
+                                                        className="text-[9px] h-7 px-1 uppercase"
+                                                        onClick={() => onUpdateSettings({ alignItems: a })}
+                                                    >
+                                                        {a === 'flex-start' ? 'Topo' : a === 'center' ? 'Meio' : 'Base'}
+                                                    </Button>
+                                                ))}
+                                            </div>
+                                        </div>
+                                        <div className="space-y-2">
+                                            <Label className="text-[9px] text-slate-500 uppercase">Horizontal</Label>
+                                            <div className="grid grid-cols-3 gap-1">
+                                                {(['flex-start', 'center', 'flex-end'] as const).map((j) => (
+                                                    <Button
+                                                        key={j}
+                                                        variant={(section.settings.justifyContent || 'flex-start') === j ? 'secondary' : 'outline'}
+                                                        size="sm"
+                                                        className="text-[9px] h-7 px-1 uppercase"
+                                                        onClick={() => onUpdateSettings({ justifyContent: j })}
+                                                    >
+                                                        {j === 'flex-start' ? 'Esq' : j === 'center' ? 'Centro' : 'Dir'}
+                                                    </Button>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
                                 <ImageUpload 
                                     label="Imagem de Fundo"
                                     value={section.settings.backgroundImage}
@@ -732,7 +778,7 @@ function SortableSectionItem({ section, active, onSelect, onRemove, onUpdateSett
                 </div>
             </div>
 
-            <div ref={setDroppableRef} className="relative z-10 space-y-4 px-8 min-h-[100px]">
+            <div ref={setDroppableRef} className="relative z-10 space-y-4 px-8 w-full">
                 <SortableContext 
                     items={section.blocks.map((b: Block) => b.id)}
                     strategy={verticalListSortingStrategy}
@@ -1099,29 +1145,69 @@ function SortableBlockItem({ block, sectionId, onUpdate, onRemove }: any) {
             )}
             {block.type === 'grid' && (
                 <div className="space-y-4">
-                    <div className="flex items-center gap-4">
-                        <Label className="text-[10px] font-bold text-slate-400 uppercase">Configuração da Grade</Label>
-                        <Select 
-                            value={String(block.content.columns || 2)} 
-                            onValueChange={(val) => onUpdate({ columns: parseInt(val) })}
-                        >
-                            <SelectTrigger className="h-8 w-32 rounded-lg text-xs">
-                                <SelectValue placeholder="Colunas" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="1">1 Coluna</SelectItem>
-                                <SelectItem value="2">2 Colunas</SelectItem>
-                                <SelectItem value="3">3 Colunas</SelectItem>
-                                <SelectItem value="4">4 Colunas</SelectItem>
-                            </SelectContent>
-                        </Select>
+                    <div className="flex flex-col gap-4 p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                        <div className="flex items-center justify-between">
+                            <Label className="text-[10px] font-bold text-slate-400 uppercase">Configuração da Grade</Label>
+                            <Select 
+                                value={String(block.content.columns || 2)} 
+                                onValueChange={(val) => onUpdate({ columns: parseInt(val) })}
+                            >
+                                <SelectTrigger className="h-8 w-24 rounded-lg text-xs">
+                                    <SelectValue placeholder="Colunas" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {[1, 2, 3, 4].map(v => <SelectItem key={v} value={String(v)}>{v} Col</SelectItem>)}
+                                </SelectContent>
+                            </Select>
+                        </div>
+                        
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                                <Label className="text-[9px] text-slate-500 uppercase">Direção</Label>
+                                <div className="flex gap-1">
+                                    {(['row', 'col'] as const).map((d) => (
+                                        <Button
+                                            key={d}
+                                            variant={(block.settings?.direction || 'row') === d ? 'secondary' : 'outline'}
+                                            size="sm"
+                                            className="text-[9px] h-7 flex-1 uppercase"
+                                            onClick={() => onUpdate({ settings: { ...(block.settings || {}), direction: d } })}
+                                        >
+                                            {d === 'row' ? 'Horiz' : 'Vert'}
+                                        </Button>
+                                    ))}
+                                </div>
+                            </div>
+                            <div className="space-y-2">
+                                <Label className="text-[9px] text-slate-500 uppercase">Distribuição</Label>
+                                <div className="flex gap-1">
+                                    {(['start', 'center', 'between'] as const).map((a) => (
+                                        <Button
+                                            key={a}
+                                            variant={(block.settings?.alignment || 'start') === a ? 'secondary' : 'outline'}
+                                            size="sm"
+                                            className="text-[9px] h-7 flex-1 uppercase"
+                                            onClick={() => onUpdate({ settings: { ...(block.settings || {}), alignment: a } })}
+                                        >
+                                            {a === 'start' ? 'Esq' : a === 'center' ? 'Meio' : 'Esp'}
+                                        </Button>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
                     </div>
+
                     <div className={cn(
-                        "grid gap-4 min-h-[100px] border-2 border-dashed border-slate-100 rounded-2xl p-4",
-                        block.content.columns === 1 || block.content.columns === undefined ? "grid-cols-1" :
-                        block.content.columns === 2 ? "grid-cols-2" :
-                        block.content.columns === 3 ? "grid-cols-3" :
-                        "grid-cols-4"
+                        "grid gap-4 min-h-[100px] border-2 border-dashed border-slate-100 rounded-2xl p-4 w-full",
+                        block.settings?.direction === 'col' ? "flex flex-col" : (
+                            block.content.columns === 1 || block.content.columns === undefined ? "grid-cols-1" :
+                            block.content.columns === 2 ? "grid-cols-2" :
+                            block.content.columns === 3 ? "grid-cols-3" :
+                            "grid-cols-4"
+                        ),
+                        block.settings?.alignment === 'center' ? (block.settings?.direction === 'col' ? "items-center" : "items-center justify-items-center") :
+                        block.settings?.alignment === 'between' ? (block.settings?.direction === 'col' ? "justify-between" : "justify-between") :
+                        block.settings?.alignment === 'end' ? (block.settings?.direction === 'col' ? "items-end" : "items-end justify-items-end") : ""
                     )}>
                         {(block.blocks || []).map((innerBlock: Block) => (
                             <SortableBlockItem 

@@ -90,13 +90,14 @@ function BlockRenderer({ block, isPremium }: { block: Block; isPremium: boolean 
                         <h1 className="text-5xl md:text-7xl font-extrabold tracking-tight mb-6">
                             {block.content.title}
                         </h1>
-                        <p className={cn(
-                            "text-xl md:text-2xl text-slate-500 max-w-2xl leading-relaxed",
-                            block.settings?.textAlign === 'center' || !block.settings?.textAlign ? "mx-auto" :
-                            block.settings?.textAlign === 'right' ? "ml-auto" : "mr-auto"
-                        )}>
-                            {block.content.subtitle}
-                        </p>
+                        <div 
+                            className={cn(
+                                "text-xl md:text-2xl text-slate-500 max-w-2xl leading-relaxed prose prose-slate dark:prose-invert",
+                                block.settings?.textAlign === 'center' || !block.settings?.textAlign ? "mx-auto" :
+                                block.settings?.textAlign === 'right' ? "ml-auto" : "mr-auto"
+                            )}
+                            dangerouslySetInnerHTML={{ __html: block.content.subtitle }}
+                        />
                     </div>
                 </div>
             )}
@@ -160,9 +161,10 @@ function BlockRenderer({ block, isPremium }: { block: Block; isPremium: boolean 
                     block.settings?.textAlign === 'center' ? "mx-auto" :
                     block.settings?.textAlign === 'right' ? "ml-auto" : "mr-auto"
                 )}>
-                    <div className="prose prose-slate dark:prose-invert max-w-none text-lg leading-relaxed whitespace-pre-wrap">
-                        {block.content.text}
-                    </div>
+                    <div 
+                        className="prose prose-slate dark:prose-invert max-w-none text-lg leading-relaxed"
+                        dangerouslySetInnerHTML={{ __html: block.content.text }}
+                    />
                 </div>
             )}
 
@@ -314,6 +316,50 @@ export default function PublicPortal() {
         }
     });
 
+    useEffect(() => {
+        if (!page) return;
+
+        // Title
+        if (page.page_settings?.seo_title) {
+            document.title = page.page_settings.seo_title;
+        } else if (page.title) {
+            document.title = page.title;
+        }
+
+        // Favicon
+        if (page.page_settings?.favicon_url) {
+            let link = document.querySelector("link[rel~='icon']") as HTMLLinkElement;
+            if (!link) {
+                link = document.createElement('link');
+                link.rel = 'icon';
+                document.getElementsByTagName('head')[0].appendChild(link);
+            }
+            link.href = page.page_settings.favicon_url;
+        }
+
+        // Meta Description
+        if (page.page_settings?.seo_description) {
+            let metaDesc = document.querySelector('meta[name="description"]');
+            if (!metaDesc) {
+                metaDesc = document.createElement('meta');
+                metaDesc.setAttribute('name', 'description');
+                document.getElementsByTagName('head')[0].appendChild(metaDesc);
+            }
+            metaDesc.setAttribute('content', page.page_settings.seo_description);
+        }
+
+        // OG Image
+        if (page.page_settings?.og_image_url) {
+            let ogImg = document.querySelector('meta[property="og:image"]');
+            if (!ogImg) {
+                ogImg = document.createElement('meta');
+                ogImg.setAttribute('property', 'og:image');
+                document.getElementsByTagName('head')[0].appendChild(ogImg);
+            }
+            ogImg.setAttribute('content', page.page_settings.og_image_url);
+        }
+    }, [page]);
+
     if (isLoading) return (
         <div className="max-w-4xl mx-auto py-20 px-6 space-y-12">
             <Skeleton className="h-48 w-full rounded-[40px]" />
@@ -376,8 +422,8 @@ export default function PublicPortal() {
                             minHeight: section.settings.height === 'screen' ? '100vh' : 'auto',
                             display: 'flex',
                             flexDirection: 'column',
-                            justifyContent: section.settings.justifyContent || 'flex-start',
-                            alignItems: section.settings.alignItems || 'stretch',
+                            justifyContent: section.settings.alignItems || 'flex-start',
+                            alignItems: section.settings.justifyContent || 'stretch',
                         }}
                     >
                         <div className={cn(
@@ -448,9 +494,10 @@ function InfoCards({ items }: { items: any[] }) {
             {(items || []).map((item, idx) => (
                 <div key={idx} className="border-l border-white/10 p-12 hover:bg-white/5 transition-colors group">
                     <span className="text-xs text-white/40 font-bold mb-6 block uppercase">{item.date}</span>
-                    <h4 className="text-lg font-bold text-white/90 group-hover:text-white transition-colors leading-relaxed">
-                        {item.text}
-                    </h4>
+                    <div 
+                        className="text-lg font-bold text-white/90 group-hover:text-white transition-colors leading-relaxed prose prose-invert prose-sm"
+                        dangerouslySetInnerHTML={{ __html: item.text }}
+                    />
                 </div>
             ))}
         </div>

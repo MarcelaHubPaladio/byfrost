@@ -44,6 +44,7 @@ import {
 } from "@/components/ui/select";
 import { ImageUpload } from "@/components/portal/ImageUpload";
 import { Slider } from "@/components/ui/slider";
+import { RichTextEditor } from "@/components/RichTextEditor";
 import { useTenant } from "@/providers/TenantProvider";
 import { 
     DndContext, 
@@ -93,6 +94,10 @@ type PageSettings = {
     layout?: 'default' | 'sidebar';
     sidebarLogo?: string;
     socialLinks?: { type: string, url: string }[];
+    seo_title?: string;
+    seo_description?: string;
+    favicon_url?: string;
+    og_image_url?: string;
 };
 
 type Section = {
@@ -476,6 +481,43 @@ export default function PortalEditor() {
                             </div>
                         </div>
                     </div>
+
+                    <div className="pt-8 space-y-6">
+                        <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">SEO & Redes Sociais</p>
+                        <div className="space-y-4">
+                            <div className="space-y-2">
+                                <Label className="text-xs">Título SEO</Label>
+                                <Input 
+                                    placeholder="Título da aba"
+                                    className="text-xs h-9 rounded-lg"
+                                    value={page?.page_settings?.seo_title || ''}
+                                    onChange={(e) => saveM.mutate({ page_settings: { ...page?.page_settings, seo_title: e.target.value } })}
+                                    onKeyDown={(e) => e.stopPropagation()}
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <Label className="text-xs">Descrição SEO</Label>
+                                <textarea 
+                                    placeholder="Descrição para Google/Redes"
+                                    className="w-full text-xs p-3 rounded-lg border border-slate-200 bg-white min-h-[80px] focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                                    value={page?.page_settings?.seo_description || ''}
+                                    onChange={(e) => saveM.mutate({ page_settings: { ...page?.page_settings, seo_description: e.target.value } })}
+                                    onPointerDown={(e) => e.stopPropagation()}
+                                    onKeyDown={(e) => e.stopPropagation()}
+                                />
+                            </div>
+                            <ImageUpload 
+                                label="Favicon (Ícone da Aba)"
+                                value={page?.page_settings?.favicon_url}
+                                onChange={(url) => saveM.mutate({ page_settings: { ...page?.page_settings, favicon_url: url } })}
+                            />
+                            <ImageUpload 
+                                label="Imagem OG (Redes Sociais)"
+                                value={page?.page_settings?.og_image_url}
+                                onChange={(url) => saveM.mutate({ page_settings: { ...page?.page_settings, og_image_url: url } })}
+                            />
+                        </div>
+                    </div>
                 </div>
 
                 <div className="p-6 border-t border-slate-100 dark:border-slate-800">
@@ -643,8 +685,8 @@ function SortableSectionItem({ section, active, onSelect, onRemove, onUpdateSett
         minHeight: section.settings?.height === 'screen' ? 'calc(100vh - 64px)' : 'auto',
         display: 'flex',
         flexDirection: 'column' as const,
-        justifyContent: section.settings?.justifyContent || 'flex-start',
-        alignItems: section.settings?.alignItems || 'stretch',
+        justifyContent: section.settings?.alignItems || 'flex-start', // alignItems is actually vertical in flex-col
+        alignItems: section.settings?.justifyContent || 'stretch', // justifyContent is actually horizontal in flex-col
     };
 
     return (
@@ -689,7 +731,7 @@ function SortableSectionItem({ section, active, onSelect, onRemove, onUpdateSett
                                     <Label className="text-[10px] uppercase text-slate-400 font-bold tracking-wider">Alinhamento do Conteúdo</Label>
                                     <div className="space-y-4 pt-2">
                                         <div className="space-y-2">
-                                            <Label className="text-[9px] text-slate-500 uppercase">Vertical</Label>
+                                            <Label className="text-[9px] text-slate-500 uppercase">Vertical (Alinhamento)</Label>
                                             <div className="grid grid-cols-3 gap-1">
                                                 {(['flex-start', 'center', 'flex-end'] as const).map((a) => (
                                                     <Button
@@ -705,9 +747,9 @@ function SortableSectionItem({ section, active, onSelect, onRemove, onUpdateSett
                                             </div>
                                         </div>
                                         <div className="space-y-2">
-                                            <Label className="text-[9px] text-slate-500 uppercase">Horizontal</Label>
-                                            <div className="grid grid-cols-3 gap-1">
-                                                {(['flex-start', 'center', 'flex-end'] as const).map((j) => (
+                                            <Label className="text-[9px] text-slate-500 uppercase">Horizontal (Distribuição)</Label>
+                                            <div className="grid grid-cols-4 gap-1">
+                                                {(['flex-start', 'center', 'flex-end', 'stretch'] as const).map((j) => (
                                                     <Button
                                                         key={j}
                                                         variant={(section.settings.justifyContent || 'flex-start') === j ? 'secondary' : 'outline'}
@@ -715,7 +757,7 @@ function SortableSectionItem({ section, active, onSelect, onRemove, onUpdateSett
                                                         className="text-[9px] h-7 px-1 uppercase"
                                                         onClick={() => onUpdateSettings({ justifyContent: j })}
                                                     >
-                                                        {j === 'flex-start' ? 'Esq' : j === 'center' ? 'Centro' : 'Dir'}
+                                                        {j === 'flex-start' ? 'Esq' : j === 'center' ? 'Centro' : j === 'flex-end' ? 'Dir' : 'Total'}
                                                     </Button>
                                                 ))}
                                             </div>
@@ -945,6 +987,8 @@ function SortableBlockItem({ block, sectionId, onUpdate, onRemove }: any) {
                             className="w-auto font-black text-lg border-none bg-transparent p-0 h-auto"
                             value={block.content.logoText}
                             onChange={(e) => onUpdate({ logoText: e.target.value })}
+                            onPointerDown={(e) => e.stopPropagation()}
+                            onKeyDown={(e) => e.stopPropagation()}
                         />
                         <div className="flex-1 flex gap-4">
                             {(block.content.links || []).map((link: any, idx: number) => (
@@ -957,6 +1001,8 @@ function SortableBlockItem({ block, sectionId, onUpdate, onRemove }: any) {
                                             links[idx].label = e.target.value;
                                             onUpdate({ links });
                                         }}
+                                        onPointerDown={(e) => e.stopPropagation()}
+                                        onKeyDown={(e) => e.stopPropagation()}
                                     />
                                     <button 
                                         className="opacity-0 group-hover/link:opacity-100 text-red-400 hover:text-red-600 transition-opacity"
@@ -979,6 +1025,8 @@ function SortableBlockItem({ block, sectionId, onUpdate, onRemove }: any) {
                             className="w-24 text-center text-[10px] font-black uppercase tracking-widest border-none bg-slate-900 text-white rounded-lg h-8"
                             value={block.content.cta?.label}
                             onChange={(e) => onUpdate({ cta: { ...block.content.cta, label: e.target.value } })}
+                            onPointerDown={(e) => e.stopPropagation()}
+                            onKeyDown={(e) => e.stopPropagation()}
                         />
                     </div>
                 </div>
@@ -986,7 +1034,7 @@ function SortableBlockItem({ block, sectionId, onUpdate, onRemove }: any) {
 
             {block.type === 'hero' && (
                 <div className={cn(
-                    "py-6",
+                    "py-6 space-y-4",
                     block.settings?.textAlign === 'left' ? "text-left" :
                     block.settings?.textAlign === 'right' ? "text-right" : "text-center"
                 )}>
@@ -994,25 +1042,43 @@ function SortableBlockItem({ block, sectionId, onUpdate, onRemove }: any) {
                         className="text-4xl font-black text-center border-none bg-transparent hover:bg-slate-100 focus:bg-slate-100 p-2 h-auto mb-2 rounded-xl"
                         value={block.content.title}
                         onChange={(e) => onUpdate({ title: e.target.value })}
+                        onPointerDown={(e) => e.stopPropagation()}
+                        onKeyDown={(e) => e.stopPropagation()}
                     />
-                    <Input 
-                        className="text-lg text-slate-500 text-center border-none bg-transparent hover:bg-slate-100 focus:bg-slate-100 p-2 h-auto rounded-xl"
-                        value={block.content.subtitle}
-                        onChange={(e) => onUpdate({ subtitle: e.target.value })}
-                    />
+                    <div 
+                        className="max-w-2xl mx-auto"
+                        onPointerDown={(e) => e.stopPropagation()}
+                    >
+                        <RichTextEditor 
+                            value={block.content.subtitle}
+                            onChange={(html) => onUpdate({ subtitle: html })}
+                            placeholder="Adicione um subtítulo com formatação..."
+                            className="border-none bg-transparent shadow-none"
+                            editorClassName="text-center text-lg text-slate-500"
+                            minHeightClassName="min-h-0"
+                        />
+                    </div>
                 </div>
             )}
 
             {block.type === 'text' && (
-                <textarea 
-                    className={cn(
-                        "w-full min-h-[80px] border-none bg-transparent hover:bg-slate-100 focus:bg-slate-100 p-3 rounded-xl resize-none text-slate-700 font-medium transition-all",
-                        block.settings?.textAlign === 'center' && "text-center",
-                        block.settings?.textAlign === 'right' && "text-right"
-                    )}
-                    value={block.content.text}
-                    onChange={(e) => onUpdate({ text: e.target.value })}
-                />
+                <div 
+                    className="w-full"
+                    onPointerDown={(e) => e.stopPropagation()}
+                >
+                    <RichTextEditor 
+                        value={block.content.text}
+                        onChange={(html) => onUpdate({ text: html })}
+                        placeholder="Escreva seu texto aqui..."
+                        className="border-none bg-transparent shadow-none"
+                        editorClassName={cn(
+                            "text-slate-700 font-medium",
+                            block.settings?.textAlign === 'center' && "text-center",
+                            block.settings?.textAlign === 'right' && "text-right"
+                        )}
+                        minHeightClassName="min-h-[100px]"
+                    />
+                </div>
             )}
 
             {block.type === 'image' && (
@@ -1038,6 +1104,8 @@ function SortableBlockItem({ block, sectionId, onUpdate, onRemove }: any) {
                                 className="h-9 rounded-xl text-xs"
                                 value={block.settings?.targetUrl || ''}
                                 onChange={(e) => onUpdate({ settings: { targetUrl: e.target.value } })}
+                                onPointerDown={(e) => e.stopPropagation()}
+                                onKeyDown={(e) => e.stopPropagation()}
                             />
                             {block.settings?.targetUrl && (
                                 <div className="flex items-center justify-center h-9 w-9 bg-blue-50 text-blue-600 rounded-xl">
@@ -1082,6 +1150,8 @@ function SortableBlockItem({ block, sectionId, onUpdate, onRemove }: any) {
                         className="w-full min-h-[120px] font-mono text-xs border border-slate-200 bg-slate-900 text-green-400 p-3 rounded-xl resize-none"
                         value={block.content.html}
                         onChange={(e) => onUpdate({ html: e.target.value })}
+                        onPointerDown={(e) => e.stopPropagation()}
+                        onKeyDown={(e) => e.stopPropagation()}
                     />
                 </div>
             )}
@@ -1098,6 +1168,8 @@ function SortableBlockItem({ block, sectionId, onUpdate, onRemove }: any) {
                                     items[idx].label = e.target.value;
                                     onUpdate({ items });
                                 }}
+                                onPointerDown={(e) => e.stopPropagation()}
+                                onKeyDown={(e) => e.stopPropagation()}
                             />
                             <Button variant="ghost" size="icon" className="h-8 w-8 text-red-400" onClick={() => {
                                 const items = block.content.items.filter((_: any, i: number) => i !== idx);
@@ -1138,6 +1210,8 @@ function SortableBlockItem({ block, sectionId, onUpdate, onRemove }: any) {
                                     items[idx].title = e.target.value;
                                     onUpdate({ items });
                                 }}
+                                onPointerDown={(e) => e.stopPropagation()}
+                                onKeyDown={(e) => e.stopPropagation()}
                             />
                             <Input 
                                 placeholder="Subtítulo" 
@@ -1148,6 +1222,8 @@ function SortableBlockItem({ block, sectionId, onUpdate, onRemove }: any) {
                                     items[idx].subtitle = e.target.value;
                                     onUpdate({ items });
                                 }}
+                                onPointerDown={(e) => e.stopPropagation()}
+                                onKeyDown={(e) => e.stopPropagation()}
                             />
                             <ImageUpload 
                                 label="Imagem do Banner"
@@ -1194,6 +1270,8 @@ function SortableBlockItem({ block, sectionId, onUpdate, onRemove }: any) {
                                         items[idx].date = e.target.value;
                                         onUpdate({ items });
                                     }}
+                                    onPointerDown={(e) => e.stopPropagation()}
+                                    onKeyDown={(e) => e.stopPropagation()}
                                 />
                                 <Input 
                                     placeholder="Label Botão" 
@@ -1204,18 +1282,23 @@ function SortableBlockItem({ block, sectionId, onUpdate, onRemove }: any) {
                                         items[idx].title = e.target.value;
                                         onUpdate({ items });
                                     }}
+                                    onPointerDown={(e) => e.stopPropagation()}
+                                    onKeyDown={(e) => e.stopPropagation()}
                                 />
                             </div>
-                            <textarea 
-                                placeholder="Chamada/Texto" 
-                                className="w-full text-xs p-2 rounded-lg border bg-white min-h-[60px]" 
-                                value={item.text} 
-                                onChange={(e) => {
-                                    const items = [...block.content.items];
-                                    items[idx].text = e.target.value;
-                                    onUpdate({ items });
-                                }}
-                            />
+                            <div onPointerDown={(e) => e.stopPropagation()}>
+                                <RichTextEditor 
+                                    value={item.text}
+                                    onChange={(html) => {
+                                        const items = [...block.content.items];
+                                        items[idx].text = html;
+                                        onUpdate({ items });
+                                    }}
+                                    placeholder="Descrição da notícia..."
+                                    editorClassName="text-xs"
+                                    minHeightClassName="min-h-[60px]"
+                                />
+                            </div>
                             <ImageUpload 
                                 label="Imagem do Card"
                                 value={item.image}

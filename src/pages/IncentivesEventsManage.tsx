@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AppShell } from "@/components/AppShell";
 import { RequireAuth } from "@/components/RequireAuth";
@@ -204,6 +204,16 @@ export default function IncentivesEventsManage() {
     },
   });
 
+  useEffect(() => {
+    if (campaignId && campaignsQ.data) {
+      const camp = campaignsQ.data.find((c) => c.id === campaignId);
+      const rate = camp?.metadata?.commission_rate;
+      if (rate != null) {
+        setCommissionRate(String(rate));
+      }
+    }
+  }, [campaignId, campaignsQ.data]);
+
   const eventsQ = useQuery({
     queryKey: ["incentives_manage_events", activeTenantId, campaignId],
     enabled: Boolean(activeTenantId),
@@ -378,7 +388,6 @@ export default function IncentivesEventsManage() {
       setValue("");
       setPoints("");
       setOrderNumber("");
-      setCommissionRate("");
       setParticipantIds([]);
       setSourceEntityId(null);
       setRelatedEntityId(null);

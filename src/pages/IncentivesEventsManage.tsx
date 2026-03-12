@@ -367,6 +367,20 @@ export default function IncentivesEventsManage() {
         }
       }
 
+      // 2. Ensure all participants are linked to this campaign (required for ranking view)
+      const linkageRows = finalParticipantIds.map(pid => ({
+        tenant_id: activeTenantId,
+        campaign_id: campaignId,
+        participant_id: pid
+      }));
+
+      if (linkageRows.length > 0) {
+        const { error: linkErr } = await supabase
+          .from("campaign_participants")
+          .upsert(linkageRows, { onConflict: 'campaign_id,participant_id' });
+        if (linkErr) throw linkErr;
+      }
+
       const rows = finalParticipantIds.map((pid) => ({
         tenant_id: activeTenantId,
         campaign_id: campaignId,

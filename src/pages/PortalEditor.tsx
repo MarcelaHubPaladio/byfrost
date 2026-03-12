@@ -490,11 +490,11 @@ export default function PortalEditor() {
 
                 <div className="flex-1 overflow-y-auto p-12 bg-slate-100 dark:bg-slate-950 flex justify-center">
                     <div className={cn(
-                        "transition-all duration-500 bg-white dark:bg-slate-900 shadow-2xl overflow-hidden min-h-[800px]",
+                        "transition-all duration-500 bg-white dark:bg-slate-900 shadow-2xl min-h-[800px]",
                         previewMode === 'desktop' ? "w-full max-w-[95%] rounded-[40px]" : "w-[375px] rounded-[60px] border-[12px] border-slate-800"
                     )}>
                         {/* Render Editor Blocks */}
-                        <div className="h-full relative">
+                        <div className="relative">
                             <SortableContext 
                                 items={sections.map(s => s.id)}
                                 strategy={verticalListSortingStrategy}
@@ -910,6 +910,30 @@ function SortableBlockItem({ block, sectionId, onUpdate, onRemove }: any) {
                     value={block.content.text}
                     onChange={(e) => onUpdate({ text: e.target.value })}
                 />
+            )}
+
+            {block.type === 'image' && (
+                <div className="space-y-4">
+                    {block.content.url ? (
+                        <div className="relative w-full aspect-video rounded-2xl overflow-hidden border border-slate-100 group/img">
+                            <img src={block.content.url} className="w-full h-full object-cover" alt="" />
+                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center">
+                                <Button variant="secondary" size="sm" onClick={() => onUpdate({ url: '' })}>Trocar Imagem</Button>
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="w-full py-12 border-2 border-dashed border-slate-100 rounded-2xl flex flex-col items-center justify-center gap-3">
+                            <div className="p-4 rounded-full bg-slate-50">
+                                <ImageIcon className="h-8 w-8 text-slate-200" />
+                            </div>
+                            <ImageUpload 
+                                label="Fazer Upload da Imagem"
+                                value=""
+                                onChange={(url) => onUpdate({ url })}
+                            />
+                        </div>
+                    )}
+                </div>
             )}
 
             {block.type === 'html' && (

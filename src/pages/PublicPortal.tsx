@@ -141,6 +141,14 @@ function BlockRenderer({ block, isPremium }: { block: Block; isPremium: boolean 
                 </div>
             )}
 
+            {block.type === 'image' && block.content.url && (
+                <div className="w-full py-8">
+                    <div className="relative rounded-[40px] overflow-hidden shadow-2xl">
+                        <img src={block.content.url} className="w-full h-auto" alt="" />
+                    </div>
+                </div>
+            )}
+
             {block.type === 'html' && (
                 <div className="w-full py-4 text-white" dangerouslySetInnerHTML={{ __html: block.content.html }} />
             )}

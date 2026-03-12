@@ -110,9 +110,11 @@ function samePhoneLoose(a: string | null | undefined, b: string | null | undefin
 }
 
 export default function Crm() {
-  const { activeTenantId } = useTenant();
+  const { activeTenantId, activeTenant, isSuperAdmin } = useTenant();
   const { user } = useSession();
   const qc = useQueryClient();
+
+  const isAdminOrSuper = isSuperAdmin || activeTenant?.role === "admin";
 
   const [selectedKey, setSelectedKey] = useState<string>("");
   const [q, setQ] = useState("");
@@ -711,7 +713,7 @@ export default function Crm() {
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              {showUserFilter && (
+              {isAdminOrSuper && showUserFilter && (
                 <Popover>
                   <PopoverTrigger asChild>
                     <Button variant="secondary" className="h-11 rounded-2xl">
@@ -795,10 +797,11 @@ export default function Crm() {
                 </Popover>
               )}
 
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button variant="secondary" className="h-11 rounded-2xl">
-                    <Tags className="mr-2 h-4 w-4" /> Tags
+              {isAdminOrSuper && (
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="secondary" className="h-11 rounded-2xl">
+                      <Tags className="mr-2 h-4 w-4" /> Tags
                     {selectedTags.length ? (
                       <span className="ml-2 rounded-full bg-white/70 px-2 py-0.5 text-[11px] font-semibold text-slate-700">
                         {selectedTags.length}
@@ -858,7 +861,9 @@ export default function Crm() {
                   </div>
                 </PopoverContent>
               </Popover>
+              )}
 
+              {isAdminOrSuper && (
               <Popover>
                 <PopoverTrigger asChild>
                   <Button variant="secondary" className="h-11 rounded-2xl">
@@ -906,7 +911,9 @@ export default function Crm() {
                   </Command>
                 </PopoverContent>
               </Popover>
+              )}
 
+              {isAdminOrSuper && (
               <Button
                 variant="secondary"
                 className="h-11 rounded-2xl"
@@ -916,6 +923,7 @@ export default function Crm() {
                 {exportingCsv ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
                 Exportar
               </Button>
+              )}
 
               {activeTenantId && selectedJourney ? (
                 <>
@@ -925,7 +933,7 @@ export default function Crm() {
                 </>
               ) : null}
 
-              {activeTenantId && selectedJourney ? (
+              {isAdminOrSuper && activeTenantId && selectedJourney ? (
                 <ImportLeadsDialog tenantId={activeTenantId} journey={selectedJourney as any} actorUserId={user?.id ?? null} />
               ) : null}
 

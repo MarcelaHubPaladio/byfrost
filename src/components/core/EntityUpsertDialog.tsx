@@ -23,7 +23,7 @@ import {
 
 export type CoreEntityType = "party" | "offering";
 
-type PartySubtype = "cliente" | "fornecedor" | "indicador" | "banco";
+type PartySubtype = "cliente" | "fornecedor" | "indicador" | "banco" | "pintor";
 type OfferingSubtype = "servico" | "produto";
 export type UiSubtype = PartySubtype | OfferingSubtype;
 
@@ -168,7 +168,7 @@ export function EntityUpsertDialog({
     // subtype
     const initialSubtype = String(initial?.subtype ?? "").toLowerCase().trim();
     const subtypeFromInitial = (
-      ["cliente", "fornecedor", "indicador", "banco", "servico", "produto"].includes(initialSubtype)
+      ["cliente", "fornecedor", "indicador", "banco", "pintor", "servico", "produto"].includes(initialSubtype)
         ? (initialSubtype as UiSubtype)
         : null
     );
@@ -304,6 +304,7 @@ export function EntityUpsertDialog({
   const subtypeOptions: Array<{ value: UiSubtype; label: string; type: CoreEntityType }> = [
     { value: "cliente", label: "Cliente", type: "party" },
     { value: "fornecedor", label: "Fornecedor", type: "party" },
+    { value: "pintor", label: "Pintor", type: "party" },
     { value: "indicador", label: "Indicador", type: "party" },
     { value: "banco", label: "Banco", type: "party" },
     { value: "servico", label: "Serviço", type: "offering" },

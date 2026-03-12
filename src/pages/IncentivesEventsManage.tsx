@@ -74,8 +74,19 @@ type EventRow = {
   event_type: "sale" | "indication" | "points" | "bonus";
   value: number | null;
   points: number | null;
+  order_number: string | null;
+  commission_rate: number | null;
+  commission_value: number | null;
+  source_entity_id: string | null;
+  related_entity_id: string | null;
   attachment_url: string | null;
   created_at: string;
+};
+
+type EntityRow = {
+  id: string;
+  display_name: string;
+  subtype: string | null;
 };
 
 
@@ -111,11 +122,22 @@ export default function IncentivesEventsManage() {
   // create
   const [campaignId, setCampaignId] = useState<string | null>(null);
   const [participantIds, setParticipantIds] = useState<string[]>([]);
-  const [eventType, setEventType] = useState<EventRow["event_type"]>("points");
+  const [eventType, setEventType] = useState<EventRow["event_type"]>("sale");
   const [value, setValue] = useState<string>("");
   const [points, setPoints] = useState<string>("");
+  const [orderNumber, setOrderNumber] = useState("");
+  const [commissionRate, setCommissionRate] = useState("");
+  const [sourceEntityId, setSourceEntityId] = useState<string | null>(null);
+  const [relatedEntityId, setRelatedEntityId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const eventFileRef = useRef<HTMLInputElement | null>(null);
+
+  // quick participant create
+  const [showQuickParticipant, setShowQuickParticipant] = useState(false);
+  const [qName, setQName] = useState("");
+  const [qCpf, setQCpf] = useState("");
+  const [qWhatsapp, setQWhatsapp] = useState("");
+  const [creatingP, setCreatingP] = useState(false);
 
   // edit
   const [editOpen, setEditOpen] = useState(false);
@@ -123,6 +145,8 @@ export default function IncentivesEventsManage() {
   const [editType, setEditType] = useState<EventRow["event_type"]>("points");
   const [editValue, setEditValue] = useState<string>("");
   const [editPoints, setEditPoints] = useState<string>("");
+  const [editOrderNumber, setEditOrderNumber] = useState("");
+  const [editCommissionRate, setEditCommissionRate] = useState("");
   const [savingEdit, setSavingEdit] = useState(false);
 
   const participantsQ = useQuery({
@@ -161,7 +185,7 @@ export default function IncentivesEventsManage() {
     queryFn: async () => {
       let q = supabase
         .from("incentive_events")
-        .select("id,tenant_id,campaign_id,participant_id,event_type,value,points,attachment_url,created_at")
+        .select("id,tenant_id,campaign_id,participant_id,event_type,value,points,order_number,commission_rate,commission_value,source_entity_id,related_entity_id,attachment_url,created_at")
         .eq("tenant_id", activeTenantId!)
         .order("created_at", { ascending: false })
         .limit(200);
@@ -171,6 +195,24 @@ export default function IncentivesEventsManage() {
       return (data ?? []) as EventRow[];
     },
   });
+
+  const entitiesQ = useQuery({
+    queryKey: ["incentives_manage_entities", activeTenantId],
+    enabled: Boolean(activeTenantId),
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("core_entities")
+        .select("id, display_name, subtype")
+        .eq("tenant_id", activeTenantId!)
+        .is("deleted_at", null)
+        .in("subtype", ["fornecedor", "pintor"]);
+      if (error) throw error;
+      return (data ?? []) as EntityRow[];
+    },
+  });
+
+  const suppliers = useMemo(() => (entitiesQ.data ?? []).filter(e => e.subtype === "fornecedor"), [entitiesQ.data]);
+  const painters = useMemo(() => (entitiesQ.data ?? []).filter(e => e.subtype === "pintor"), [entitiesQ.data]);
 
   const participantsById = useMemo(() => {
     const m = new Map<string, ParticipantRow>();
@@ -198,6 +240,8 @@ export default function IncentivesEventsManage() {
     try {
       const valueNum = editValue.trim() ? Number(editValue.replace(",", ".")) : null;
       const pointsNum = editPoints.trim() ? Number(editPoints.replace(",", ".")) : null;
+      const commRateNum = editCommissionRate.trim() ? Number(editCommissionRate.replace(",", ".")) : null;
+      const commValue = (valueNum && commRateNum) ? (valueNum * commRateNum) / 100 : null;
 
       const { error } = await supabase
         .from("incentive_events")
@@ -205,6 +249,9 @@ export default function IncentivesEventsManage() {
           event_type: editType,
           value: Number.isFinite(valueNum as any) ? valueNum : null,
           points: Number.isFinite(pointsNum as any) ? pointsNum : null,
+          order_number: editOrderNumber || null,
+          commission_rate: Number.isFinite(commRateNum as any) ? commRateNum : null,
+          commission_value: Number.isFinite(commValue as any) ? commValue : null,
         })
         .eq("tenant_id", activeTenantId)
         .eq("id", editEventId);
@@ -255,6 +302,8 @@ export default function IncentivesEventsManage() {
 
       const valueNum = value.trim() ? Number(value.replace(",", ".")) : null;
       const pointsNum = points.trim() ? Number(points.replace(",", ".")) : null;
+      const commRateNum = commissionRate.trim() ? Number(commissionRate.replace(",", ".")) : null;
+      const commValue = (valueNum && commRateNum) ? (valueNum * commRateNum) / 100 : null;
 
       const rows = participantIds.map((pid) => ({
         tenant_id: activeTenantId,
@@ -263,6 +312,11 @@ export default function IncentivesEventsManage() {
         event_type: eventType,
         value: Number.isFinite(valueNum as any) ? valueNum : null,
         points: Number.isFinite(pointsNum as any) ? pointsNum : null,
+        order_number: orderNumber || null,
+        commission_rate: Number.isFinite(commRateNum as any) ? commRateNum : null,
+        commission_value: Number.isFinite(commValue as any) ? commValue : null,
+        source_entity_id: sourceEntityId,
+        related_entity_id: relatedEntityId,
         attachment_url: attachmentPath,
       }));
 
@@ -271,7 +325,11 @@ export default function IncentivesEventsManage() {
 
       setValue("");
       setPoints("");
+      setOrderNumber("");
+      setCommissionRate("");
       setParticipantIds([]);
+      setSourceEntityId(null);
+      setRelatedEntityId(null);
       if (eventFileRef.current) eventFileRef.current.value = "";
 
       showSuccess(`Evento lançado para ${rows.length} participante(s).`);
@@ -280,6 +338,31 @@ export default function IncentivesEventsManage() {
       showError(`Falha ao lançar evento: ${e?.message ?? "erro"}`);
     } finally {
       setCreating(false);
+    }
+  };
+
+  const createQuickParticipant = async () => {
+    if (!activeTenantId || !qName.trim() || !qCpf.trim()) {
+      showError("Nome e CPF são obrigatórios.");
+      return;
+    }
+    setCreatingP(true);
+    try {
+      const { error } = await supabase.from("incentive_participants").insert({
+        tenant_id: activeTenantId,
+        name: qName.trim(),
+        cpf: qCpf.trim(),
+        whatsapp: qWhatsapp.trim(),
+      });
+      if (error) throw error;
+      showSuccess("Vendedor cadastrado com sucesso.");
+      setQName(""); setQCpf(""); setQWhatsapp("");
+      setShowQuickParticipant(false);
+      await qc.invalidateQueries({ queryKey: ["incentives_manage_participants", activeTenantId] });
+    } catch (e: any) {
+      showError(`Falha ao cadastrar: ${e?.message ?? "erro"}`);
+    } finally {
+      setCreatingP(false);
     }
   };
 
@@ -324,39 +407,91 @@ export default function IncentivesEventsManage() {
                   </Select>
                 </div>
 
-                <div>
-                  <Label className="text-xs">Participantes</Label>
-                  <div className="mt-1">
-                    <ParticipantsMultiSelect
-                      options={(participantsQ.data ?? []).map((p) => ({
-                        value: p.id,
-                        label: p.display_name ?? p.name,
-                      }))}
-                      value={participantIds}
-                      onChange={setParticipantIds}
-                      placeholder="Selecione 1 ou mais participantes"
-                      disabled={creating}
+                <div className="flex items-center gap-2">
+                  <div className="flex-1">
+                    <Label className="text-xs">Participante (Vendedor)</Label>
+                    <div className="mt-1">
+                      <ParticipantsMultiSelect
+                        options={(participantsQ.data ?? []).map((p) => ({
+                          value: p.id,
+                          label: p.display_name ?? p.name,
+                        }))}
+                        value={participantIds}
+                        onChange={setParticipantIds}
+                        placeholder="Selecione 1 ou mais participantes"
+                        disabled={creating}
+                      />
+                    </div>
+                  </div>
+                  <Button
+                    variant="outline"
+                    className="mt-6 h-11 rounded-2xl border-dashed"
+                    onClick={() => setShowQuickParticipant(true)}
+                  >
+                    + Novo
+                  </Button>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <Label className="text-xs">Fornecedor (Opcional)</Label>
+                    <Select value={sourceEntityId ?? "none"} onValueChange={(v) => setSourceEntityId(v === "none" ? null : v)}>
+                      <SelectTrigger className="mt-1 h-11 rounded-2xl">
+                        <SelectValue placeholder="Selecione o fornecedor" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">Nenhum</SelectItem>
+                        {suppliers.map((s) => (
+                          <SelectItem key={s.id} value={s.id}>{s.display_name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label className="text-xs">Pintor (Opcional)</Label>
+                    <Select value={relatedEntityId ?? "none"} onValueChange={(v) => setRelatedEntityId(v === "none" ? null : v)}>
+                      <SelectTrigger className="mt-1 h-11 rounded-2xl">
+                        <SelectValue placeholder="Selecione o pintor" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">Nenhum</SelectItem>
+                        {painters.map((p) => (
+                          <SelectItem key={p.id} value={p.id}>{p.display_name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <Label className="text-xs">Tipo de Lançamento</Label>
+                    <Select value={eventType} onValueChange={(v) => setEventType(v as any)}>
+                      <SelectTrigger className="mt-1 h-11 rounded-2xl">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="sale">Venda</SelectItem>
+                        <SelectItem value="indication">Indicação</SelectItem>
+                        <SelectItem value="points">Pontos Avulsos</SelectItem>
+                        <SelectItem value="bonus">Bônus</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label className="text-xs">Número do Pedido</Label>
+                    <Input
+                      value={orderNumber}
+                      onChange={(e) => setOrderNumber(e.target.value)}
+                      className="mt-1 h-11 rounded-2xl"
+                      placeholder="Ex: #12345"
                     />
                   </div>
                 </div>
 
                 <div className="grid gap-3 sm:grid-cols-3">
                   <div>
-                    <Label className="text-xs">Tipo</Label>
-                    <Select value={eventType} onValueChange={(v) => setEventType(v as any)}>
-                      <SelectTrigger className="mt-1 h-11 rounded-2xl">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="sale">sale</SelectItem>
-                        <SelectItem value="indication">indication</SelectItem>
-                        <SelectItem value="points">points</SelectItem>
-                        <SelectItem value="bonus">bonus</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <Label className="text-xs">Value</Label>
+                    <Label className="text-xs">Valor do Pedido (R$)</Label>
                     <Input
                       value={value}
                       onChange={(e) => setValue(e.target.value)}
@@ -365,7 +500,16 @@ export default function IncentivesEventsManage() {
                     />
                   </div>
                   <div>
-                    <Label className="text-xs">Points</Label>
+                    <Label className="text-xs">% Comissão (Calc. Aut.)</Label>
+                    <Input
+                      value={commissionRate}
+                      onChange={(e) => setCommissionRate(e.target.value)}
+                      className="mt-1 h-11 rounded-2xl"
+                      placeholder="Ex: 5"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Pontos Ganhos</Label>
                     <Input
                       value={points}
                       onChange={(e) => setPoints(e.target.value)}
@@ -405,8 +549,9 @@ export default function IncentivesEventsManage() {
                       <TableHead>Campanha</TableHead>
                       <TableHead>Participante</TableHead>
                       <TableHead>Tipo</TableHead>
-                      <TableHead className="text-right">Value/Points</TableHead>
-                      <TableHead className="text-right">Ações</TableHead>
+                       <TableHead className="text-right">Venda/Pontos</TableHead>
+                       <TableHead className="text-right">Comissão (R$)</TableHead>
+                       <TableHead className="text-right">Ações</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -423,9 +568,13 @@ export default function IncentivesEventsManage() {
                           <TableCell>
                             <Badge className="rounded-full border-0 bg-slate-100 text-slate-700">{e.event_type}</Badge>
                           </TableCell>
-                          <TableCell className="text-right text-sm font-semibold text-slate-900">
-                            {e.value ?? "—"} / {e.points ?? "—"}
-                          </TableCell>
+                           <TableCell className="text-right text-sm font-semibold text-slate-900">
+                             {e.value ? `R$ ${e.value}` : "—"} / {e.points ?? "—"}
+                             {e.order_number && <div className="text-[10px] text-slate-400 font-normal">{e.order_number}</div>}
+                           </TableCell>
+                           <TableCell className="text-right text-sm font-semibold text-emerald-600">
+                             {e.commission_value ? `R$ ${e.commission_value}` : "—"}
+                           </TableCell>
                           <TableCell className="text-right">
                             <div className="flex items-center justify-end gap-2">
                               <Button variant="secondary" className="h-9 rounded-2xl" onClick={() => openEdit(e)}>
@@ -473,52 +622,90 @@ export default function IncentivesEventsManage() {
           </div>
         </div>
 
-        <Dialog open={editOpen} onOpenChange={setEditOpen}>
-          <DialogContent className="max-w-lg rounded-3xl">
-            <DialogHeader>
-              <DialogTitle>Editar evento</DialogTitle>
-              <DialogDescription>Altere tipo/value/points. (Participante/campanha não são alterados aqui.)</DialogDescription>
-            </DialogHeader>
-
-            <div className="grid gap-3">
-              <div>
-                <Label className="text-xs">Tipo</Label>
-                <Select value={editType} onValueChange={(v) => setEditType(v as any)}>
-                  <SelectTrigger className="mt-1 h-11 rounded-2xl">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="sale">sale</SelectItem>
-                    <SelectItem value="indication">indication</SelectItem>
-                    <SelectItem value="points">points</SelectItem>
-                    <SelectItem value="bonus">bonus</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div>
-                  <Label className="text-xs">Value</Label>
-                  <Input value={editValue} onChange={(e) => setEditValue(e.target.value)} className="mt-1 h-11 rounded-2xl" />
-                </div>
-                <div>
-                  <Label className="text-xs">Points</Label>
-                  <Input value={editPoints} onChange={(e) => setEditPoints(e.target.value)} className="mt-1 h-11 rounded-2xl" />
-                </div>
-              </div>
-            </div>
-
-            <DialogFooter>
-              <Button variant="secondary" className="h-10 rounded-2xl" onClick={() => setEditOpen(false)}>
-                Cancelar
-              </Button>
-              <Button className="h-10 rounded-2xl" onClick={saveEdit} disabled={savingEdit}>
-                {savingEdit ? "Salvando…" : "Salvar"}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-      </AppShell>
-    </RequireAuth>
-  );
-}
+         <Dialog open={editOpen} onOpenChange={setEditOpen}>
+           <DialogContent className="max-w-lg rounded-3xl">
+             <DialogHeader>
+               <DialogTitle>Editar evento</DialogTitle>
+               <DialogDescription>Altere tipo/venda/comissão/pontos.</DialogDescription>
+             </DialogHeader>
+ 
+             <div className="grid gap-3">
+               <div>
+                 <Label className="text-xs">Tipo</Label>
+                 <Select value={editType} onValueChange={(v) => setEditType(v as any)}>
+                   <SelectTrigger className="mt-1 h-11 rounded-2xl">
+                     <SelectValue />
+                   </SelectTrigger>
+                   <SelectContent>
+                     <SelectItem value="sale">Venda</SelectItem>
+                     <SelectItem value="indication">Indicação</SelectItem>
+                     <SelectItem value="points">Pontos Avulsos</SelectItem>
+                     <SelectItem value="bonus">Bônus</SelectItem>
+                   </SelectContent>
+                 </Select>
+               </div>
+ 
+               <div>
+                 <Label className="text-xs">Número do Pedido</Label>
+                 <Input value={editOrderNumber} onChange={(e) => setEditOrderNumber(e.target.value)} className="mt-1 h-11 rounded-2xl" />
+               </div>
+ 
+               <div className="grid gap-3 sm:grid-cols-3">
+                 <div>
+                   <Label className="text-xs">Valor Venda</Label>
+                   <Input value={editValue} onChange={(e) => setEditValue(e.target.value)} className="mt-1 h-11 rounded-2xl" />
+                 </div>
+                 <div>
+                   <Label className="text-xs">% Comissão</Label>
+                   <Input value={editCommissionRate} onChange={(e) => setEditCommissionRate(e.target.value)} className="mt-1 h-11 rounded-2xl" />
+                 </div>
+                 <div>
+                   <Label className="text-xs">Pontos</Label>
+                   <Input value={editPoints} onChange={(e) => setEditPoints(e.target.value)} className="mt-1 h-11 rounded-2xl" />
+                 </div>
+               </div>
+             </div>
+ 
+             <DialogFooter>
+               <Button variant="secondary" className="h-10 rounded-2xl" onClick={() => setEditOpen(false)}>
+                 Cancelar
+               </Button>
+               <Button className="h-10 rounded-2xl" onClick={saveEdit} disabled={savingEdit}>
+                 {savingEdit ? "Salvando…" : "Salvar"}
+               </Button>
+             </DialogFooter>
+           </DialogContent>
+         </Dialog>
+ 
+         <Dialog open={showQuickParticipant} onOpenChange={setShowQuickParticipant}>
+           <DialogContent className="max-w-md rounded-3xl">
+             <DialogHeader>
+               <DialogTitle>Cadastro Simplificado de Vendedor</DialogTitle>
+               <DialogDescription>Adicione um novo participante rapidamente.</DialogDescription>
+             </DialogHeader>
+             <div className="grid gap-3">
+               <div>
+                 <Label className="text-xs">Nome Completo</Label>
+                 <Input value={qName} onChange={(e) => setQName(e.target.value)} placeholder="Ex: João da Silva" className="mt-1 h-11 rounded-2xl" />
+               </div>
+               <div>
+                 <Label className="text-xs">CPF (Somente números)</Label>
+                 <Input value={qCpf} onChange={(e) => setQCpf(e.target.value)} placeholder="00000000000" className="mt-1 h-11 rounded-2xl" />
+               </div>
+               <div>
+                 <Label className="text-xs">WhatsApp (Opcional)</Label>
+                 <Input value={qWhatsapp} onChange={(e) => setQWhatsapp(e.target.value)} placeholder="11999998888" className="mt-1 h-11 rounded-2xl" />
+               </div>
+             </div>
+             <DialogFooter>
+               <Button variant="secondary" onClick={() => setShowQuickParticipant(false)} className="rounded-2xl">Cancelar</Button>
+               <Button onClick={createQuickParticipant} disabled={creatingP} className="rounded-2xl">
+                 {creatingP ? "Cadastrando…" : "Cadastrar"}
+               </Button>
+             </DialogFooter>
+           </DialogContent>
+         </Dialog>
+       </AppShell>
+     </RequireAuth>
+   );
+ }

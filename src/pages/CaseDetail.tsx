@@ -708,7 +708,7 @@ export default function CaseDetail() {
                         title={isSalesOrder ? "Revisar pedido" : "Abrir imagem"}
                       >
                         <img
-                          src={url}
+                          src={supabase.storage.from("tenant-assets").getPublicUrl(url).data.publicUrl}
                           alt="Pedido"
                           className="h-44 w-full object-cover transition group-hover:scale-[1.02]"
                         />
@@ -720,7 +720,7 @@ export default function CaseDetail() {
                         </div>
 
                         <a
-                          href={url}
+                          href={supabase.storage.from("tenant-assets").getPublicUrl(url).data.publicUrl}
                           target="_blank"
                           rel="noreferrer"
                           className="pointer-events-auto inline-flex items-center gap-1 rounded-full bg-white/90 px-2 py-1 text-[11px] font-semibold text-slate-900 shadow-sm hover:bg-white"

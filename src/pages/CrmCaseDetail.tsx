@@ -598,14 +598,14 @@ export default function CrmCaseDetail() {
                     .map((a: any) => (
                       <a
                         key={a.id}
-                        href={a.storage_path}
+                        href={supabase.storage.from("tenant-assets").getPublicUrl(a.storage_path).data.publicUrl}
                         target="_blank"
                         rel="noreferrer"
                         className="group relative overflow-hidden rounded-2xl border border-slate-200 bg-slate-50"
                         title="Abrir imagem"
                       >
                         <img
-                          src={a.storage_path}
+                          src={supabase.storage.from("tenant-assets").getPublicUrl(a.storage_path).data.publicUrl}
                           alt="Anexo"
                           className="h-44 w-full object-cover transition group-hover:scale-[1.02]"
                         />

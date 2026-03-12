@@ -966,6 +966,15 @@ export function AppShell({
                                 onNavigate={() => setMobileNavOpen(false)}
                               />
                             )}
+                            {hasTrello && (
+                              <MobileNavItem
+                                to="/app/trello"
+                                icon={KanbanSquare}
+                                label="Tarefas"
+                                disabled={!can("app.trello")}
+                                onNavigate={() => setMobileNavOpen(false)}
+                              />
+                            )}
                             {hasCrm && (
                               <MobileNavItem
                                 to="/app/crm"

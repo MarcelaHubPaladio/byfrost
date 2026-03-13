@@ -91,7 +91,6 @@ export const MediaKitCanvas = forwardRef<{ exportImage: () => Promise<string> },
         let dh = (moveEvent.clientY - startY) / scale;
 
         if (layer.type === "text") {
-          // Scale font size based on horizontal movement
           const newFontSize = Math.max(12, startFontSize + (dw * 0.5));
           onUpdateLayer(layer.id, {
             fontSize: Math.round(newFontSize),
@@ -101,7 +100,6 @@ export const MediaKitCanvas = forwardRef<{ exportImage: () => Promise<string> },
           let newHeight = Math.max(10, startHeight + dh);
 
           if (moveEvent.shiftKey) {
-            // Maintain aspect ratio
             if (newWidth / newHeight > aspectRatio) {
               newWidth = newHeight * aspectRatio;
             } else {
@@ -117,11 +115,34 @@ export const MediaKitCanvas = forwardRef<{ exportImage: () => Promise<string> },
       };
 
       const onMouseUp = (upEvent: MouseEvent) => {
+        let dw = (upEvent.clientX - startX) / scale;
+        let dh = (upEvent.clientY - startY) / scale;
+
+        if (layer.type === "text") {
+          const newFontSize = Math.max(12, startFontSize + (dw * 0.5));
+          onUpdateLayer(layer.id, {
+            fontSize: Math.round(newFontSize),
+          }, true);
+        } else {
+          let newWidth = Math.max(10, startWidth + dw);
+          let newHeight = Math.max(10, startHeight + dh);
+
+          if (upEvent.shiftKey) {
+            if (newWidth / newHeight > aspectRatio) {
+              newWidth = newHeight * aspectRatio;
+            } else {
+              newHeight = newWidth / aspectRatio;
+            }
+          }
+
+          onUpdateLayer(layer.id, {
+            width: Math.round(newWidth),
+            height: Math.round(newHeight),
+          }, true);
+        }
+
         document.removeEventListener("mousemove", onMouseMove);
-        document.removeEventListener("mouseup", onMouseUp);
-        
-        // Final state with history
-        onUpdateLayer(layer.id, {}, true); 
+        document.removeEventListener("mouseup", onMouseUp as any);
       };
 
       document.addEventListener("mousemove", onMouseMove);

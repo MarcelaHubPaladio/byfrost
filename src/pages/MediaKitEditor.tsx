@@ -339,9 +339,11 @@ export default function MediaKitEditor() {
       height: type === "image" || type === "shape" ? 200 : undefined,
     };
     
-    const updatedPages = pages.map(p => p.id === activePageId ? { ...p, layers: [...p.layers, newLayer] } : p);
-    setPages(updatedPages);
-    pushToHistory(updatedPages);
+    setPages(prev => {
+      const updatedPages = prev.map(p => p.id === activePageId ? { ...p, layers: [...p.layers, newLayer] } : p);
+      pushToHistory(updatedPages);
+      return updatedPages;
+    });
     setSelectedLayerId({ pageId: activePageId, layerId: newLayer.id });
   };
 
@@ -358,55 +360,63 @@ export default function MediaKitEditor() {
       height: 400,
     };
     
-    const updatedPages = pages.map(p => p.id === activePageId ? { ...p, layers: [...p.layers, newLayer] } : p);
-    setPages(updatedPages);
-    pushToHistory(updatedPages);
+    setPages(prev => {
+      const updatedPages = prev.map(p => p.id === activePageId ? { ...p, layers: [...p.layers, newLayer] } : p);
+      pushToHistory(updatedPages);
+      return updatedPages;
+    });
     setSelectedLayerId({ pageId: activePageId, layerId: newLayer.id });
   };
 
   const updateLayer = (pageId: string, layerId: string, delta: Partial<Layer>, pushHistory = false) => {
-    const updatedPages = pages.map(p => p.id === pageId ? { 
-      ...p, 
-      layers: p.layers.map(l => l.id === layerId ? { ...l, ...delta } : l) 
-    } : p);
-    setPages(updatedPages);
-    if (pushHistory) pushToHistory(updatedPages);
+    setPages(prev => {
+      const updatedPages = prev.map(p => p.id === pageId ? { 
+        ...p, 
+        layers: p.layers.map(l => l.id === layerId ? { ...l, ...delta } : l) 
+      } : p);
+      if (pushHistory) pushToHistory(updatedPages);
+      return updatedPages;
+    });
   };
 
   const removeLayer = (pageId: string, layerId: string) => {
-    const updatedPages = pages.map(p => p.id === pageId ? { ...p, layers: p.layers.filter(l => l.id !== layerId) } : p);
-    setPages(updatedPages);
-    pushToHistory(updatedPages);
+    setPages(prev => {
+      const updatedPages = prev.map(p => p.id === pageId ? { ...p, layers: p.layers.filter(l => l.id !== layerId) } : p);
+      pushToHistory(updatedPages);
+      return updatedPages;
+    });
     if (selectedLayerId?.layerId === layerId) setSelectedLayerId(null);
   };
 
   const reorderLayer = (layerId: string, direction: "up" | "down") => {
     if (!activePageId) return;
-    const page = pages.find(p => p.id === activePageId);
-    if (!page) return;
+    
+    setPages(prev => {
+      const page = prev.find(p => p.id === activePageId);
+      if (!page) return prev;
 
-    const sorted = [...page.layers].sort((a, b) => a.zIndex - b.zIndex);
-    const index = sorted.findIndex(l => l.id === layerId);
-    if (index === -1) return;
+      const sorted = [...page.layers].sort((a, b) => a.zIndex - b.zIndex);
+      const index = sorted.findIndex(l => l.id === layerId);
+      if (index === -1) return prev;
 
-    const newIndex = direction === "up" ? index + 1 : index - 1;
-    if (newIndex < 0 || newIndex >= sorted.length) return;
+      const newIndex = direction === "up" ? index + 1 : index - 1;
+      if (newIndex < 0 || newIndex >= sorted.length) return prev;
 
-    const layerToSwap = sorted[newIndex];
-    const currentLayer = sorted[index];
+      const layerToSwap = sorted[newIndex];
+      const currentLayer = sorted[index];
 
-    // Swap z-indices
-    const updatedPages = pages.map(p => p.id === activePageId ? {
-      ...p,
-      layers: p.layers.map(l => {
-        if (l.id === layerId) return { ...l, zIndex: layerToSwap.zIndex };
-        if (l.id === layerToSwap.id) return { ...l, zIndex: currentLayer.zIndex };
-        return l;
-      })
-    } : p);
+      const updatedPages = prev.map(p => p.id === activePageId ? {
+        ...p,
+        layers: p.layers.map(l => {
+          if (l.id === layerId) return { ...l, zIndex: layerToSwap.zIndex };
+          if (l.id === layerToSwap.id) return { ...l, zIndex: currentLayer.zIndex };
+          return l;
+        })
+      } : p);
 
-    setPages(updatedPages);
-    pushToHistory(updatedPages);
+      pushToHistory(updatedPages);
+      return updatedPages;
+    });
   };
 
   const applyMask = (maskId: string) => {

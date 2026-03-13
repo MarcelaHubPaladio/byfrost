@@ -74,6 +74,50 @@ export const MediaKitCanvas = forwardRef<{ exportImage: () => Promise<string> },
       });
     };
 
+    const handleResizeMouseDown = (e: React.MouseEvent, layer: Layer) => {
+      e.stopPropagation();
+      onSelectLayer(layer.id);
+
+      const startX = e.clientX;
+      const startY = e.clientY;
+      const startWidth = layer.width || 0;
+      const startHeight = layer.height || 0;
+      const aspectRatio = startWidth / startHeight;
+
+      const onMouseMove = (moveEvent: MouseEvent) => {
+        let dw = (moveEvent.clientX - startX) / scale;
+        let dh = (moveEvent.clientY - startY) / scale;
+
+        let newWidth = Math.max(10, startWidth + dw);
+        let newHeight = Math.max(10, startHeight + dh);
+
+        if (moveEvent.shiftKey) {
+          // Maintain aspect ratio
+          if (newWidth / newHeight > aspectRatio) {
+            newWidth = newHeight * aspectRatio;
+          } else {
+            newHeight = newWidth / aspectRatio;
+          }
+        }
+
+        onUpdateLayer(layer.id, {
+          width: Math.round(newWidth),
+          height: Math.round(newHeight),
+        });
+      };
+
+      const onMouseUp = (upEvent: MouseEvent) => {
+        document.removeEventListener("mousemove", onMouseMove);
+        document.removeEventListener("mouseup", onMouseUp);
+        
+        // Final state with history
+        onUpdateLayer(layer.id, {}, true); 
+      };
+
+      document.addEventListener("mousemove", onMouseMove);
+      document.addEventListener("mouseup", onMouseUp);
+    };
+
     const handleMouseDown = (e: React.MouseEvent, layer: Layer) => {
       e.stopPropagation();
       onSelectLayer(layer.id);
@@ -174,6 +218,12 @@ export const MediaKitCanvas = forwardRef<{ exportImage: () => Promise<string> },
                     height: layer.height,
                     backgroundColor: layer.color,
                   }}
+                />
+              )}
+              {selectedLayerId === layer.id && (layer.type === "image" || layer.type === "shape") && (
+                <div
+                  className="absolute bottom-0 right-0 w-4 h-4 bg-blue-500 border-2 border-white rounded-full cursor-nwse-resize translate-x-1/2 translate-y-1/2 z-50 hover:scale-125 transition-transform"
+                  onMouseDown={(e) => handleResizeMouseDown(e, layer)}
                 />
               )}
             </div>

@@ -910,7 +910,20 @@ export default function MediaKitEditor() {
                           )}
                           <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-2">
-                              <Label className="text-xs text-slate-500">Largura</Label>
+                              <div className="flex items-center justify-between">
+                                <Label className="text-xs text-slate-500">Largura</Label>
+                                <Button 
+                                  variant="ghost" 
+                                  size="sm" 
+                                  className="h-5 px-1.5 text-[10px] text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                                  onClick={() => {
+                                    const template = templatesQ.data?.find(t => t.id === activePage?.templateId);
+                                    if (template) updateLayer(selectedLayerId!.pageId, selectedLayer.id, { width: template.width }, true);
+                                  }}
+                                >
+                                  100% W
+                                </Button>
+                              </div>
                               <Input 
                                 type="number"
                                 value={selectedLayer.width} 
@@ -919,7 +932,20 @@ export default function MediaKitEditor() {
                               />
                             </div>
                             <div className="space-y-2">
-                              <Label className="text-xs text-slate-500">Altura</Label>
+                              <div className="flex items-center justify-between">
+                                <Label className="text-xs text-slate-500">Altura</Label>
+                                <Button 
+                                  variant="ghost" 
+                                  size="sm" 
+                                  className="h-5 px-1.5 text-[10px] text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                                  onClick={() => {
+                                    const template = templatesQ.data?.find(t => t.id === activePage?.templateId);
+                                    if (template) updateLayer(selectedLayerId!.pageId, selectedLayer.id, { height: template.height }, true);
+                                  }}
+                                >
+                                  100% H
+                                </Button>
+                              </div>
                               <Input 
                                 type="number"
                                 value={selectedLayer.height} 

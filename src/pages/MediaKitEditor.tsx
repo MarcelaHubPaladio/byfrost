@@ -476,6 +476,14 @@ export default function MediaKitEditor() {
     });
   };
 
+  const handleDragReorder = (pageId: string, updatedLayers: Layer[]) => {
+    setPages(prev => {
+      const updatedPages = prev.map(p => p.id === pageId ? { ...p, layers: updatedLayers } : p);
+      pushToHistory(updatedPages);
+      return updatedPages;
+    });
+  };
+
   const applyMask = (maskId: string) => {
     const mask = masksQ.data?.find(m => m.id === maskId);
     if (!mask) return;
@@ -1131,11 +1139,12 @@ export default function MediaKitEditor() {
                   </>
                 ) : (
                   <MediaKitLayers 
-                    layers={activePage?.layers || []}
-                    selectedLayerId={null}
-                    onSelect={(layerId) => setSelectedLayerId({ pageId: activePageId!, layerId })}
-                    onRemove={(layerId) => removeLayer(activePageId!, layerId)}
-                    onReorder={reorderLayer}
+                    layers={activePage.layers} 
+                    selectedLayerId={selectedLayerId?.pageId === activePage.id ? selectedLayerId.layerId : null}
+                    onSelect={(layerId) => setSelectedLayerId({ pageId: activePage.id, layerId })}
+                    onRemove={(layerId) => removeLayer(activePage.id, layerId)}
+                    onReorder={(layerId, dir) => reorderLayer(layerId, dir)}
+                    onDragReorder={(updatedLayers) => handleDragReorder(activePage.id, updatedLayers)}
                   />
                 )}
               </div>

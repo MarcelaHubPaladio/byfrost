@@ -30,6 +30,7 @@ import {
 } from "lucide-react";
 import { showSuccess, showError } from "@/utils/toast";
 import { MediaKitCanvas, Layer } from "@/components/media-kit/MediaKitCanvas";
+import { ImageUpload } from "@/components/portal/ImageUpload";
 import { MediaKitGallery } from "@/components/media-kit/MediaKitGallery";
 import { MediaKitLayers } from "@/components/media-kit/MediaKitLayers";
 import { Slider } from "@/components/ui/slider";
@@ -975,13 +976,22 @@ export default function MediaKitEditor() {
                                     </Select>
                                   </div>
                                 ) : (
-                                  <div className="space-y-2">
-                                    <Label>URL da Imagem</Label>
-                                    <Input 
-                                      value={selectedLayer.content} 
-                                      onChange={(e) => updateLayer(selectedLayerId!.pageId, selectedLayer.id, { content: e.target.value }, true)} 
-                                      className="rounded-xl"
-                                    />
+                                  <div className="space-y-3">
+                                    <div className="space-y-1.5">
+                                      <Label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Trocar Imagem</Label>
+                                      <ImageUpload 
+                                        value={selectedLayer.content} 
+                                        onChange={(url) => updateLayer(selectedLayerId!.pageId, selectedLayer.id, { content: url }, true)} 
+                                      />
+                                    </div>
+                                    <div className="space-y-1.5">
+                                      <Label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">URL Direta</Label>
+                                      <Input 
+                                        value={selectedLayer.content} 
+                                        onChange={(e) => updateLayer(selectedLayerId!.pageId, selectedLayer.id, { content: e.target.value }, true)} 
+                                        className="rounded-xl h-8 text-xs"
+                                      />
+                                    </div>
                                   </div>
                                 )}
                              </div>

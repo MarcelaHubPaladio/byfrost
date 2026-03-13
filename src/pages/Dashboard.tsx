@@ -239,16 +239,17 @@ export default function Dashboard() {
         .limit(300);
       if (error) throw error;
 
-      // IMPORTANT: /app não deve listar jornadas CRM.
+      // IMPORTANT: /app não deve listar jornadas CRM, 
+      // EXCETO sales_order que é um processo híbrido/interno.
       const opts: JourneyOpt[] = (data ?? [])
         .map((r: any) => r.journeys)
         .filter(Boolean)
-        .filter((j: any) => !j.is_crm && j.key !== "trello")
+        .filter((j: any) => (!j.is_crm || j.key === "sales_order") && j.key !== "trello")
         .map((j: any) => ({
           id: j.id,
           key: j.key,
           name: j.name,
-          is_crm: false,
+          is_crm: Boolean(j.is_crm),
           default_state_machine_json: j.default_state_machine_json ?? {},
         }));
 

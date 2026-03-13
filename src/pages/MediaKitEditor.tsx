@@ -919,6 +919,14 @@ export default function MediaKitEditor() {
                                 )}
                              </div>
                           )}
+                          <div className="space-y-2">
+                             <Label className="text-xs text-slate-500">Canto Arredondado: {selectedLayer.borderRadius || 0}px</Label>
+                             <Slider 
+                               value={[selectedLayer.borderRadius || 0]} 
+                               min={0} max={Math.min(selectedLayer.width || 1000, selectedLayer.height || 1000) / 2} step={1}
+                               onValueChange={([v]) => updateLayer(selectedLayerId!.pageId, selectedLayer.id, { borderRadius: v }, true)}
+                             />
+                          </div>
                           <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-2">
                               <div className="flex items-center justify-between">

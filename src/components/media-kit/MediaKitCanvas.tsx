@@ -16,6 +16,7 @@ export type Layer = {
   zIndex: number;
   isVariable?: boolean;
   variableField?: string;
+  borderRadius?: number;
 };
 
 type MediaKitCanvasProps = {
@@ -201,6 +202,8 @@ export const MediaKitCanvas = forwardRef<{ exportImage: () => Promise<string> },
                 height: (layer.type === "image" || layer.type === "shape") ? layer.height : undefined,
                 zIndex: layer.zIndex,
                 opacity: layer.opacity ?? 1,
+                borderRadius: layer.borderRadius || 0,
+                overflow: layer.borderRadius ? "hidden" : undefined,
               }}
             >
               {layer.type === "text" && (
@@ -223,6 +226,7 @@ export const MediaKitCanvas = forwardRef<{ exportImage: () => Promise<string> },
                     width: layer.width,
                     height: layer.height,
                     pointerEvents: "none",
+                    objectFit: "cover",
                   }}
                 />
               )}

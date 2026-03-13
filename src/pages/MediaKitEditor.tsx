@@ -297,12 +297,16 @@ export default function MediaKitEditor() {
       if ((e.ctrlKey || e.metaKey) && e.key === "v") {
         if (clipboard && activePageId) {
           e.preventDefault();
+          
+          const page = pages.find(p => p.id === activePageId);
+          const maxZ = page?.layers.length ? Math.max(...page.layers.map(l => l.zIndex)) : 0;
+
           const newLayer: Layer = {
             ...clipboard,
             id: Math.random().toString(36).substr(2, 9),
             x: clipboard.x + 20,
             y: clipboard.y + 20,
-            zIndex: 10, // Will be updated by state logic or stay as is
+            zIndex: maxZ + 10,
           };
 
           setPages(prev => {
@@ -365,46 +369,54 @@ export default function MediaKitEditor() {
 
   const addLayer = (type: Layer["type"]) => {
     if (!activePageId) return;
-    const newLayer: Layer = {
-      id: Math.random().toString(36).substr(2, 9),
-      type,
-      content: type === "text" ? "Novo Texto" : type === "shape" ? "" : "https://via.placeholder.com/200",
-      x: 50,
-      y: 50,
-      zIndex: 10,
-      fontSize: type === "text" ? 48 : undefined,
-      color: type === "text" ? "#000000" : type === "shape" ? "#3b82f6" : undefined,
-      width: type === "image" || type === "shape" ? 200 : undefined,
-      height: type === "image" || type === "shape" ? 200 : undefined,
-    };
-    
+
     setPages(prev => {
+      const page = prev.find(p => p.id === activePageId);
+      const maxZ = page?.layers.length ? Math.max(...page.layers.map(l => l.zIndex)) : 0;
+
+      const newLayer: Layer = {
+        id: Math.random().toString(36).substr(2, 9),
+        type,
+        content: type === "text" ? "Novo Texto" : type === "shape" ? "" : "https://via.placeholder.com/200",
+        x: 50,
+        y: 50,
+        zIndex: maxZ + 10,
+        fontSize: type === "text" ? 48 : undefined,
+        color: type === "text" ? "#000000" : type === "shape" ? "#3b82f6" : undefined,
+        width: type === "image" || type === "shape" ? 200 : undefined,
+        height: type === "image" || type === "shape" ? 200 : undefined,
+      };
+
       const updatedPages = prev.map(p => p.id === activePageId ? { ...p, layers: [...p.layers, newLayer] } : p);
       pushToHistory(updatedPages);
+      setSelectedLayerId({ pageId: activePageId, layerId: newLayer.id });
       return updatedPages;
     });
-    setSelectedLayerId({ pageId: activePageId, layerId: newLayer.id });
   };
 
   const addImageLayer = (url: string) => {
     if (!activePageId) return;
-    const newLayer: Layer = {
-      id: Math.random().toString(36).substr(2, 9),
-      type: "image",
-      content: url,
-      x: 50,
-      y: 50,
-      zIndex: 10,
-      width: 400,
-      height: 400,
-    };
     
     setPages(prev => {
+      const page = prev.find(p => p.id === activePageId);
+      const maxZ = page?.layers.length ? Math.max(...page.layers.map(l => l.zIndex)) : 0;
+
+      const newLayer: Layer = {
+        id: Math.random().toString(36).substr(2, 9),
+        type: "image",
+        content: url,
+        x: 50,
+        y: 50,
+        zIndex: maxZ + 10,
+        width: 400,
+        height: 400,
+      };
+
       const updatedPages = prev.map(p => p.id === activePageId ? { ...p, layers: [...p.layers, newLayer] } : p);
       pushToHistory(updatedPages);
+      setSelectedLayerId({ pageId: activePageId, layerId: newLayer.id });
       return updatedPages;
     });
-    setSelectedLayerId({ pageId: activePageId, layerId: newLayer.id });
   };
 
   const updateLayer = (pageId: string, layerId: string, delta: Partial<Layer>, pushHistory = false) => {
@@ -434,27 +446,29 @@ export default function MediaKitEditor() {
       const page = prev.find(p => p.id === activePageId);
       if (!page) return prev;
 
-      const layers = [...page.layers].sort((a, b) => a.zIndex - b.zIndex);
-      const index = layers.findIndex(l => l.id === layerId);
+      // 1. Get layers sorted by current zIndex
+      const currentLayers = [...page.layers].sort((a, b) => a.zIndex - b.zIndex);
+      const index = currentLayers.findIndex(l => l.id === layerId);
       if (index === -1) return prev;
 
+      // 2. Calculate target position
       const newIndex = direction === "up" ? index + 1 : index - 1;
-      if (newIndex < 0 || newIndex >= layers.length) return prev;
+      if (newIndex < 0 || newIndex >= currentLayers.length) return prev;
 
-      const layerToSwap = layers[newIndex];
-      const currentLayer = layers[index];
+      // 3. Reorder the array
+      const reorderedArray = [...currentLayers];
+      const [item] = reorderedArray.splice(index, 1);
+      reorderedArray.splice(newIndex, 0, item);
 
-      // Swap z-indices
-      const oldZ = currentLayer.zIndex;
-      const newZ = layerToSwap.zIndex;
+      // 4. Normalize Z-indices (multiply by 10 to ensure unique values and room for growth)
+      const updatedLayers = page.layers.map(l => {
+        const idxInNewArray = reorderedArray.findIndex(r => r.id === l.id);
+        return { ...l, zIndex: (idxInNewArray + 1) * 10 };
+      });
 
       const updatedPages = prev.map(p => p.id === activePageId ? {
         ...p,
-        layers: p.layers.map(l => {
-          if (l.id === layerId) return { ...l, zIndex: newZ };
-          if (l.id === layerToSwap.id) return { ...l, zIndex: oldZ };
-          return l;
-        })
+        layers: updatedLayers
       } : p);
 
       pushToHistory(updatedPages);

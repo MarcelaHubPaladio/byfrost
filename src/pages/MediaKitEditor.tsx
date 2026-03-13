@@ -307,7 +307,7 @@ export default function MediaKitEditor() {
                 </Button>
                 <div>
                   <h1 className="text-2xl font-bold text-slate-900">Configurar Novo Mídia Kit</h1>
-                  <p className="text-slate-500 text-sm">Selecione o imóvel e os formatos das artes</p>
+                  <p className="text-slate-500 text-sm">Selecione a entidade e os formatos das artes</p>
                 </div>
               </div>
 
@@ -330,7 +330,7 @@ export default function MediaKitEditor() {
                       onClick={() => setCreationMode("related")}
                       className={`flex-1 h-16 rounded-xl border-2 ${creationMode === "related" ? "border-blue-600 bg-blue-50 text-blue-700" : "border-slate-100"}`}
                     >
-                      Relacionado a Imóvel
+                      Relacionado a Entidade
                     </Button>
                     <Button 
                       variant={creationMode === "free" ? "secondary" : "ghost"}
@@ -348,7 +348,7 @@ export default function MediaKitEditor() {
 
                 {creationMode === "related" && (
                   <div className="space-y-4">
-                    <Label className="text-base font-semibold">3. Vincular Imóvel/Entidade</Label>
+                    <Label className="text-base font-semibold">3. Vincular Entidade</Label>
                     <div className="relative">
                       <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
                       <Input 

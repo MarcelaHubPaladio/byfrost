@@ -59,6 +59,7 @@ export interface JourneyConfig {
     planned_minutes?: number;
   };
   // Dynamic fields from specific journeys (like meta_content)
+  crm_location_capture_enabled?: boolean;
   meta_content_enabled?: boolean;
   meta_autopublish_stories?: boolean;
   meta_autopublish_feed?: boolean;

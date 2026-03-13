@@ -337,6 +337,7 @@ export function TenantJourneysPanel() {
   const metaContentEnabled = Boolean(
     (configObj as any)?.meta_content_enabled ?? META_CONTENT_DEFAULT_CONFIG.meta_content_enabled
   );
+  const crmLocationCaptureEnabled = Boolean((configObj as any)?.crm_location_capture_enabled);
   const metaAutopublishStories = Boolean(
     (configObj as any)?.meta_autopublish_stories ?? META_CONTENT_DEFAULT_CONFIG.meta_autopublish_stories
   );
@@ -1522,6 +1523,28 @@ export function TenantJourneysPanel() {
                   * Salve usando o botão "Salvar nomes e rótulos" acima para aplicar no catálogo.
                 </div>
               </div>
+
+              {selectedJourney.is_crm && (
+                <div className="rounded-2xl border border-slate-200 bg-white p-3">
+                  <div className="text-xs font-semibold text-slate-900">Configurações de CRM</div>
+                  <div className="mt-1 text-[11px] text-slate-600">
+                    Ajustes específicos para captura de leads nesta jornada.
+                  </div>
+
+                  <div className="mt-4 flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
+                    <div className="min-w-0">
+                      <div className="text-xs font-semibold text-slate-900">crm_location_capture_enabled</div>
+                      <div className="mt-0.5 text-[11px] text-slate-600">
+                        Exibe o seletor de mapa (pin) no cadastro de novos leads.
+                      </div>
+                    </div>
+                    <Switch
+                      checked={crmLocationCaptureEnabled}
+                      onCheckedChange={(v) => updateConfig({ crm_location_capture_enabled: v })}
+                    />
+                  </div>
+                </div>
+              )}
 
               {selectedJourney.key === "meta_content" && (
                 <div className="rounded-2xl border border-slate-200 bg-white p-3">

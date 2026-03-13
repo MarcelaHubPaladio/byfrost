@@ -48,6 +48,7 @@ type JourneyOpt = {
   name: string;
   is_crm?: boolean;
   default_state_machine_json?: any;
+  config_json?: any;
 };
 
 type CaseTagRow = { case_id: string; tag: string };
@@ -163,22 +164,25 @@ export default function Crm() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("tenant_journeys")
-        .select("journey_id, journeys(id,key,name,is_crm,default_state_machine_json)")
+        .select("config_json, journey_id, journeys(id,key,name,is_crm,default_state_machine_json)")
         .eq("tenant_id", activeTenantId!)
         .eq("enabled", true)
         .limit(300);
       if (error) throw error;
 
       const opts: JourneyOpt[] = (data ?? [])
-        .map((r: any) => r.journeys)
-        .filter(Boolean)
-        .filter((j: any) => Boolean(j.is_crm))
+        .map((r: any) => ({
+          ...(r.journeys ?? {}),
+          config_json: r.config_json,
+        }))
+        .filter((j: any) => j.id && Boolean(j.is_crm))
         .map((j: any) => ({
           id: j.id,
           key: j.key,
           name: j.name,
           is_crm: true,
           default_state_machine_json: j.default_state_machine_json ?? {},
+          config_json: j.config_json ?? {},
         }));
 
       opts.sort((a, b) => a.name.localeCompare(b.name));

@@ -23,6 +23,8 @@ import {
   Check,
   Smartphone,
   Monitor,
+  Palette,
+  Layout,
 } from "lucide-react";
 import { showSuccess, showError } from "@/utils/toast";
 import { MediaKitCanvas, Layer } from "@/components/media-kit/MediaKitCanvas";
@@ -51,6 +53,8 @@ export default function MediaKitEditor() {
   const [entityId, setEntityId] = useState<string | null>(null);
   const [entityData, setEntityData] = useState<any>(null);
   const [selectedTemplateIds, setSelectedTemplateIds] = useState<string[]>([]);
+  const [creationMode, setCreationMode] = useState<"related" | "free">("related");
+  const [selectedMaskId, setSelectedMaskId] = useState<string | null>(null);
   
   // Multi-page config
   const [pages, setPages] = useState<{ id: string; templateId: string; layers: Layer[] }[]>([]);
@@ -136,7 +140,7 @@ export default function MediaKitEditor() {
 
   const entitiesQ = useQuery({
     queryKey: ["entities_search", activeTenantId, searchTerm],
-    enabled: !!activeTenantId && (isEntityDialogOpen || editorState === "setup"),
+    enabled: !!activeTenantId && (isEntityDialogOpen || editorState === "setup") && creationMode === "related",
     queryFn: async () => {
       const { data, error } = await supabase
         .from("core_entities")
@@ -150,16 +154,40 @@ export default function MediaKitEditor() {
     },
   });
 
+  const masksQ = useQuery({
+    queryKey: ["media_kit_masks", activeTenantId],
+    enabled: !!activeTenantId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("media_kit_masks")
+        .select("*")
+        .eq("tenant_id", activeTenantId!)
+        .is("deleted_at", null)
+        .order("name");
+      if (error) throw error;
+      return data;
+    },
+  });
+
   const startEditing = () => {
     if (selectedTemplateIds.length === 0) {
       showError("Selecione pelo menos um template.");
       return;
     }
-    const newPages = selectedTemplateIds.map((tid, idx) => ({
-      id: `page-${idx}-${Date.now()}`,
-      templateId: tid,
-      layers: []
-    }));
+
+    const mask = masksQ.data?.find(m => m.id === selectedMaskId);
+    
+    const newPages = selectedTemplateIds.map((tid, idx) => {
+      // Apply mask layers if available for this template
+      const maskLayers = (mask?.config as any)?.layouts?.[tid] || [];
+      
+      return {
+        id: `page-${idx}-${Date.now()}`,
+        templateId: tid,
+        layers: maskLayers.length > 0 ? maskLayers : []
+      };
+    });
+    
     setPages(newPages);
     setActivePageId(newPages[0].id);
     setEditorState("editing");
@@ -229,6 +257,20 @@ export default function MediaKitEditor() {
     if (selectedLayerId?.layerId === layerId) setSelectedLayerId(null);
   };
 
+  const applyMask = (maskId: string) => {
+    const mask = masksQ.data?.find(m => m.id === maskId);
+    if (!mask) return;
+
+    setPages(pages.map(p => {
+      const maskLayers = (mask.config as any)?.layouts?.[p.templateId] || [];
+      return {
+        ...p,
+        layers: maskLayers.length > 0 ? maskLayers : p.layers
+      };
+    }));
+    showSuccess(`Máscara "${mask.name}" aplicada.`);
+  };
+
   const handleExportAll = async () => {
     try {
       showSuccess("Iniciando exportação de todas as páginas...");
@@ -281,39 +323,95 @@ export default function MediaKitEditor() {
                 </div>
 
                 <div className="space-y-4">
-                  <Label className="text-base font-semibold">2. Vincular Imóvel/Entidade</Label>
-                  <div className="relative">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-                    <Input 
-                      placeholder="Buscar por nome..." 
-                      value={searchTerm} 
-                      onChange={(e) => setSearchTerm(e.target.value)}
-                      className="pl-10 h-12 rounded-xl"
-                    />
+                  <Label className="text-base font-semibold">2. Tipo de Arte</Label>
+                  <div className="flex gap-4">
+                    <Button 
+                      variant={creationMode === "related" ? "secondary" : "ghost"}
+                      onClick={() => setCreationMode("related")}
+                      className={`flex-1 h-16 rounded-xl border-2 ${creationMode === "related" ? "border-blue-600 bg-blue-50 text-blue-700" : "border-slate-100"}`}
+                    >
+                      Relacionado a Imóvel
+                    </Button>
+                    <Button 
+                      variant={creationMode === "free" ? "secondary" : "ghost"}
+                      onClick={() => {
+                        setCreationMode("free");
+                        setEntityId(null);
+                        setEntityData(null);
+                      }}
+                      className={`flex-1 h-16 rounded-xl border-2 ${creationMode === "free" ? "border-blue-600 bg-blue-50 text-blue-700" : "border-slate-100"}`}
+                    >
+                      Arte Livre
+                    </Button>
                   </div>
-                  <div className="grid gap-2 max-h-48 overflow-y-auto pr-2 custom-scrollbar">
-                    {entitiesQ.data?.map(e => (
-                      <Button 
-                        key={e.id} 
-                        variant={entityId === e.id ? "secondary" : "ghost"} 
-                        className={`justify-start h-auto p-3 text-left rounded-xl transition-all ${entityId === e.id ? "ring-2 ring-blue-500 bg-blue-50" : ""}`}
-                        onClick={() => {
-                          setEntityId(e.id);
-                          setEntityData({ ...e, ...e.metadata });
-                        }}
+                </div>
+
+                {creationMode === "related" && (
+                  <div className="space-y-4">
+                    <Label className="text-base font-semibold">3. Vincular Imóvel/Entidade</Label>
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                      <Input 
+                        placeholder="Buscar por nome..." 
+                        value={searchTerm} 
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                        className="pl-10 h-12 rounded-xl"
+                      />
+                    </div>
+                    <div className="grid gap-2 max-h-48 overflow-y-auto pr-2 custom-scrollbar">
+                      {entitiesQ.data?.map(e => (
+                        <Button 
+                          key={e.id} 
+                          variant={entityId === e.id ? "secondary" : "ghost"} 
+                          className={`justify-start h-auto p-3 text-left rounded-xl transition-all ${entityId === e.id ? "ring-2 ring-blue-500 bg-blue-50" : ""}`}
+                          onClick={() => {
+                            setEntityId(e.id);
+                            setEntityData({ ...e, ...e.metadata });
+                          }}
+                        >
+                          <div className="flex-1">
+                            <div className="font-semibold">{e.display_name}</div>
+                            <div className="text-xs text-slate-500">{e.subtype}</div>
+                          </div>
+                          {entityId === e.id && <Check className="h-4 w-4 text-blue-600" />}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                
+                <div className="space-y-4">
+                  <Label className="text-base font-semibold">{creationMode === "related" ? "4" : "3"}. Selecionar Máscara (Opcional)</Label>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                    <div 
+                      onClick={() => setSelectedMaskId(null)}
+                      className={`p-4 border-2 rounded-2xl cursor-pointer transition-all flex flex-col items-center justify-center gap-2 text-center
+                        ${selectedMaskId === null 
+                          ? "border-blue-600 bg-blue-50 text-blue-700 shadow-sm" 
+                          : "border-slate-100 hover:border-slate-300 bg-white"}`}
+                    >
+                      <Palette className="h-4 w-4 text-slate-400" />
+                      <p className="font-semibold text-sm leading-tight text-slate-400 italic">Sem Máscara</p>
+                    </div>
+                    {masksQ.data?.map(m => (
+                      <div 
+                        key={m.id}
+                        onClick={() => setSelectedMaskId(m.id)}
+                        className={`p-4 border-2 rounded-2xl cursor-pointer transition-all flex flex-col items-center justify-center gap-2 text-center
+                          ${selectedMaskId === m.id 
+                            ? "border-blue-600 bg-blue-50 text-blue-700 shadow-sm" 
+                            : "border-slate-100 hover:border-slate-300 bg-white"}`}
                       >
-                        <div className="flex-1">
-                          <div className="font-semibold">{e.display_name}</div>
-                          <div className="text-xs text-slate-500">{e.subtype}</div>
-                        </div>
-                        {entityId === e.id && <Check className="h-4 w-4 text-blue-600" />}
-                      </Button>
+                        <Layout className="h-4 w-4 text-purple-500" />
+                        <p className="font-semibold text-sm leading-tight">{m.name}</p>
+                        {selectedMaskId === m.id && <Check className="h-3 w-3" />}
+                      </div>
                     ))}
                   </div>
                 </div>
 
                 <div className="space-y-4">
-                  <Label className="text-base font-semibold">3. Selecione os Templates (Formatos)</Label>
+                  <Label className="text-base font-semibold">{creationMode === "related" ? "5" : "4"}. Selecione os Templates (Formatos)</Label>
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                     {templatesQ.data?.map(t => (
                       <div 
@@ -405,6 +503,38 @@ export default function MediaKitEditor() {
               <Button variant="ghost" size="icon" onClick={() => addLayer("shape")} title="Adicionar Forma" className="rounded-xl">
                 <Square className="h-6 w-6 text-slate-600" />
               </Button>
+
+              <Dialog>
+                <DialogTrigger asChild>
+                  <Button variant="ghost" size="icon" title="Trocar Máscara" className="rounded-xl">
+                    <Layout className="h-6 w-6 text-purple-600" />
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="rounded-2xl sm:max-w-md">
+                  <DialogHeader>
+                    <DialogTitle>Trocar Máscara</DialogTitle>
+                  </DialogHeader>
+                  <div className="grid grid-cols-2 gap-3 py-4">
+                    {masksQ.data?.map(m => (
+                      <Button
+                        key={m.id}
+                        variant="outline"
+                        className="h-20 flex flex-col gap-2 rounded-xl border-2 hover:border-blue-500"
+                        onClick={() => applyMask(m.id)}
+                      >
+                        <Layout className="h-4 w-4 text-purple-500" />
+                        <span className="text-xs font-bold">{m.name}</span>
+                      </Button>
+                    ))}
+                    {masksQ.data?.length === 0 && (
+                      <div className="col-span-2 py-8 text-center text-slate-400">
+                        Nenhuma outra máscara disponível.
+                      </div>
+                    )}
+                  </div>
+                </DialogContent>
+              </Dialog>
+
               <div className="mt-auto pt-4 border-t w-full flex flex-col items-center gap-4">
                 <p className="text-[9px] font-bold text-slate-400 uppercase">Páginas</p>
                 {pages.map((p, idx) => (

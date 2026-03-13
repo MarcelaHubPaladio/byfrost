@@ -76,6 +76,7 @@ const PortalEditor = lazy(() => import("@/pages/PortalEditor"));
 const PublicPortal = lazy(() => import("@/pages/PublicPortal"));
 const MediaKitList = lazy(() => import("@/pages/MediaKitList"));
 const MediaKitTemplates = lazy(() => import("@/pages/MediaKitTemplates"));
+const MediaKitMasks = lazy(() => import("@/pages/MediaKitMasks"));
 const MediaKitEditor = lazy(() => import("@/pages/MediaKitEditor"));
 
 const GlobalLoading = () => (
@@ -466,6 +467,14 @@ const App = () => (
                     element={
                       <RequireRouteAccess routeKey="app.media_kit">
                         <MediaKitTemplates />
+                      </RequireRouteAccess>
+                    }
+                  />
+                  <Route
+                    path="/app/media-kit/masks"
+                    element={
+                      <RequireRouteAccess routeKey="app.media_kit">
+                        <MediaKitMasks />
                       </RequireRouteAccess>
                     }
                   />

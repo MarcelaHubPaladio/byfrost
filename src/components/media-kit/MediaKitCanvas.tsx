@@ -82,28 +82,37 @@ export const MediaKitCanvas = forwardRef<{ exportImage: () => Promise<string> },
       const startY = e.clientY;
       const startWidth = layer.width || 0;
       const startHeight = layer.height || 0;
+      const startFontSize = layer.fontSize || 16;
       const aspectRatio = startWidth / startHeight;
 
       const onMouseMove = (moveEvent: MouseEvent) => {
         let dw = (moveEvent.clientX - startX) / scale;
         let dh = (moveEvent.clientY - startY) / scale;
 
-        let newWidth = Math.max(10, startWidth + dw);
-        let newHeight = Math.max(10, startHeight + dh);
+        if (layer.type === "text") {
+          // Scale font size based on horizontal movement
+          const newFontSize = Math.max(12, startFontSize + (dw * 0.5));
+          onUpdateLayer(layer.id, {
+            fontSize: Math.round(newFontSize),
+          });
+        } else {
+          let newWidth = Math.max(10, startWidth + dw);
+          let newHeight = Math.max(10, startHeight + dh);
 
-        if (moveEvent.shiftKey) {
-          // Maintain aspect ratio
-          if (newWidth / newHeight > aspectRatio) {
-            newWidth = newHeight * aspectRatio;
-          } else {
-            newHeight = newWidth / aspectRatio;
+          if (moveEvent.shiftKey) {
+            // Maintain aspect ratio
+            if (newWidth / newHeight > aspectRatio) {
+              newWidth = newHeight * aspectRatio;
+            } else {
+              newHeight = newWidth / aspectRatio;
+            }
           }
-        }
 
-        onUpdateLayer(layer.id, {
-          width: Math.round(newWidth),
-          height: Math.round(newHeight),
-        });
+          onUpdateLayer(layer.id, {
+            width: Math.round(newWidth),
+            height: Math.round(newHeight),
+          });
+        }
       };
 
       const onMouseUp = (upEvent: MouseEvent) => {
@@ -178,12 +187,14 @@ export const MediaKitCanvas = forwardRef<{ exportImage: () => Promise<string> },
               key={layer.id}
               onMouseDown={(e) => handleMouseDown(e, layer)}
               className={cn(
-                "absolute cursor-move select-none",
-                selectedLayerId === layer.id && "ring-2 ring-blue-500 ring-offset-1"
+                "absolute cursor-move select-none group",
+                selectedLayerId === layer.id && "ring-2 ring-blue-500 ring-offset-2 shadow-lg"
               )}
               style={{
                 left: layer.x,
                 top: layer.y,
+                width: (layer.type === "image" || layer.type === "shape") ? layer.width : undefined,
+                height: (layer.type === "image" || layer.type === "shape") ? layer.height : undefined,
                 zIndex: layer.zIndex,
                 opacity: layer.opacity ?? 1,
               }}
@@ -220,11 +231,20 @@ export const MediaKitCanvas = forwardRef<{ exportImage: () => Promise<string> },
                   }}
                 />
               )}
-              {selectedLayerId === layer.id && (layer.type === "image" || layer.type === "shape") && (
-                <div
-                  className="absolute bottom-0 right-0 w-4 h-4 bg-blue-500 border-2 border-white rounded-full cursor-nwse-resize translate-x-1/2 translate-y-1/2 z-50 hover:scale-125 transition-transform"
-                  onMouseDown={(e) => handleResizeMouseDown(e, layer)}
-                />
+              {selectedLayerId === layer.id && (
+                <>
+                  {/* Custom Bounding Box for better visual */}
+                  <div className="absolute inset-0 border border-blue-200 pointer-events-none -m-[1px]" />
+                  
+                  {/* Resize Handle */}
+                  <div
+                    className="absolute bottom-0 right-0 w-5 h-5 bg-blue-600 border-2 border-white rounded-lg cursor-nwse-resize translate-x-1/2 translate-y-1/2 z-50 shadow-md hover:scale-125 transition-transform flex items-center justify-center p-0.5"
+                    onMouseDown={(e) => handleResizeMouseDown(e, layer)}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div className="w-1.5 h-1.5 border-r-2 border-b-2 border-white rotate-45 mb-0.5 mr-0.5" />
+                  </div>
+                </>
               )}
             </div>
           ))}

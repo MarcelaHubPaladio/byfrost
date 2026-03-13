@@ -14,6 +14,8 @@ export type Layer = {
   height?: number;
   opacity?: number;
   zIndex: number;
+  isVariable?: boolean;
+  variableField?: string;
 };
 
 type MediaKitCanvasProps = {
@@ -47,11 +49,28 @@ export const MediaKitCanvas = forwardRef<{ exportImage: () => Promise<string> },
       },
     }));
 
+    const getEffectiveValue = (layer: Layer) => {
+      if (!layer.isVariable || !layer.variableField || !entityData) return layer.content;
+      
+      // Check core fields first
+      if (entityData[layer.variableField] !== undefined && entityData[layer.variableField] !== null) {
+        return String(entityData[layer.variableField]);
+      }
+      
+      // Then metadata
+      if (entityData.metadata?.[layer.variableField] !== undefined && entityData.metadata?.[layer.variableField] !== null) {
+        return String(entityData.metadata[layer.variableField]);
+      }
+      
+      return layer.content;
+    };
+
     const replacePlaceholders = (text: string) => {
       if (!entityData) return text;
       return text.replace(/\{\{(.*?)\}\}/g, (_, key) => {
-        const val = entityData[key.trim()];
-        return val !== undefined ? String(val) : `{{${key}}}`;
+        const trimmedKey = key.trim();
+        const val = entityData[trimmedKey] ?? entityData.metadata?.[trimmedKey];
+        return val !== undefined && val !== null ? String(val) : `{{${key}}}`;
       });
     };
 
@@ -134,12 +153,12 @@ export const MediaKitCanvas = forwardRef<{ exportImage: () => Promise<string> },
                     whiteSpace: "nowrap",
                   }}
                 >
-                  {replacePlaceholders(layer.content)}
+                  {layer.isVariable ? getEffectiveValue(layer) : replacePlaceholders(layer.content)}
                 </div>
               )}
               {layer.type === "image" && (
                 <img
-                  src={replacePlaceholders(layer.content)}
+                  src={layer.isVariable ? getEffectiveValue(layer) : replacePlaceholders(layer.content)}
                   alt=""
                   style={{
                     width: layer.width,

@@ -32,6 +32,14 @@ import { MediaKitGallery } from "@/components/media-kit/MediaKitGallery";
 import { MediaKitLayers } from "@/components/media-kit/MediaKitLayers";
 import { Slider } from "@/components/ui/slider";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { 
   Dialog, 
   DialogContent, 
@@ -778,15 +786,52 @@ export default function MediaKitEditor() {
                     <div className="space-y-4">
                       {selectedLayer.type === "text" && (
                         <>
-                          <div className="space-y-2">
-                            <Label>Conteúdo</Label>
-                            <Input 
-                              value={selectedLayer.content} 
-                              onChange={(e) => updateLayer(selectedLayerId!.pageId, selectedLayer.id, { content: e.target.value }, true)} 
-                              className="rounded-xl"
+                          <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-100">
+                            <div className="space-y-0.5">
+                              <Label className="text-xs font-bold text-slate-700">Conteúdo Variável</Label>
+                              <p className="text-[10px] text-slate-500">Vincular a um campo da entidade</p>
+                            </div>
+                            <Switch 
+                              checked={!!selectedLayer.isVariable}
+                              onCheckedChange={(val) => updateLayer(selectedLayerId!.pageId, selectedLayer.id, { isVariable: val }, true)}
                             />
-                            <p className="text-[10px] text-slate-400">Use {"{{campo}}"} para info da entidade</p>
                           </div>
+
+                          {selectedLayer.isVariable ? (
+                            <div className="space-y-2">
+                              <Label className="text-xs text-slate-500">Campo da Entidade</Label>
+                              <Select 
+                                value={selectedLayer.variableField || ""} 
+                                onValueChange={(val) => updateLayer(selectedLayerId!.pageId, selectedLayer.id, { variableField: val }, true)}
+                              >
+                                <SelectTrigger className="rounded-xl h-10">
+                                  <SelectValue placeholder="Selecione um campo..." />
+                                </SelectTrigger>
+                                <SelectContent className="rounded-xl">
+                                  {Object.entries(entityData?.metadata?.media_kit_config || {})
+                                    .filter(([_, enabled]) => enabled)
+                                    .map(([field]) => (
+                                      <SelectItem key={field} value={field} className="capitalize">{field.replace("_", " ")}</SelectItem>
+                                    ))
+                                  }
+                                  {/* Also offer core fields regardless of config for now as standard */}
+                                  <SelectItem value="display_name">Nome de Exibição</SelectItem>
+                                  <SelectItem value="entity_type">Tipo</SelectItem>
+                                  <SelectItem value="status">Status</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          ) : (
+                            <div className="space-y-2">
+                              <Label>Conteúdo</Label>
+                              <Input 
+                                value={selectedLayer.content} 
+                                onChange={(e) => updateLayer(selectedLayerId!.pageId, selectedLayer.id, { content: e.target.value }, true)} 
+                                className="rounded-xl"
+                              />
+                              <p className="text-[10px] text-slate-400">Use {"{{campo}}"} para info da entidade</p>
+                            </div>
+                          )}
                           <div className="space-y-2">
                             <Label className="text-xs text-slate-500">Tamanho da Fonte: {selectedLayer.fontSize}px</Label>
                             <Slider 
@@ -818,14 +863,50 @@ export default function MediaKitEditor() {
                       {(selectedLayer.type === "image" || selectedLayer.type === "shape") && (
                         <>
                           {selectedLayer.type === "image" && (
-                             <div className="space-y-2">
-                              <Label>URL da Imagem</Label>
-                              <Input 
-                                value={selectedLayer.content} 
-                                onChange={(e) => updateLayer(selectedLayerId!.pageId, selectedLayer.id, { content: e.target.value })} 
-                                className="rounded-xl"
-                              />
-                            </div>
+                             <div className="space-y-4">
+                                <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-100">
+                                  <div className="space-y-0.5">
+                                    <Label className="text-xs font-bold text-slate-700">Imagem Variável</Label>
+                                    <p className="text-[10px] text-slate-500">Vincular a um campo da entidade</p>
+                                  </div>
+                                  <Switch 
+                                    checked={!!selectedLayer.isVariable}
+                                    onCheckedChange={(val) => updateLayer(selectedLayerId!.pageId, selectedLayer.id, { isVariable: val }, true)}
+                                  />
+                                </div>
+
+                                {selectedLayer.isVariable ? (
+                                  <div className="space-y-2">
+                                    <Label className="text-xs text-slate-500">Campo da Imagem</Label>
+                                    <Select 
+                                      value={selectedLayer.variableField || ""} 
+                                      onValueChange={(val) => updateLayer(selectedLayerId!.pageId, selectedLayer.id, { variableField: val }, true)}
+                                    >
+                                      <SelectTrigger className="rounded-xl h-10">
+                                        <SelectValue placeholder="Selecione um campo..." />
+                                      </SelectTrigger>
+                                      <SelectContent className="rounded-xl">
+                                        {Object.entries(entityData?.metadata || {})
+                                          .filter(([k]) => k.toLowerCase().includes("img") || k.toLowerCase().includes("foto") || k.toLowerCase().includes("url"))
+                                          .map(([key]) => (
+                                            <SelectItem key={key} value={key}>{key}</SelectItem>
+                                          ))
+                                        }
+                                        <SelectItem value="display_name">Nome (como placeholder)</SelectItem>
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
+                                ) : (
+                                  <div className="space-y-2">
+                                    <Label>URL da Imagem</Label>
+                                    <Input 
+                                      value={selectedLayer.content} 
+                                      onChange={(e) => updateLayer(selectedLayerId!.pageId, selectedLayer.id, { content: e.target.value }, true)} 
+                                      className="rounded-xl"
+                                    />
+                                  </div>
+                                )}
+                             </div>
                           )}
                           <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-2">

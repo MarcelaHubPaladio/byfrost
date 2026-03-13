@@ -22,6 +22,7 @@ import { isTvCorporativaEnabled } from "@/components/RequireTvCorporativaEnabled
 import { EntityTvCorporativaTab } from "@/components/entities/EntityTvCorporativaTab";
 import { EntitySalesOrdersTab } from "@/components/entities/EntitySalesOrdersTab";
 import { EntityReceiptsTab } from "@/components/entities/EntityReceiptsTab";
+import { EntityMediaKitTab } from "@/components/entities/EntityMediaKitTab";
 
 type EntityRow = {
   id: string;
@@ -47,6 +48,7 @@ export default function EntityDetail() {
   const [deleting, setDeleting] = useState(false);
 
   const tvCorporativaEnabled = useMemo(() => isTvCorporativaEnabled(activeTenant?.modules_json), [activeTenant?.modules_json]);
+  const mediaKitEnabled = useMemo(() => Boolean(activeTenant?.modules_json?.media_kit_enabled), [activeTenant?.modules_json]);
 
   const entityQ = useQuery({
     queryKey: ["entity", activeTenantId, entityId],
@@ -169,6 +171,7 @@ export default function EntityDetail() {
                   {entityQ.data?.entity_type === "party" ? <TabsTrigger value="proposal">Proposta</TabsTrigger> : null}
                   {entityQ.data?.entity_type === "party" ? <TabsTrigger value="orders">Pedidos</TabsTrigger> : null}
                   {tvCorporativaEnabled ? <TabsTrigger value="tv_corporativa">TV Corporativa</TabsTrigger> : null}
+                  {mediaKitEnabled ? <TabsTrigger value="media_kit">Mídia Kit</TabsTrigger> : null}
                   {entityQ.data?.entity_type === "party" ? <TabsTrigger value="receipts">Recibos</TabsTrigger> : null}
                   <TabsTrigger value="finance">Financeiro</TabsTrigger>
                   <TabsTrigger value="timeline">Linha do tempo</TabsTrigger>
@@ -240,6 +243,14 @@ export default function EntityDetail() {
                   <TabsContent value="tv_corporativa">
                     {activeTenantId && entityQ.data ? (
                       <EntityTvCorporativaTab tenantId={activeTenantId} entityId={entityId} />
+                    ) : null}
+                  </TabsContent>
+                ) : null}
+
+                {mediaKitEnabled ? (
+                  <TabsContent value="media_kit">
+                    {activeTenantId && entityQ.data ? (
+                      <EntityMediaKitTab tenantId={activeTenantId} entityId={entityId} />
                     ) : null}
                   </TabsContent>
                 ) : null}

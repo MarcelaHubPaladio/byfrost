@@ -49,6 +49,7 @@ import {
   Zap,
   Link2,
   Globe,
+  Palette,
 } from "lucide-react";
 import { UsageIndicator } from "@/components/admin/UsageIndicator";
 
@@ -361,6 +362,10 @@ function isPortalEnabled(modulesJson: any) {
   return Boolean(modulesJson?.portal_enabled === true);
 }
 
+function isMediaKitEnabled(modulesJson: any) {
+  return Boolean(modulesJson?.media_kit_enabled === true);
+}
+
 type FinanceNavChild = {
   to: string;
   label: string;
@@ -508,6 +513,7 @@ export function AppShell({
   const goalsEnabledForTenant = isGoalsEnabled(activeTenant?.modules_json);
   const tvCorporativaEnabledForTenant = isSuperAdmin || isTvCorporativaEnabled(activeTenant?.modules_json);
   const portalEnabledForTenant = isSuperAdmin || isPortalEnabled(activeTenant?.modules_json);
+  const mediaKitEnabledForTenant = isSuperAdmin || isMediaKitEnabled(activeTenant?.modules_json);
 
   const navAccessQ = useQuery({
     queryKey: ["nav_access", activeTenantId, roleKey],
@@ -548,6 +554,7 @@ export function AppShell({
         "app.tv_corporativa",
         "app.link_manager",
         "app.portal",
+        "app.media_kit",
       ];
 
       try {
@@ -786,6 +793,9 @@ export function AppShell({
                 {portalEnabledForTenant && (
                   <NavTile to="/app/portal" icon={Globe} label="Portal" disabled={!can("app.portal")} />
                 )}
+                {mediaKitEnabledForTenant && (
+                  <NavTile to="/app/media-kit" icon={Palette} label="Mídia Kit" disabled={!can("app.media_kit")} />
+                )}
 
                 {/* Core (desktop): hover menu */}
                 {coreHasAnyAccess && (
@@ -995,15 +1005,24 @@ export function AppShell({
                                 onNavigate={() => setMobileNavOpen(false)}
                               />
                             )}
-                            {portalEnabledForTenant && (
-                                <MobileNavItem
-                                  to="/app/portal"
-                                  icon={Globe}
-                                  label="Portal"
-                                  disabled={!can("app.portal")}
-                                  onNavigate={() => setMobileNavOpen(false)}
-                                />
-                              )}
+                              {portalEnabledForTenant && (
+                                  <MobileNavItem
+                                    to="/app/portal"
+                                    icon={Globe}
+                                    label="Portal"
+                                    disabled={!can("app.portal")}
+                                    onNavigate={() => setMobileNavOpen(false)}
+                                  />
+                                )}
+                              {mediaKitEnabledForTenant && (
+                                  <MobileNavItem
+                                    to="/app/media-kit"
+                                    icon={Palette}
+                                    label="Mídia Kit"
+                                    disabled={!can("app.media_kit")}
+                                    onNavigate={() => setMobileNavOpen(false)}
+                                  />
+                                )}
 
                             {/* Core (mobile): menu com filhos */}
                             {coreHasAnyAccess && (

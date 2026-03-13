@@ -74,6 +74,9 @@ const PublicLinks = lazy(() => import("@/pages/PublicLinks"));
 const PortalManager = lazy(() => import("@/pages/PortalManager"));
 const PortalEditor = lazy(() => import("@/pages/PortalEditor"));
 const PublicPortal = lazy(() => import("@/pages/PublicPortal"));
+const MediaKitList = lazy(() => import("@/pages/MediaKitList"));
+const MediaKitTemplates = lazy(() => import("@/pages/MediaKitTemplates"));
+const MediaKitEditor = lazy(() => import("@/pages/MediaKitEditor"));
 
 const GlobalLoading = () => (
   <div className="flex h-screen w-full items-center justify-center bg-slate-50 dark:bg-slate-950">
@@ -446,6 +449,31 @@ const App = () => (
                     element={
                       <RequireRouteAccess routeKey="app.settings">
                         <Settings />
+                      </RequireRouteAccess>
+                    }
+                  />
+
+                  <Route
+                    path="/app/media-kit"
+                    element={
+                      <RequireRouteAccess routeKey="app.media_kit">
+                        <MediaKitList />
+                      </RequireRouteAccess>
+                    }
+                  />
+                  <Route
+                    path="/app/media-kit/templates"
+                    element={
+                      <RequireRouteAccess routeKey="app.media_kit">
+                        <MediaKitTemplates />
+                      </RequireRouteAccess>
+                    }
+                  />
+                  <Route
+                    path="/app/media-kit/editor/:id"
+                    element={
+                      <RequireRouteAccess routeKey="app.media_kit">
+                        <MediaKitEditor />
                       </RequireRouteAccess>
                     }
                   />

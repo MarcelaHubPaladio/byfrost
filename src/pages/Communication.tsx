@@ -115,6 +115,25 @@ export default function Communication() {
     },
   });
 
+  const channelMembersQ = useQuery({
+    queryKey: ["communication_members", editingChannel?.id],
+    enabled: !!editingChannel?.id && isEditChannelOpen,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("communication_members")
+        .select("user_id")
+        .eq("channel_id", editingChannel!.id);
+      if (error) throw error;
+      return data.map((m: any) => m.user_id);
+    },
+  });
+
+  useEffect(() => {
+    if (isEditChannelOpen && channelMembersQ.data) {
+      setSelectedMembers(channelMembersQ.data);
+    }
+  }, [isEditChannelOpen, channelMembersQ.data]);
+
   const filteredMessages = useMemo(() => {
     const msgs = messagesQ.data ?? [];
     if (!searchQuery.trim()) return msgs;
@@ -393,7 +412,12 @@ export default function Communication() {
 
                           {isPrivate && (
                             <div className="grid gap-2">
-                              <Label>Selecionar Membros</Label>
+                              <div className="flex items-center justify-between">
+                                <Label>Selecionar Membros</Label>
+                                <span className="text-[10px] bg-blue-100 text-blue-600 px-2 py-0.5 rounded-full font-bold">
+                                  {selectedMembers.length} selecionados
+                                </span>
+                              </div>
                               <div className="relative mb-2">
                                 <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
                                 <Input 
@@ -403,28 +427,40 @@ export default function Communication() {
                                   className="h-9 rounded-xl pl-9 text-xs"
                                 />
                               </div>
-                              <ScrollArea className="h-[150px] rounded-xl border border-slate-100 p-2 dark:border-slate-800">
-                                {tenantUsersQ.data?.filter(u => 
+                              <ScrollArea className="h-[200px] rounded-xl border border-slate-100 p-2 dark:border-slate-800">
+                                {tenantUsersQ.isLoading ? (
+                                  <div className="p-4 text-center text-xs text-slate-400">Carregando usuários...</div>
+                                ) : tenantUsersQ.data?.filter(u => 
                                   !userSearchQuery || u.display_name?.toLowerCase().includes(userSearchQuery.toLowerCase())
                                 ).map(u => (
-                                  <div key={u.user_id} className="flex items-center space-x-2 p-2 hover:bg-slate-50 rounded-lg dark:hover:bg-slate-900 transition-colors">
+                                  <label 
+                                    key={u.user_id} 
+                                    className="flex items-center space-x-3 p-2 hover:bg-slate-50 rounded-lg dark:hover:bg-slate-900 transition-colors cursor-pointer"
+                                  >
                                     <Checkbox 
-                                      id={`user-${u.user_id}`} 
                                       checked={selectedMembers.includes(u.user_id)}
                                       onCheckedChange={(checked) => {
                                         if (checked) setSelectedMembers([...selectedMembers, u.user_id]);
                                         else setSelectedMembers(selectedMembers.filter(id => id !== u.user_id));
                                       }}
                                     />
-                                    <label htmlFor={`user-${u.user_id}`} className="flex items-center gap-2 cursor-pointer flex-1">
-                                      <Avatar className="h-6 w-6 rounded-lg">
+                                    <div className="flex items-center gap-2 flex-1">
+                                      <Avatar className="h-7 w-7 rounded-lg">
                                         <AvatarImage src={u.avatar_url} />
-                                        <AvatarFallback className="rounded-lg text-[10px]">{(u.display_name?.[0] || 'U').toUpperCase()}</AvatarFallback>
+                                        <AvatarFallback className="rounded-lg text-[10px] bg-slate-100">
+                                          {(u.display_name?.[0] || 'U').toUpperCase()}
+                                        </AvatarFallback>
                                       </Avatar>
-                                      <span className="text-xs">{u.display_name}</span>
-                                    </label>
-                                  </div>
+                                      <div className="min-w-0">
+                                        <div className="text-xs font-medium truncate">{u.display_name}</div>
+                                        <div className="text-[10px] text-slate-400 truncate">{u.email}</div>
+                                      </div>
+                                    </div>
+                                  </label>
                                 ))}
+                                {tenantUsersQ.data?.length === 0 && (
+                                  <div className="p-4 text-center text-xs text-slate-400">Nenhum usuário encontrado.</div>
+                                )}
                               </ScrollArea>
                             </div>
                           )}
@@ -499,8 +535,14 @@ export default function Communication() {
                 </div>
               </div>
 
-              {/* Edit Channel Dialog (Hidden trigger) */}
-              <Dialog open={isEditChannelOpen} onOpenChange={setIsEditChannelOpen}>
+              <Dialog open={isEditChannelOpen} onOpenChange={(open) => {
+                setIsEditChannelOpen(open);
+                if (!open) {
+                  setEditingChannel(null);
+                  setSelectedMembers([]);
+                  setNewChannelName("");
+                }
+              }}>
                 <DialogContent className="rounded-[28px] max-w-md">
                   <DialogHeader>
                     <DialogTitle>Editar canal</DialogTitle>
@@ -524,6 +566,56 @@ export default function Communication() {
                       </div>
                       <Switch checked={isPrivate} onCheckedChange={setIsPrivate} />
                     </div>
+
+                    {isPrivate && (
+                      <div className="grid gap-2">
+                        <div className="flex items-center justify-between">
+                          <Label>Gerenciar Membros</Label>
+                          <span className="text-[10px] bg-blue-100 text-blue-600 px-2 py-0.5 rounded-full font-bold">
+                            {selectedMembers.length} membros
+                          </span>
+                        </div>
+                        <div className="relative mb-2">
+                          <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+                          <Input 
+                            placeholder="Buscar usuários..." 
+                            value={userSearchQuery}
+                            onChange={(e) => setUserSearchQuery(e.target.value)}
+                            className="h-9 rounded-xl pl-9 text-xs"
+                          />
+                        </div>
+                        <ScrollArea className="h-[200px] rounded-xl border border-slate-100 p-2 dark:border-slate-800">
+                          {tenantUsersQ.isLoading ? (
+                            <div className="p-4 text-center text-xs text-slate-400">Carregando usuários...</div>
+                          ) : tenantUsersQ.data?.map(u => (
+                            <label 
+                              key={u.user_id} 
+                              className="flex items-center space-x-3 p-2 hover:bg-slate-50 rounded-lg dark:hover:bg-slate-900 transition-colors cursor-pointer"
+                            >
+                              <Checkbox 
+                                checked={selectedMembers.includes(u.user_id)}
+                                onCheckedChange={(checked) => {
+                                  if (checked) setSelectedMembers([...selectedMembers, u.user_id]);
+                                  else setSelectedMembers(selectedMembers.filter(id => id !== u.user_id));
+                                }}
+                              />
+                              <div className="flex items-center gap-2 flex-1">
+                                <Avatar className="h-7 w-7 rounded-lg">
+                                  <AvatarImage src={u.avatar_url} />
+                                  <AvatarFallback className="rounded-lg text-[10px] bg-slate-100">
+                                    {(u.display_name?.[0] || 'U').toUpperCase()}
+                                  </AvatarFallback>
+                                </Avatar>
+                                <div className="min-w-0">
+                                  <div className="text-xs font-medium truncate">{u.display_name}</div>
+                                  <div className="text-[10px] text-slate-400 truncate">{u.email}</div>
+                                </div>
+                              </div>
+                            </label>
+                          ))}
+                        </ScrollArea>
+                      </div>
+                    )}
                   </div>
                   <DialogFooter>
                     <Button
@@ -533,7 +625,7 @@ export default function Communication() {
                         id: editingChannel.id,
                         name: newChannelName, 
                         isPrivate, 
-                        memberIds: [] // Membership edit in update is complex, skipping for now or adding later
+                        memberIds: isPrivate ? selectedMembers : [] 
                       })}
                     >
                       {updateChannelM.isPending ? "Salvando..." : "Salvar Alterações"}

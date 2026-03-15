@@ -215,6 +215,7 @@ export default function Communication() {
         .from("communication_messages")
         .insert({
           channel_id: activeChannelId!,
+          tenant_id: activeTenantId,
           user_id: user?.id,
           content,
         })

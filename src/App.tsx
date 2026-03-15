@@ -306,7 +306,9 @@ const App = () => (
                     path="/app/communication"
                     element={
                       <RequireCommunicationEnabled>
-                        <Communication />
+                        <RequireRouteAccess routeKey="app.communication">
+                          <Communication />
+                        </RequireRouteAccess>
                       </RequireCommunicationEnabled>
                     }
                   />

@@ -75,7 +75,7 @@ function getUserDisplayName(user: any) {
 
 export default function Me() {
   const { user } = useSession();
-  const { activeTenantId, isSuperAdmin } = useTenant();
+  const { activeTenantId, isSuperAdmin, activeTenant } = useTenant();
   const { prefs, setMode, setCustom, setStartRoute, isLoading } = useTheme();
   const [busy, setBusy] = useState(false);
   const [linking, setLinking] = useState(false);
@@ -108,7 +108,11 @@ export default function Me() {
       if (r.path === "/app") return true;
       if (r.path === "/app/me") return true;
       if (r.path === "/app/settings") return true;
-      if (r.path === "/app/chat") return true; // Usually enabled via another flag but keep for simplicity or check role
+      if (r.path === "/app/chat") return true; 
+
+      if (r.path === "/app/communication") {
+        return Boolean((activeTenant?.modules_json as any)?.communication_enabled === true);
+      }
 
       const enabledList = journeysEnabledQ.data ?? [];
 

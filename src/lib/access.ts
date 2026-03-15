@@ -16,6 +16,7 @@ export const CANDIDATE_ROUTES: CandidateRoute[] = [
   { key: "app.presence", path: "/app/presence", label: "Ponto" },
   { key: "app.simulator", path: "/app/simulator", label: "Simulador" },
   { key: "app.me", path: "/app/me", label: "Meu usuário" },
+  { key: "app.communication", path: "/app/communication", label: "Comunicação" },
   { key: "app.settings", path: "/app/settings", label: "Config" },
 ];
 

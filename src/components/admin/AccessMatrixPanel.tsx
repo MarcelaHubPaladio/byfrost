@@ -115,6 +115,13 @@ const DEFAULT_ROUTES: RouteRow[] = [
     path_pattern: "/app/inventory",
     description: "Lista e gestão de inventário/estoque",
   },
+  {
+    key: "app.communication",
+    name: "Comunicação",
+    category: "App",
+    path_pattern: "/app/communication",
+    description: "Módulo de chat interno e canais",
+  },
 ];
 
 const DEFAULT_ROLES = [

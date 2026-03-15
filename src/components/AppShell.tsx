@@ -434,6 +434,7 @@ const CORE_NAV_CHILDREN: CoreNavChild[] = [
 const CREATE_NAV_CHILDREN = [
   { to: "/app/link-manager", label: "Links", icon: Link2, routeKey: "app.link_manager" },
   { to: "/app/media-kit", label: "Mídia Kit", icon: Palette, routeKey: "app.media_kit" },
+  { to: "/app/portal", label: "Portal", icon: Globe, routeKey: "app.portal" },
 ];
 
 function DesktopHoverMenu({
@@ -675,9 +676,9 @@ export function AppShell({
 
   const createHasAnyAccess = useMemo(() => {
     if (isSuperAdmin) return true;
-    if (!linkManagerEnabledForTenant && !mediaKitEnabledForTenant) return false;
-    return ["app.link_manager", "app.media_kit"].some((k) => can(k));
-  }, [isSuperAdmin, linkManagerEnabledForTenant, mediaKitEnabledForTenant, navAccessQ.isLoading, navAccessQ.data, activeTenantId, roleKey]);
+    if (!linkManagerEnabledForTenant && !mediaKitEnabledForTenant && !portalEnabledForTenant) return false;
+    return ["app.link_manager", "app.media_kit", "app.portal"].some((k) => can(k));
+  }, [isSuperAdmin, linkManagerEnabledForTenant, mediaKitEnabledForTenant, portalEnabledForTenant, navAccessQ.isLoading, navAccessQ.data, activeTenantId, roleKey]);
 
   const showChatInNav = isSuperAdmin ? true : chatAccess.isLoading ? false : chatAccess.hasAccess;
 
@@ -901,10 +902,6 @@ export function AppShell({
                 {hasMetaContent && (
                   <NavTile to="/app/content" icon={Clapperboard} label="Conteúdo" disabled={!can("app.content")} />
                 )}
-                
-                {portalEnabledForTenant && (
-                  <NavTile to="/app/portal" icon={Globe} label="Portal" disabled={!can("app.portal")} />
-                )}
 
                 {/* Criar (desktop): hover menu */}
                 {createHasAnyAccess && (
@@ -915,6 +912,7 @@ export function AppShell({
                     {CREATE_NAV_CHILDREN.filter(c => {
                       if (c.to === "/app/link-manager" && !linkManagerEnabledForTenant) return false;
                       if (c.to === "/app/media-kit" && !mediaKitEnabledForTenant) return false;
+                      if (c.to === "/app/portal" && !portalEnabledForTenant) return false;
                       return true;
                     }).map(({ to, label, icon, routeKey }) => (
                       <DesktopHoverMenuLink
@@ -1141,15 +1139,6 @@ export function AppShell({
                                 onNavigate={() => setMobileNavOpen(false)}
                               />
                             )}
-                            {portalEnabledForTenant && (
-                                <MobileNavItem
-                                  to="/app/portal"
-                                  icon={Globe}
-                                  label="Portal"
-                                  disabled={!can("app.portal")}
-                                  onNavigate={() => setMobileNavOpen(false)}
-                                />
-                              )}
 
                             {/* Criar (mobile): menu com filhos */}
                             {createHasAnyAccess && (
@@ -1181,6 +1170,7 @@ export function AppShell({
                                   {CREATE_NAV_CHILDREN.filter(c => {
                                     if (c.to === "/app/link-manager" && !linkManagerEnabledForTenant) return false;
                                     if (c.to === "/app/media-kit" && !mediaKitEnabledForTenant) return false;
+                                    if (c.to === "/app/portal" && !portalEnabledForTenant) return false;
                                     return true;
                                   }).map(({ to, label, icon, routeKey }) => (
                                     <MobileNavItem

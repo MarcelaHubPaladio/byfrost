@@ -50,6 +50,7 @@ import {
   Link2,
   Globe,
   Palette,
+  Bell,
 } from "lucide-react";
 import { UsageIndicator } from "@/components/admin/UsageIndicator";
 
@@ -585,6 +586,46 @@ export function AppShell({
     return Boolean(navAccessQ.data[routeKey]);
   };
 
+  const unreadCommQ = useQuery({
+    queryKey: ["unread_communication", activeTenantId, user?.id],
+    enabled: Boolean(activeTenantId && user?.id && communicationEnabledForTenant),
+    refetchInterval: 30000,
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("get_unread_communication_count", {
+        p_tenant_id: activeTenantId,
+      });
+      if (error) throw error;
+      return Number(data || 0);
+    },
+  });
+
+  const unreadCount = unreadCommQ.data || 0;
+
+  useEffect(() => {
+    if (!activeTenantId || !user?.id || !communicationEnabledForTenant) return;
+
+    const channel = supabase
+      .channel(`comm_notifications:${activeTenantId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "communication_messages",
+          // We can't filter by user_id != auth.uid() here easily in RLS/Client filter 
+          // but the RPC handles it.
+        },
+        () => {
+          unreadCommQ.refetch();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [activeTenantId, user?.id, communicationEnabledForTenant]);
+
   const financeHasAnyAccess = useMemo(() => {
     if (!financeEnabledForTenant) return false;
     if (isSuperAdmin) return true;
@@ -781,6 +822,24 @@ export function AppShell({
                   {activeTenant?.name ?? "Byfrost"}
                 </div>
               </Link>
+              
+              {communicationEnabledForTenant && (
+                <div className="mt-2 flex justify-center">
+                  <button
+                    type="button"
+                    onClick={() => nav("/app/communication")}
+                    className="group relative flex h-10 w-10 items-center justify-center rounded-2xl bg-white/15 text-white transition hover:bg-white/25 active:scale-95"
+                    title={`${unreadCount} novas mensagens`}
+                  >
+                    <Bell className={cn("h-5 w-5", unreadCount > 0 && "animate-pulse")} />
+                    {unreadCount > 0 && (
+                      <div className="absolute -right-1 -top-1 flex h-5 min-w-[20px] items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold text-white shadow-sm ring-2 ring-[hsl(var(--byfrost-accent))]">
+                        {unreadCount > 99 ? "99+" : unreadCount}
+                      </div>
+                    )}
+                  </button>
+                </div>
+              )}
             </div>
 
             <div className="flex-1 overflow-y-auto p-3">

@@ -51,12 +51,18 @@ export default function Communication() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("communication_channels")
-        .select("*")
+        .select("*, member:communication_members(last_read_at)")
         .eq("tenant_id", activeTenantId!)
+        .eq("member.user_id", user?.id || '')
         .is("deleted_at", null)
         .order("name");
       if (error) throw error;
-      return data;
+      
+      // Transform data to flatten member info
+      return data.map((c: any) => ({
+        ...c,
+        last_read_at: c.member?.[0]?.last_read_at
+      }));
     },
   });
 
@@ -157,6 +163,7 @@ export default function Communication() {
         },
         () => {
           qc.invalidateQueries({ queryKey: ["communication_messages", activeChannelId] });
+          markAsReadM.mutate(activeChannelId);
         }
       )
       .subscribe();
@@ -299,6 +306,25 @@ export default function Communication() {
     onError: (err: any) => showError(err.message),
   });
 
+  const markAsReadM = useMutation({
+    mutationFn: async (channelId: string) => {
+      const { error } = await supabase.rpc("mark_channel_as_read", {
+        p_channel_id: channelId,
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["unread_communication", activeTenantId, user?.id] });
+    },
+  });
+
+  // Handle marking as read
+  useEffect(() => {
+    if (activeChannelId) {
+      markAsReadM.mutate(activeChannelId);
+    }
+  }, [activeChannelId]);
+
   const togglePinM = useMutation({
     mutationFn: async ({ messageId, isPinned }: { messageId: string; isPinned: boolean }) => {
       const { error } = await supabase
@@ -348,9 +374,7 @@ export default function Communication() {
     if (scrollRef.current) {
       scrollRef.current.scrollIntoView({ behavior: "smooth" });
     }
-  }, [messagesQ.data]);
-
-  return (
+  }, [messagesQ.data]);  return (
     <RequireAuth>
       <AppShell hideTopBar>
         <div className="flex h-[calc(100vh-2rem)] overflow-hidden rounded-[32px] border border-slate-200 bg-white/50 backdrop-blur-xl dark:border-slate-800 dark:bg-slate-950/50">
@@ -360,6 +384,7 @@ export default function Communication() {
             <div className="flex items-center justify-between p-4 border-b border-slate-200 dark:border-slate-800">
               <h2 className="text-lg font-bold tracking-tight">Comunicação</h2>
             </div>
+            
             <ScrollArea className="flex-1 px-2">
               <div className="py-4">
                 <div className="mb-2 px-2 flex items-center justify-between text-[10px] font-bold uppercase tracking-wider text-slate-500">
@@ -381,9 +406,7 @@ export default function Communication() {
                       <DialogContent className="rounded-[28px] max-w-md">
                         <DialogHeader>
                           <DialogTitle>Criar novo canal</DialogTitle>
-                          <DialogDescription>
-                            Organize conversas por tópicos ou departamentos.
-                          </DialogDescription>
+                          <DialogDescription>Organize conversas por tópicos.</DialogDescription>
                         </DialogHeader>
                         <div className="grid gap-6 py-4">
                           <div className="grid gap-2">
@@ -392,51 +415,30 @@ export default function Communication() {
                               id="new-name"
                               value={newChannelName}
                               onChange={(e) => setNewChannelName(e.target.value)}
-                              placeholder="ex. anuncios"
+                              placeholder="ex. anúncios"
                               className="rounded-xl"
                             />
                           </div>
                           
-                          <div className="flex items-center justify-between space-x-2 rounded-2xl border border-slate-100 p-4 dark:border-slate-800">
+                          <div className="flex items-center justify-between rounded-2xl border border-slate-100 p-4 dark:border-slate-800">
                             <div className="space-y-0.5">
                               <Label className="text-base">Canal Privado</Label>
-                              <p className="text-xs text-slate-500">
-                                Apenas membros selecionados poderão ver este canal.
-                              </p>
+                              <p className="text-xs text-slate-500">Apenas membros selecionados.</p>
                             </div>
-                            <Switch
-                              checked={isPrivate}
-                              onCheckedChange={setIsPrivate}
-                            />
+                            <Switch checked={isPrivate} onCheckedChange={setIsPrivate} />
                           </div>
 
                           {isPrivate && (
                             <div className="grid gap-2">
                               <div className="flex items-center justify-between">
-                                <Label>Selecionar Membros</Label>
+                                <Label>Membros</Label>
                                 <span className="text-[10px] bg-blue-100 text-blue-600 px-2 py-0.5 rounded-full font-bold">
                                   {selectedMembers.length} selecionados
                                 </span>
                               </div>
-                              <div className="relative mb-2">
-                                <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
-                                <Input 
-                                  placeholder="Buscar usuários..." 
-                                  value={userSearchQuery}
-                                  onChange={(e) => setUserSearchQuery(e.target.value)}
-                                  className="h-9 rounded-xl pl-9 text-xs"
-                                />
-                              </div>
                               <ScrollArea className="h-[200px] rounded-xl border border-slate-100 p-2 dark:border-slate-800">
-                                {tenantUsersQ.isLoading ? (
-                                  <div className="p-4 text-center text-xs text-slate-400">Carregando usuários...</div>
-                                ) : tenantUsersQ.data?.filter(u => 
-                                  !userSearchQuery || u.display_name?.toLowerCase().includes(userSearchQuery.toLowerCase())
-                                ).map(u => (
-                                  <label 
-                                    key={u.user_id} 
-                                    className="flex items-center space-x-3 p-2 hover:bg-slate-50 rounded-lg dark:hover:bg-slate-900 transition-colors cursor-pointer"
-                                  >
+                                {tenantUsersQ.data?.filter(u => !userSearchQuery || u.display_name?.toLowerCase().includes(userSearchQuery.toLowerCase())).map(u => (
+                                  <label key={u.user_id} className="flex items-center space-x-3 p-2 hover:bg-slate-50 rounded-lg cursor-pointer transition-colors">
                                     <Checkbox 
                                       checked={selectedMembers.includes(u.user_id)}
                                       onCheckedChange={(checked) => {
@@ -444,36 +446,23 @@ export default function Communication() {
                                         else setSelectedMembers(selectedMembers.filter(id => id !== u.user_id));
                                       }}
                                     />
-                                    <div className="flex items-center gap-2 flex-1">
+                                    <div className="flex items-center gap-2">
                                       <Avatar className="h-7 w-7 rounded-lg">
-                                        <AvatarImage src={u.avatar_url} />
-                                        <AvatarFallback className="rounded-lg text-[10px] bg-slate-100">
-                                          {(u.display_name?.[0] || 'U').toUpperCase()}
-                                        </AvatarFallback>
+                                        <AvatarFallback className="rounded-lg text-[10px] bg-slate-100">{(u.display_name?.[0] || 'U').toUpperCase()}</AvatarFallback>
                                       </Avatar>
-                                      <div className="min-w-0">
-                                        <div className="text-xs font-medium truncate">{u.display_name}</div>
-                                        <div className="text-[10px] text-slate-400 truncate">{u.email}</div>
-                                      </div>
+                                      <div className="text-xs truncate">{u.display_name}</div>
                                     </div>
                                   </label>
                                 ))}
-                                {tenantUsersQ.data?.length === 0 && (
-                                  <div className="p-4 text-center text-xs text-slate-400">Nenhum usuário encontrado.</div>
-                                )}
                               </ScrollArea>
                             </div>
                           )}
                         </div>
                         <DialogFooter>
-                          <Button
-                            className="w-full rounded-xl"
+                          <Button 
+                            className="w-full rounded-xl" 
                             disabled={!newChannelName.trim() || createChannelM.isPending}
-                            onClick={() => createChannelM.mutate({ 
-                              name: newChannelName, 
-                              isPrivate, 
-                              memberIds: isPrivate ? selectedMembers : [] 
-                            })}
+                            onClick={() => createChannelM.mutate({ name: newChannelName, isPrivate, memberIds: isPrivate ? selectedMembers : [] })}
                           >
                             {createChannelM.isPending ? "Criando..." : "Criar Canal"}
                           </Button>
@@ -482,192 +471,96 @@ export default function Communication() {
                     </Dialog>
                   )}
                 </div>
+
                 <div className="space-y-1">
-                  {channelsQ.data?.filter(c => c.type !== 'direct').map((c) => (
-                    <div key={c.id} className="group relative">
-                      <button
-                        onClick={() => setActiveChannelId(c.id)}
-                        className={cn(
-                          "flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm transition-all pr-10",
-                          activeChannelId === c.id 
-                            ? "bg-blue-600 text-white shadow-lg shadow-blue-500/20" 
-                            : "text-slate-600 hover:bg-slate-200/50 dark:text-slate-400 dark:hover:bg-slate-800/50"
+                  {channelsQ.data?.filter(c => c.type !== 'direct').map((c) => {
+                    const isUnread = c.last_message_at && (!c.last_read_at || new Date(c.last_message_at) > new Date(c.last_read_at));
+                    const isActive = activeChannelId === c.id;
+
+                    return (
+                      <div key={c.id} className="group relative">
+                        <button
+                          onClick={() => setActiveChannelId(c.id)}
+                          className={cn(
+                            "flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm transition-all pr-10",
+                            isActive 
+                              ? "bg-white/15 text-white shadow-sm" 
+                              : isUnread
+                              ? "bg-white/5 font-semibold text-white/95"
+                              : "text-white/60 hover:bg-white/10 hover:text-white/80"
+                          )}
+                        >
+                          {c.type === 'private' ? (
+                            <Lock className={cn("h-4 w-4", isUnread && !isActive && "text-rose-400")} />
+                          ) : (
+                            <Hash className={cn("h-4 w-4", isUnread && !isActive && "text-[hsl(var(--byfrost-accent))]")} />
+                          )}
+                          <span className="truncate">{c.name}</span>
+
+                          {isUnread && !isActive && (
+                            <div className="absolute right-3 h-2 w-2 rounded-full bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.6)]" />
+                          )}
+                        </button>
+                        
+                        {isAdmin && (
+                          <div className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button variant="ghost" size="icon" className="h-7 w-7 rounded-lg text-slate-400">
+                                  <MoreVertical className="h-3.5 w-3.5" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end" className="rounded-2xl w-40">
+                                <DropdownMenuItem onClick={() => { setEditingChannel(c); setNewChannelName(c.name); setIsPrivate(c.type === 'private'); setIsEditChannelOpen(true); }} className="rounded-xl flex items-center gap-2"><Settings className="h-3.5 w-3.5" /> Editar</DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => { if (confirm(`Excluir o canal #${c.name}?`)) deleteChannelM.mutate(c.id); }} className="rounded-xl flex items-center gap-2 text-red-600"><Trash2 className="h-3.5 w-3.5" /> Excluir</DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </div>
                         )}
-                      >
-                        {c.type === 'private' ? <Lock className="h-3.5 w-3.5 opacity-50" /> : <Hash className="h-4 w-4 opacity-50" />}
-                        <span className="truncate">{c.name}</span>
-                      </button>
-                      
-                      {isAdmin && (
-                        <div className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button variant="ghost" size="icon" className="h-7 w-7 rounded-lg text-slate-400 hover:text-slate-900">
-                                <MoreVertical className="h-3.5 w-3.5" />
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end" className="rounded-2xl w-40">
-                              <DropdownMenuItem 
-                                className="rounded-xl flex items-center gap-2"
-                                onClick={() => {
-                                  setEditingChannel(c);
-                                  setNewChannelName(c.name);
-                                  setIsPrivate(c.type === 'private');
-                                  setIsEditChannelOpen(true);
-                                }}
-                              >
-                                <Settings className="h-3.5 w-3.5" /> Editar
-                              </DropdownMenuItem>
-                              <DropdownMenuItem 
-                                className="rounded-xl flex items-center gap-2 text-red-600 hover:text-red-600"
-                                onClick={() => {
-                                  if (confirm(`Excluir o canal #${c.name}?`)) deleteChannelM.mutate(c.id);
-                                }}
-                              >
-                                <Trash2 className="h-3.5 w-3.5" /> Excluir
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        </div>
-                      )}
-                    </div>
-                  ))}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
 
-              <Dialog open={isEditChannelOpen} onOpenChange={(open) => {
-                setIsEditChannelOpen(open);
-                if (!open) {
-                  setEditingChannel(null);
-                  setSelectedMembers([]);
-                  setNewChannelName("");
-                }
-              }}>
-                <DialogContent className="rounded-[28px] max-w-md">
-                  <DialogHeader>
-                    <DialogTitle>Editar canal</DialogTitle>
-                    <DialogDescription>Alterar configurações do canal #{editingChannel?.name}.</DialogDescription>
-                  </DialogHeader>
-                  <div className="grid gap-6 py-4">
-                    <div className="grid gap-2">
-                      <Label htmlFor="edit-name">Nome do canal</Label>
-                      <Input
-                        id="edit-name"
-                        value={newChannelName}
-                        onChange={(e) => setNewChannelName(e.target.value)}
-                        className="rounded-xl"
-                      />
-                    </div>
-                    
-                    <div className="flex items-center justify-between space-x-2 rounded-2xl border border-slate-100 p-4 dark:border-slate-800">
-                      <div className="space-y-0.5">
-                        <Label className="text-base">Canal Privado</Label>
-                        <p className="text-xs text-slate-500">Privado restringe acesso a membros.</p>
-                      </div>
-                      <Switch checked={isPrivate} onCheckedChange={setIsPrivate} />
-                    </div>
-
-                    {isPrivate && (
-                      <div className="grid gap-2">
-                        <div className="flex items-center justify-between">
-                          <Label>Gerenciar Membros</Label>
-                          <span className="text-[10px] bg-blue-100 text-blue-600 px-2 py-0.5 rounded-full font-bold">
-                            {selectedMembers.length} membros
-                          </span>
-                        </div>
-                        <div className="relative mb-2">
-                          <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
-                          <Input 
-                            placeholder="Buscar usuários..." 
-                            value={userSearchQuery}
-                            onChange={(e) => setUserSearchQuery(e.target.value)}
-                            className="h-9 rounded-xl pl-9 text-xs"
-                          />
-                        </div>
-                        <ScrollArea className="h-[200px] rounded-xl border border-slate-100 p-2 dark:border-slate-800">
-                          {tenantUsersQ.isLoading ? (
-                            <div className="p-4 text-center text-xs text-slate-400">Carregando usuários...</div>
-                          ) : tenantUsersQ.data?.map(u => (
-                            <label 
-                              key={u.user_id} 
-                              className="flex items-center space-x-3 p-2 hover:bg-slate-50 rounded-lg dark:hover:bg-slate-900 transition-colors cursor-pointer"
-                            >
-                              <Checkbox 
-                                checked={selectedMembers.includes(u.user_id)}
-                                onCheckedChange={(checked) => {
-                                  if (checked) setSelectedMembers([...selectedMembers, u.user_id]);
-                                  else setSelectedMembers(selectedMembers.filter(id => id !== u.user_id));
-                                }}
-                              />
-                              <div className="flex items-center gap-2 flex-1">
-                                <Avatar className="h-7 w-7 rounded-lg">
-                                  <AvatarImage src={u.avatar_url} />
-                                  <AvatarFallback className="rounded-lg text-[10px] bg-slate-100">
-                                    {(u.display_name?.[0] || 'U').toUpperCase()}
-                                  </AvatarFallback>
-                                </Avatar>
-                                <div className="min-w-0">
-                                  <div className="text-xs font-medium truncate">{u.display_name}</div>
-                                  <div className="text-[10px] text-slate-400 truncate">{u.email}</div>
-                                </div>
-                              </div>
-                            </label>
-                          ))}
-                        </ScrollArea>
-                      </div>
-                    )}
-                  </div>
-                  <DialogFooter>
-                    <Button
-                      className="w-full rounded-xl"
-                      disabled={!newChannelName.trim() || updateChannelM.isPending}
-                      onClick={() => updateChannelM.mutate({ 
-                        id: editingChannel.id,
-                        name: newChannelName, 
-                        isPrivate, 
-                        memberIds: isPrivate ? selectedMembers : [] 
-                      })}
-                    >
-                      {updateChannelM.isPending ? "Salvando..." : "Salvar Alterações"}
-                    </Button>
-                  </DialogFooter>
-                </DialogContent>
-              </Dialog>
-
-              <div className="py-4">
+              <div className="py-4 border-t border-slate-200 dark:border-slate-800">
                 <div className="mb-2 px-2 text-[10px] font-bold uppercase tracking-wider text-slate-500">
                   Mensagens Diretas
                 </div>
                 <div className="space-y-1">
                   {channelsQ.data?.filter(c => c.type === 'direct').map((c) => {
-                    // In DMs, name is usually "User A, User B". We can improve this if we had members.
-                    // For now, let's just show it.
+                    const isUnread = c.last_message_at && (!c.last_read_at || new Date(c.last_message_at) > new Date(c.last_read_at));
+                    const isActive = activeChannelId === c.id;
+
                     return (
                       <button
                         key={c.id}
                         onClick={() => setActiveChannelId(c.id)}
                         className={cn(
-                          "flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm transition-all",
-                          activeChannelId === c.id 
-                            ? "bg-blue-600 text-white shadow-lg shadow-blue-500/20" 
-                            : "text-slate-600 hover:bg-slate-200/50 dark:text-slate-400 dark:hover:bg-slate-800/50"
+                          "group relative flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm transition-all",
+                          isActive
+                            ? "bg-white/15 text-white shadow-sm"
+                            : isUnread
+                            ? "bg-white/5 font-semibold text-white/95"
+                            : "text-white/60 hover:bg-white/10 hover:text-white/80"
                         )}
                       >
-                        <MessageSquare className="h-4 w-4 opacity-50" />
-                        {c.name}
+                        <MessageSquare className={cn("h-4 w-4", isUnread && !isActive && "text-rose-400")} />
+                        <span className="truncate">{c.name}</span>
+                        {isUnread && !isActive && (
+                          <div className="absolute right-3 h-2 w-2 rounded-full bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.6)]" />
+                        )}
                       </button>
-                    )
+                    );
                   })}
                 </div>
               </div>
             </ScrollArea>
 
-            <div className="p-4 border-t border-slate-200 dark:border-slate-800">
+            <div className="p-4 border-t border-slate-200 dark:border-slate-800 bg-slate-100/30">
               <div className="flex items-center gap-3">
                 <Avatar className="h-10 w-10 rounded-xl">
-                  <AvatarFallback className="rounded-xl bg-slate-200">
-                    {(userName?.slice(0, 1) ?? "U").toUpperCase()}
-                  </AvatarFallback>
+                  <AvatarFallback className="rounded-xl bg-slate-200">{(userName?.slice(0, 1) ?? "U").toUpperCase()}</AvatarFallback>
                 </Avatar>
                 <div className="min-w-0">
                   <div className="truncate text-sm font-bold">{userName}</div>
@@ -679,7 +572,6 @@ export default function Communication() {
 
           {/* Main Chat Area */}
           <main className="flex flex-1 flex-col bg-white/50 dark:bg-slate-950/20">
-            {/* Chat Header */}
             <header className="flex h-16 items-center justify-between border-b border-slate-200 px-6 dark:border-slate-800">
               <div className="flex items-center gap-2">
                 <Hash className="h-5 w-5 text-slate-400" />
@@ -688,41 +580,22 @@ export default function Communication() {
               <div className="flex items-center gap-4">
                 <Popover>
                   <PopoverTrigger asChild>
-                    <Button variant="ghost" size="icon" className="rounded-xl text-slate-400 hover:text-slate-900">
+                    <Button variant="ghost" size="icon" className="rounded-xl text-slate-400">
                       <Pin className="h-5 w-5" />
-                      {pinnedMessagesQ.data?.length ? (
-                        <span className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-blue-600 text-[10px] font-bold text-white flex items-center justify-center">
-                          {pinnedMessagesQ.data.length}
-                        </span>
-                      ) : null}
+                      {pinnedMessagesQ.data?.length ? <span className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-rose-600 text-[10px] font-bold text-white flex items-center justify-center">{pinnedMessagesQ.data.length}</span> : null}
                     </Button>
                   </PopoverTrigger>
-                  <PopoverContent className="w-80 rounded-[28px] p-0 shadow-2xl overflow-hidden border-slate-200 dark:border-slate-800">
-                    <div className="p-4 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50">
-                      <h4 className="font-bold text-sm">Mensagens Fixadas</h4>
-                    </div>
+                  <PopoverContent className="w-80 rounded-[28px] overflow-hidden border-slate-200 dark:border-slate-800 p-0 shadow-2xl">
+                    <div className="p-4 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50"><h4 className="font-bold text-sm">Mensagens Fixadas</h4></div>
                     <ScrollArea className="max-h-[400px]">
                       <div className="p-2 space-y-1">
                         {pinnedMessagesQ.data?.map(m => (
-                          <div key={m.id} className="p-3 rounded-2xl hover:bg-slate-50 dark:hover:bg-slate-900 transition-colors group">
-                            <div className="flex items-center gap-2 mb-1">
-                              <span className="font-bold text-xs">{m.user?.display_name}</span>
-                              <span className="text-[10px] text-slate-400">{format(new Date(m.created_at), "dd/MM HH:mm")}</span>
-                            </div>
+                          <div key={m.id} className="p-3 rounded-2xl hover:bg-slate-50 transition-colors group">
+                            <div className="flex items-center gap-2 mb-1"><span className="font-bold text-xs">{m.user?.display_name}</span><span className="text-[10px] text-slate-400">{format(new Date(m.created_at), "dd/MM HH:mm")}</span></div>
                             <p className="text-xs text-slate-600 dark:text-slate-400 line-clamp-3">{m.content}</p>
-                            <Button 
-                              variant="ghost" 
-                              size="sm" 
-                              className="w-full mt-2 h-7 rounded-lg text-[10px] opacity-0 group-hover:opacity-100 transition-opacity"
-                              onClick={() => togglePinM.mutate({ messageId: m.id, isPinned: false })}
-                            >
-                              Remover fixado
-                            </Button>
+                            <Button variant="ghost" size="sm" className="w-full mt-2 h-7 rounded-lg text-[10px] opacity-0 group-hover:opacity-100" onClick={() => togglePinM.mutate({ messageId: m.id, isPinned: false })}>Remover fixado</Button>
                           </div>
                         ))}
-                        {!pinnedMessagesQ.data?.length && (
-                          <div className="p-8 text-center text-xs text-slate-400">Nenhuma mensagem fixada.</div>
-                        )}
                       </div>
                     </ScrollArea>
                   </PopoverContent>
@@ -730,62 +603,28 @@ export default function Communication() {
 
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                  <Input 
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Buscar" 
-                    className="h-9 w-48 rounded-xl border-none bg-slate-100/50 pl-9 text-xs focus-visible:ring-1 focus-visible:ring-blue-500 dark:bg-slate-800/50" 
-                  />
-                  {searchQuery && (
-                    <button 
-                      onClick={() => setSearchQuery("")}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
-                  )}
+                  <Input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Buscar" className="h-9 w-48 rounded-xl border-none bg-slate-100/50 pl-9 text-xs focus-visible:ring-1 focus-visible:ring-rose-500" />
                 </div>
-                <Button variant="ghost" size="icon" className="rounded-xl text-slate-400 hover:text-slate-900 md:hidden">
-                  <Users className="h-5 w-5" />
-                </Button>
               </div>
             </header>
 
-            {/* Messages */}
             <ScrollArea className="flex-1 p-6">
               <div className="space-y-6">
                 {filteredMessages.map((m) => (
                   <div key={m.id} className="group flex gap-4">
-                    <Avatar className="h-10 w-10 rounded-xl shrink-0">
-                      <AvatarImage src={m.user?.avatar_url} />
-                      <AvatarFallback className="rounded-xl bg-indigo-100 text-indigo-600">
-                        {(m.user?.display_name?.slice(0, 1) ?? "U").toUpperCase()}
-                      </AvatarFallback>
-                    </Avatar>
+                    <Avatar className="h-10 w-10 rounded-xl shrink-0"><AvatarImage src={m.user?.avatar_url} /><AvatarFallback className="rounded-xl bg-indigo-100 text-indigo-600">{(m.user?.display_name?.slice(0, 1) ?? "U").toUpperCase()}</AvatarFallback></Avatar>
                     <div className="flex-1 space-y-1">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
                           <span className="text-sm font-bold">{m.user?.display_name ?? "Usuário"}</span>
-                          <span className="text-[10px] text-slate-400">
-                            {format(new Date(m.created_at), "HH:mm", { locale: ptBR })}
-                          </span>
-                          {m.is_pinned && <Pin className="h-3 w-3 text-blue-500" />}
+                          <span className="text-[10px] text-slate-400">{format(new Date(m.created_at), "HH:mm", { locale: ptBR })}</span>
+                          {m.is_pinned && <Pin className="h-3 w-3 text-rose-500" />}
                         </div>
                         <div className="opacity-0 group-hover:opacity-100 transition-opacity">
-                          <Button 
-                            variant="ghost" 
-                            size="icon" 
-                            className="h-7 w-7 rounded-lg"
-                            onClick={() => togglePinM.mutate({ messageId: m.id, isPinned: !m.is_pinned })}
-                            title={m.is_pinned ? "Desafixar" : "Fixar mensagem"}
-                          >
-                            <Pin className={cn("h-3.5 w-3.5", m.is_pinned ? "fill-blue-500 text-blue-500" : "text-slate-400")} />
-                          </Button>
+                          <Button variant="ghost" size="icon" className="h-7 w-7 rounded-lg" onClick={() => togglePinM.mutate({ messageId: m.id, isPinned: !m.is_pinned })}><Pin className={cn("h-3.5 w-3.5", m.is_pinned ? "fill-rose-500 text-rose-500" : "text-slate-400")} /></Button>
                         </div>
                       </div>
-                      <p className="text-sm leading-relaxed text-slate-700 dark:text-slate-300">
-                        {m.content}
-                      </p>
+                      <p className="text-sm leading-relaxed text-slate-700 dark:text-slate-300">{m.content}</p>
                     </div>
                   </div>
                 ))}
@@ -793,32 +632,11 @@ export default function Communication() {
               </div>
             </ScrollArea>
 
-            {/* Chat Input */}
             <footer className="p-6">
-              <form 
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  sendM.mutate(messageText);
-                }}
-                className="relative rounded-2xl border border-slate-200 bg-white shadow-sm transition-all focus-within:ring-2 focus-within:ring-blue-500/20 dark:border-slate-800 dark:bg-slate-900"
-              >
-                <Input 
-                  value={messageText}
-                  onChange={(e) => setMessageText(e.target.value)}
-                  placeholder={`Conversar em #${activeChannel?.name ?? ""}`}
-                  className="h-12 border-none bg-transparent px-4 focus-visible:ring-0"
-                  disabled={sendM.isPending}
-                />
+              <form onSubmit={(e) => { e.preventDefault(); if (messageText.trim()) sendM.mutate(messageText); }} className="relative rounded-2xl border border-slate-200 bg-white shadow-sm focus-within:ring-2 focus-within:ring-rose-500/20 dark:border-slate-800 dark:bg-slate-900">
+                <Input value={messageText} onChange={(e) => setMessageText(e.target.value)} placeholder={`Conversar em #${activeChannel?.name ?? ""}`} className="h-12 border-none bg-transparent px-4 focus-visible:ring-0" disabled={sendM.isPending} />
                 <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
-                  <Button 
-                    type="submit"
-                    size="icon" 
-                    variant="ghost" 
-                    className="h-8 w-8 rounded-lg text-blue-600 hover:bg-blue-50 disabled:opacity-50"
-                    disabled={!messageText.trim() || sendM.isPending}
-                  >
-                    <Send className="h-4 w-4" />
-                  </Button>
+                  <Button type="submit" size="icon" variant="ghost" className="h-8 w-8 rounded-lg text-rose-600 hover:bg-rose-50" disabled={!messageText.trim() || sendM.isPending}><Send className="h-4 w-4" /></Button>
                 </div>
               </form>
             </footer>
@@ -826,28 +644,15 @@ export default function Communication() {
 
           {/* Right Sidebar - Active Users */}
           <aside className="hidden w-64 border-l border-slate-200 bg-slate-50/30 p-4 dark:border-slate-800 dark:bg-slate-900/30 xl:block">
-            <div className="mb-4 text-[10px] font-bold uppercase tracking-wider text-slate-500">
-              Usuários Online — {onlineUsers.size}
-            </div>
+            <div className="mb-4 text-[10px] font-bold uppercase tracking-wider text-slate-500">Usuários Online — {onlineUsers.size}</div>
             <div className="space-y-4">
                {tenantUsersQ.data?.filter(u => u.user_id !== user?.id).map(u => {
                  const isOnline = onlineUsers.has(u.user_id);
                  return (
-                   <button 
-                     key={u.user_id} 
-                     onClick={() => openDmM.mutate(u.user_id)}
-                     className={cn("flex w-full items-center gap-3 transition-all hover:bg-slate-100 dark:hover:bg-slate-800 p-2 rounded-xl", !isOnline && "opacity-60")}
-                   >
+                   <button key={u.user_id} onClick={() => openDmM.mutate(u.user_id)} className={cn("flex w-full items-center gap-3 transition-all hover:bg-slate-100 p-2 rounded-xl", !isOnline && "opacity-60")}>
                      <div className="relative">
-                      <Avatar className="h-8 w-8 rounded-lg">
-                        <AvatarImage src={u.avatar_url} />
-                        <AvatarFallback className="rounded-lg bg-slate-100 text-slate-600">
-                          {(u.display_name?.slice(0, 1) ?? "U").toUpperCase()}
-                        </AvatarFallback>
-                      </Avatar>
-                      {isOnline && (
-                        <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-white bg-green-500 dark:border-slate-900" />
-                      )}
+                      <Avatar className="h-8 w-8 rounded-lg"><AvatarImage src={u.avatar_url} /><AvatarFallback className="rounded-lg bg-slate-100">{(u.display_name?.slice(0, 1) ?? "U").toUpperCase()}</AvatarFallback></Avatar>
+                      {isOnline && <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-white bg-green-500" />}
                      </div>
                      <div className="min-w-0 text-left">
                        <div className="truncate text-xs font-bold">{u.display_name ?? 'Usuário'}</div>
@@ -858,6 +663,27 @@ export default function Communication() {
                })}
             </div>
           </aside>
+
+          {/* Edit Channel Dialog (Placeholder for consistency) */}
+          <Dialog open={isEditChannelOpen} onOpenChange={setIsEditChannelOpen}>
+            <DialogContent className="rounded-[28px] max-w-md">
+              <DialogHeader><DialogTitle>Editar canal</DialogTitle></DialogHeader>
+              <div className="grid gap-6 py-4">
+                <div className="grid gap-2">
+                  <Label>Nome do canal</Label>
+                  <Input value={newChannelName} onChange={(e) => setNewChannelName(e.target.value)} className="rounded-xl" />
+                </div>
+                <div className="flex items-center justify-between p-4 rounded-2xl border border-slate-100">
+                  <div className="space-y-0.5"><Label className="text-base">Canal Privado</Label></div>
+                  <Switch checked={isPrivate} onCheckedChange={setIsPrivate} />
+                </div>
+              </div>
+              <DialogFooter>
+                <Button className="w-full rounded-xl" onClick={() => updateChannelM.mutate({ id: editingChannel.id, name: newChannelName, isPrivate, memberIds: isPrivate ? selectedMembers : [] })}>Salvar Alterações</Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
         </div>
       </AppShell>
     </RequireAuth>

@@ -40,6 +40,8 @@ export default function Communication() {
   const [editingChannel, setEditingChannel] = useState<any>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [userSearchQuery, setUserSearchQuery] = useState("");
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const [mentionIndex, setMentionIndex] = useState(-1);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const isAdmin = useMemo(() => isSuperAdmin || activeTenant?.role === 'admin', [isSuperAdmin, activeTenant]);
@@ -206,19 +208,42 @@ export default function Communication() {
 
   // 4. Mutations
   const sendM = useMutation({
-    mutationFn: async (text: string) => {
-      if (!activeChannelId || !activeTenantId || !user?.id || !text.trim()) return;
-      const { error } = await supabase.from("communication_messages").insert({
-        channel_id: activeChannelId,
-        tenant_id: activeTenantId,
-        user_id: user.id,
-        content: text.trim(),
-      });
-      if (error) throw error;
+    mutationFn: async (content: string) => {
+      if (!activeChannelId || !activeTenantId || !user?.id || !content.trim()) return;
+      // 1. Send Message
+      const { data: msgData, error: msgError } = await supabase
+        .from("communication_messages")
+        .insert({
+          channel_id: activeChannelId!,
+          user_id: user?.id,
+          content,
+        })
+        .select()
+        .single();
+      if (msgError) throw msgError;
+
+      // 2. Extract and Save Mentions
+      const mentionRegex = /@(\w+)/g;
+      const matches = [...content.matchAll(mentionRegex)];
+      if (matches.length > 0) {
+        const displayNames = matches.map(m => m[1]);
+        const mentionedUsers = tenantUsersQ.data?.filter(u => displayNames.includes(u.display_name?.replace(/\s+/g, '')));
+        
+        if (mentionedUsers && mentionedUsers.length > 0) {
+          const mentionInserts = mentionedUsers.map(u => ({
+            message_id: msgData.id,
+            user_id: u.user_id
+          }));
+          await supabase.from("communication_mentions").insert(mentionInserts);
+        }
+      }
+
+      return msgData;
     },
     onSuccess: () => {
       setMessageText("");
       qc.invalidateQueries({ queryKey: ["communication_messages", activeChannelId] });
+      qc.invalidateQueries({ queryKey: ["communication_channels", activeTenantId] });
     },
     onError: (err: any) => showError(err.message),
   });
@@ -320,7 +345,7 @@ export default function Communication() {
 
   // Handle marking as read
   useEffect(() => {
-    if (activeChannelId) {
+    if (activeChannelId && activeChannelId.length === 36) {
       markAsReadM.mutate(activeChannelId);
     }
   }, [activeChannelId]);
@@ -610,35 +635,107 @@ export default function Communication() {
 
             <ScrollArea className="flex-1 p-6">
               <div className="space-y-6">
-                {filteredMessages.map((m) => (
-                  <div key={m.id} className="group flex gap-4">
-                    <Avatar className="h-10 w-10 rounded-xl shrink-0"><AvatarImage src={m.user?.avatar_url} /><AvatarFallback className="rounded-xl bg-indigo-100 text-indigo-600">{(m.user?.display_name?.slice(0, 1) ?? "U").toUpperCase()}</AvatarFallback></Avatar>
-                    <div className="flex-1 space-y-1">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-bold">{m.user?.display_name ?? "Usuário"}</span>
-                          <span className="text-[10px] text-slate-400">{format(new Date(m.created_at), "HH:mm", { locale: ptBR })}</span>
-                          {m.is_pinned && <Pin className="h-3 w-3 text-rose-500" />}
+                {filteredMessages.map((m) => {
+                  const isMentioned = m.content.includes(`@${userName.replace(/\s+/g, '')}`);
+                  
+                  return (
+                    <div key={m.id} className={cn("group flex gap-4 p-2 rounded-2xl transition-all", isMentioned && "bg-rose-500/5 border border-rose-500/10 shadow-[0_0_15px_rgba(244,63,94,0.05)]")}>
+                      <Avatar className="h-10 w-10 rounded-xl shrink-0">
+                        <AvatarImage src={m.user?.avatar_url} />
+                        <AvatarFallback className="rounded-xl bg-indigo-100 text-indigo-600">{(m.user?.display_name?.slice(0, 1) ?? "U").toUpperCase()}</AvatarFallback>
+                      </Avatar>
+                      <div className="flex-1 space-y-1">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-bold">{m.user?.display_name ?? "Usuário"}</span>
+                            <span className="text-[10px] text-slate-400">{format(new Date(m.created_at), "HH:mm", { locale: ptBR })}</span>
+                            {m.is_pinned && <Pin className="h-3 w-3 text-rose-500" />}
+                            {isMentioned && (
+                              <span className="text-[8px] uppercase tracking-wider font-bold bg-rose-500 text-white px-1.5 py-0.5 rounded-full">Mencionado</span>
+                            )}
+                          </div>
+                          <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+                            <Button variant="ghost" size="icon" className="h-7 w-7 rounded-lg" onClick={() => togglePinM.mutate({ messageId: m.id, isPinned: !m.is_pinned })}><Pin className={cn("h-3.5 w-3.5", m.is_pinned ? "fill-rose-500 text-rose-500" : "text-slate-400")} /></Button>
+                          </div>
                         </div>
-                        <div className="opacity-0 group-hover:opacity-100 transition-opacity">
-                          <Button variant="ghost" size="icon" className="h-7 w-7 rounded-lg" onClick={() => togglePinM.mutate({ messageId: m.id, isPinned: !m.is_pinned })}><Pin className={cn("h-3.5 w-3.5", m.is_pinned ? "fill-rose-500 text-rose-500" : "text-slate-400")} /></Button>
-                        </div>
+                        <p className="text-sm leading-relaxed text-slate-700 dark:text-slate-300">
+                          {m.content.split(/(@\w+)/g).map((part, i) => (
+                            part.startsWith('@') ? (
+                              <span key={i} className="font-bold text-rose-600 bg-rose-50 dark:bg-rose-950/30 px-1 rounded-md">{part}</span>
+                            ) : part
+                          ))}
+                        </p>
                       </div>
-                      <p className="text-sm leading-relaxed text-slate-700 dark:text-slate-300">{m.content}</p>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
                 <div ref={scrollRef} />
               </div>
             </ScrollArea>
 
             <footer className="p-6">
-              <form onSubmit={(e) => { e.preventDefault(); if (messageText.trim()) sendM.mutate(messageText); }} className="relative rounded-2xl border border-slate-200 bg-white shadow-sm focus-within:ring-2 focus-within:ring-rose-500/20 dark:border-slate-800 dark:bg-slate-900">
-                <Input value={messageText} onChange={(e) => setMessageText(e.target.value)} placeholder={`Conversar em #${activeChannel?.name ?? ""}`} className="h-12 border-none bg-transparent px-4 focus-visible:ring-0" disabled={sendM.isPending} />
-                <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
-                  <Button type="submit" size="icon" variant="ghost" className="h-8 w-8 rounded-lg text-rose-600 hover:bg-rose-50" disabled={!messageText.trim() || sendM.isPending}><Send className="h-4 w-4" /></Button>
-                </div>
-              </form>
+              <div className="relative">
+                {mentionQuery !== null && (
+                  <div className="absolute bottom-full left-0 mb-2 w-64 rounded-2xl border border-slate-200 bg-white p-2 shadow-2xl dark:border-slate-800 dark:bg-slate-900">
+                    <div className="mb-2 px-2 text-[10px] font-bold uppercase tracking-wider text-slate-500">Mencionar Usuário</div>
+                    <ScrollArea className="max-h-48">
+                      <div className="space-y-1">
+                        {tenantUsersQ.data?.filter(u => u.display_name?.toLowerCase().includes(mentionQuery.toLowerCase())).map((u, idx) => (
+                          <button
+                            key={u.user_id}
+                            onClick={() => {
+                              const before = messageText.substring(0, mentionIndex);
+                              const after = messageText.substring(mentionIndex + mentionQuery.length + 1);
+                              setMessageText(`${before}@${u.display_name?.replace(/\s+/g, '')} ${after}`);
+                              setMentionQuery(null);
+                            }}
+                            className="flex w-full items-center gap-2 rounded-xl p-2 text-left text-xs transition-all hover:bg-slate-50 dark:hover:bg-slate-800"
+                          >
+                            <Avatar className="h-6 w-6 rounded-lg">
+                              <AvatarFallback className="rounded-lg bg-slate-100 text-[10px]">{(u.display_name?.slice(0, 1) ?? "U").toUpperCase()}</AvatarFallback>
+                            </Avatar>
+                            <span className="font-bold">{u.display_name}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </ScrollArea>
+                  </div>
+                )}
+                <form 
+                  onSubmit={(e) => { e.preventDefault(); if (messageText.trim()) sendM.mutate(messageText); }} 
+                  className="relative rounded-2xl border border-slate-200 bg-white shadow-sm focus-within:ring-2 focus-within:ring-rose-500/20 dark:border-slate-800 dark:bg-slate-900"
+                >
+                  <Input 
+                    value={messageText} 
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setMessageText(val);
+                      
+                      const cursor = e.target.selectionStart || 0;
+                      const textBefore = val.substring(0, cursor);
+                      const lastAt = textBefore.lastIndexOf('@');
+                      
+                      if (lastAt !== -1 && (lastAt === 0 || textBefore[lastAt - 1] === ' ')) {
+                        const query = textBefore.substring(lastAt + 1);
+                        if (!query.includes(' ')) {
+                          setMentionQuery(query);
+                          setMentionIndex(lastAt);
+                        } else {
+                          setMentionQuery(null);
+                        }
+                      } else {
+                        setMentionQuery(null);
+                      }
+                    }} 
+                    placeholder={`Conversar em #${activeChannel?.name ?? ""}`} 
+                    className="h-12 border-none bg-transparent px-4 focus-visible:ring-0" 
+                    disabled={sendM.isPending} 
+                  />
+                  <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                    <Button type="submit" size="icon" variant="ghost" className="h-8 w-8 rounded-lg text-rose-600 hover:bg-rose-50" disabled={!messageText.trim() || sendM.isPending}><Send className="h-4 w-4" /></Button>
+                  </div>
+                </form>
+              </div>
             </footer>
           </main>
 

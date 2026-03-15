@@ -6,6 +6,7 @@ alter table public.communication_members
 add column if not exists last_read_at timestamptz not null default now();
 
 -- 2. Function to mark a channel as read
+drop function if exists public.mark_channel_as_read(uuid);
 create or replace function public.mark_channel_as_read(p_channel_id uuid)
 returns void
 language plpgsql
@@ -21,6 +22,7 @@ end;
 $$;
 
 -- 3. Function to get unread count for the current user in a tenant
+drop function if exists public.get_unread_communication_count(uuid);
 create or replace function public.get_unread_communication_count(p_tenant_id uuid)
 returns bigint
 language plpgsql
@@ -40,15 +42,7 @@ begin
       and c.deleted_at is null
       and m.deleted_at is null
       and m.user_id != auth.uid()
-      and (
-        -- For public/group channels, counting since last_read_at or ignoring if never read?
-        -- To avoid notifying for old messages, we assume "never read" = "read everything until now" 
-        -- but only from the moment the user has access.
-        -- For simplicity: created_at > coalesce(mem.last_read_at, 'epoch')
-        -- But to avoid "ghost" notifications of 1000 messages on first access,
-        -- we could limit it or rely on the user having read it once.
-        m.created_at > coalesce(mem.last_read_at, '2020-01-01'::timestamptz)
-      )
+      and m.created_at > coalesce(mem.last_read_at, '2020-01-01'::timestamptz)
       and (
         c.type = 'group' or 
         exists (select 1 from public.communication_members cm where cm.channel_id = c.id and cm.user_id = auth.uid())
@@ -77,8 +71,33 @@ begin
 end;
 $$;
 
+drop trigger if exists on_communication_message_inserted_update_channel on public.communication_messages;
 create trigger on_communication_message_inserted_update_channel
     after insert on public.communication_messages
     for each row execute procedure public.handle_communication_message_insert_for_channel();
 
--- Ensure RLS allows selecting members for the RPC (it already does for self)
+-- 6. Helper function for membership sync
+drop function if exists public.sync_channel_membership(uuid, uuid[]);
+create or replace function public.sync_channel_membership(p_channel_id uuid, p_user_ids uuid[])
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+    -- 1. Remove members not in the list
+    delete from public.communication_members 
+    where channel_id = p_channel_id;
+
+    -- 2. Insert new members
+    if array_length(p_user_ids, 1) > 0 then
+        insert into public.communication_members (channel_id, user_id)
+        select p_channel_id, unnest(p_user_ids);
+    end if;
+    
+    -- 3. Ensure creator is always there (fallback)
+    insert into public.communication_members (channel_id, user_id)
+    values (p_channel_id, auth.uid())
+    on conflict do nothing;
+end;
+$$;

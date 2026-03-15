@@ -619,20 +619,13 @@ export function AppShell({
           table: "communication_messages",
         },
         async (payload: any) => {
-          console.log("Realtime message received:", payload);
           unreadCommQ.refetch();
 
-          const [params] = new URLSearchParams(window.location.search);
+          const params = new URLSearchParams(window.location.search);
           const currentChannelId = params.get("channelId");
 
           // Browser Notification logic
           const isNotOnThisChannel = !loc.pathname.includes("/app/communication") || (currentChannelId && payload.new.channel_id !== currentChannelId);
-          console.log("Notification conditions:", {
-            isNotMe: payload.new.user_id !== user.id,
-            permission: Notification.permission,
-            hidden: document.hidden,
-            isNotOnThisChannel
-          });
 
           if (
             payload.new.user_id !== user.id &&

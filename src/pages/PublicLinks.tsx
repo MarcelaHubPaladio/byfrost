@@ -243,9 +243,9 @@ export default function PublicLinks() {
                         <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-3xl bg-blue-50 text-blue-600">
                             <Store className="h-8 w-8" />
                         </div>
-                        <DialogTitle className="text-xl font-bold">Selecione sua Loja</DialogTitle>
+                        <DialogTitle className="text-xl font-bold">{selectedItem?.metadata?.modal_title || "Selecione sua Loja"}</DialogTitle>
                         <DialogDescription className="text-slate-500">
-                            Escolha a unidade onde você realizou sua compra para ser direcionado automaticamente.
+                            {selectedItem?.metadata?.modal_description || "Escolha a unidade onde você realizou sua compra para ser direcionado automaticamente."}
                         </DialogDescription>
                     </DialogHeader>
 

@@ -52,6 +52,8 @@ type LinkItem = {
     is_active: boolean;
     metadata: {
         custom_badge?: string;
+        modal_title?: string;
+        modal_description?: string;
     } | null;
 };
 
@@ -859,7 +861,7 @@ export default function LinkManager() {
                                     </Select>
                                 </div>
                                 
-                                {(editingItem?.link_type === 'assessment' || editingItem?.link_type === 'smart') && (
+                                {(editingItem?.link_type === 'assessment' || editingItem?.link_type === 'smart') && (<>
                                     <div className="grid gap-2">
                                         <Label htmlFor="custom_badge">Texto do Badge (Opcional)</Label>
                                         <Input
@@ -874,7 +876,34 @@ export default function LinkManager() {
                                         />
                                         <p className="text-[10px] text-slate-400">Deixe em branco para usar o padrão, ou digite algo para personalizar. Se quiser ocultar o badge, digite um espaço.</p>
                                     </div>
-                                )}
+                                    <div className="grid gap-2">
+                                        <Label htmlFor="modal_title">Título do Modal de Seleção</Label>
+                                        <Input
+                                            id="modal_title"
+                                            value={editingItem?.metadata?.modal_title || ""}
+                                            onChange={e => setEditingItem(p => ({ 
+                                                ...p, 
+                                                metadata: { ...p.metadata, modal_title: e.target.value } 
+                                            }))}
+                                            placeholder="Padrão: Selecione sua Loja"
+                                            className="rounded-xl"
+                                        />
+                                    </div>
+                                    <div className="grid gap-2">
+                                        <Label htmlFor="modal_description">Descrição do Modal</Label>
+                                        <Textarea
+                                            id="modal_description"
+                                            value={editingItem?.metadata?.modal_description || ""}
+                                            onChange={e => setEditingItem(p => ({ 
+                                                ...p, 
+                                                metadata: { ...p.metadata, modal_description: e.target.value } 
+                                            }))}
+                                            placeholder="Padrão: Escolha a unidade onde você realizou sua compra..."
+                                            className="rounded-xl min-h-[80px]"
+                                        />
+                                    </div>
+                                     </>
+                                 )}
 
                                 {editingItem?.link_type === 'standard' && (
                                     <div className="grid gap-2">

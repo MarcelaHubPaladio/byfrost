@@ -136,6 +136,11 @@ export function ImovelImportDialog({
           ? (businessTypeStr.includes("venda") || businessTypeStr.includes("sale") ? "both" : "rent")
           : "sale";
 
+        let propType = (idxPropertyType >= 0 ? cols[idxPropertyType] : "casa") || "casa";
+        if (propType === "casa" && name.toLowerCase().includes("terreno")) propType = "terreno";
+        if (propType === "casa" && name.toLowerCase().includes("apartamento")) propType = "apartamento";
+        if (propType === "casa" && (name.toLowerCase().includes("sala") || name.toLowerCase().includes("loja") || name.toLowerCase().includes("comercial"))) propType = "comercial";
+
         out.push({
           rowNo: i + 1,
           name,
@@ -145,7 +150,7 @@ export function ImovelImportDialog({
           price: priceStr,
           address: idxAddress >= 0 ? cols[idxAddress] || "" : "",
           photoUrl: idxPhoto >= 0 ? cols[idxPhoto] || "" : "",
-          propertyType: idxPropertyType >= 0 ? cols[idxPropertyType] || "casa" : "casa",
+          propertyType: propType,
           totalArea: idxTotalArea >= 0 ? cols[idxTotalArea] || "" : "",
           usefulArea: idxUsefulArea >= 0 ? cols[idxUsefulArea] || "" : "",
           isValid: errors.length === 0,
@@ -242,14 +247,14 @@ export function ImovelImportDialog({
             .eq("entity_id", entityData.id)
             .eq("tenant_id", tenantId);
 
-          await supabase.from("core_entity_photos").insert({
+          await supabase.from("core_entity_photos").upsert({
             tenant_id: tenantId,
             entity_id: entityData.id,
             room_type: "geral",
             url: finalPhotoUrl,
             is_main: true,
             metadata: { imported: true }
-          });
+          }, { onConflict: 'entity_id, url' });
         }
       } catch (e) {
         console.error("Erro na linha", row.rowNo, e);

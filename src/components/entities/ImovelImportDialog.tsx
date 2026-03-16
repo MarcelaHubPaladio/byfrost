@@ -205,15 +205,15 @@ export function ImovelImportDialog({
           const isConsult = row.isConsult;
           const numericPrice = row.interpretedPrice || 0;
 
-          const { data: entityData, error: entityErr } = await supabase.from("core_entities").upsert({
+          const entityPayload = {
             tenant_id: tenantId,
-            entity_type: "offering",
+            entity_type: "offering" as const,
             subtype: "imovel",
             display_name: row.name || "Sem nome",
             status: "active",
             deleted_at: null,
             legacy_id: row.legacyId || null,
-            business_type: busType,
+            business_type: busType as any,
             location_json: { address: row.address },
             property_type: row.propertyType.toLowerCase() || 'casa',
             total_area: parseFloat(row.totalArea.replace(",", ".")) || null,
@@ -226,9 +226,11 @@ export function ImovelImportDialog({
               imported: true,
               import_date: new Date().toISOString()
             }
-          }, { 
-            onConflict: row.legacyId ? 'tenant_id, legacy_id' : 'tenant_id, display_name' 
-          }).select("id").single();
+          };
+
+          const { data: entityData, error: entityErr } = row.legacyId 
+            ? await supabase.from("core_entities").upsert(entityPayload, { onConflict: 'tenant_id, legacy_id' }).select("id").single()
+            : await supabase.from("core_entities").insert(entityPayload).select("id").single();
 
         if (entityErr) throw entityErr;
 

@@ -18,7 +18,7 @@ import {
     SelectTrigger,
     SelectValue
 } from "@/components/ui/select";
-import { ExternalLink, Star, Store, ArrowRight, Loader2 } from "lucide-react";
+import { ExternalLink, Star, Store, ArrowRight, Loader2, Shuffle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -66,6 +66,15 @@ export default function PublicLinks() {
                 p_item_id: item.id
             });
         } catch (e) { console.error("Tracking error", e); }
+    };
+
+    const handleRandomChoice = async () => {
+        const redirects = selectedItem?.redirects || [];
+        if (redirects.length === 0) return;
+        
+        const randomIndex = Math.floor(Math.random() * redirects.length);
+        const selected = redirects[randomIndex];
+        handleRedirect(selected);
     };
 
     const handleRedirect = async (redirect: any) => {
@@ -241,6 +250,15 @@ export default function PublicLinks() {
                     </DialogHeader>
 
                     <div className="py-6 space-y-4">
+                        {selectedItem?.link_type === 'smart' && selectedItem?.redirects?.length > 1 && (
+                            <Button 
+                                onClick={handleRandomChoice}
+                                className="w-full h-14 rounded-2xl bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white font-bold shadow-lg transition-all active:scale-[0.98] gap-3 mb-2"
+                            >
+                                <Shuffle className="h-5 w-5" />
+                                Me surpreenda (Escolha Aleatória)
+                            </Button>
+                        )}
                         <div className="grid gap-3">
                             {selectedItem?.redirects?.map((r: any) => (
                                 <button

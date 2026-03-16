@@ -204,6 +204,36 @@ export default function MediaKitEditor() {
       return data;
     },
   });
+  
+  const entityPhotosQ = useQuery({
+    queryKey: ["entity_photos", activeTenantId, entityId],
+    enabled: !!activeTenantId && !!entityId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("core_entity_photos")
+        .select("*")
+        .eq("tenant_id", activeTenantId!)
+        .eq("entity_id", entityId!)
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return data;
+    },
+  });
+
+  const roomTypesQ = useQuery({
+    queryKey: ["room_types", activeTenantId],
+    enabled: !!activeTenantId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("core_property_room_types")
+        .select("*")
+        .eq("tenant_id", activeTenantId!)
+        .is("deleted_at", null)
+        .order("name", { ascending: true });
+      if (error) throw error;
+      return data;
+    },
+  });
 
   const masksQ = useQuery({
     queryKey: ["media_kit_masks", activeTenantId],
@@ -858,6 +888,7 @@ export default function MediaKitEditor() {
                         onUpdateLayer={(layerId, delta) => updateLayer(page.id, layerId, delta)}
                         scale={scale}
                         entityData={entityData}
+                        entityPhotos={entityPhotosQ.data || []}
                       />
                     </div>
                   </div>
@@ -986,25 +1017,46 @@ export default function MediaKitEditor() {
                                 </div>
 
                                 {selectedLayer.isVariable ? (
-                                  <div className="space-y-2">
-                                    <Label className="text-xs text-slate-500">Campo da Imagem</Label>
-                                    <Select 
-                                      value={selectedLayer.variableField || ""} 
-                                      onValueChange={(val) => updateLayer(selectedLayerId!.pageId, selectedLayer.id, { variableField: val }, true)}
-                                    >
-                                      <SelectTrigger className="rounded-xl h-10">
-                                        <SelectValue placeholder="Selecione um campo..." />
-                                      </SelectTrigger>
-                                      <SelectContent className="rounded-xl">
-                                        {Object.entries(entityData?.metadata || {})
-                                          .filter(([k]) => k.toLowerCase().includes("img") || k.toLowerCase().includes("foto") || k.toLowerCase().includes("url"))
-                                          .map(([key]) => (
-                                            <SelectItem key={key} value={key}>{key}</SelectItem>
-                                          ))
-                                        }
-                                        <SelectItem value="display_name">Nome (como placeholder)</SelectItem>
-                                      </SelectContent>
-                                    </Select>
+                                  <div className="space-y-4">
+                                    <div className="space-y-2">
+                                      <Label className="text-xs text-slate-500">Mapear Cômodo (Prioritário)</Label>
+                                      <Select 
+                                        value={selectedLayer.variableRoomType || ""} 
+                                        onValueChange={(val) => updateLayer(selectedLayerId!.pageId, selectedLayer.id, { variableRoomType: val }, true)}
+                                      >
+                                        <SelectTrigger className="rounded-xl h-10">
+                                          <SelectValue placeholder="Selecione um cômodo..." />
+                                        </SelectTrigger>
+                                        <SelectContent className="rounded-xl">
+                                          <SelectItem value="">Nenhum (Usar Campo abaixo)</SelectItem>
+                                          {roomTypesQ.data?.map((room: any) => (
+                                            <SelectItem key={room.id} value={room.name}>{room.name}</SelectItem>
+                                          ))}
+                                        </SelectContent>
+                                      </Select>
+                                      <p className="text-[10px] text-slate-400 italic">Se selecionado, tenta buscar a imagem deste cômodo primeiro.</p>
+                                    </div>
+
+                                    <div className="space-y-2">
+                                      <Label className="text-xs text-slate-500">Campo da Imagem (Fallback)</Label>
+                                      <Select 
+                                        value={selectedLayer.variableField || ""} 
+                                        onValueChange={(val) => updateLayer(selectedLayerId!.pageId, selectedLayer.id, { variableField: val }, true)}
+                                      >
+                                        <SelectTrigger className="rounded-xl h-10">
+                                          <SelectValue placeholder="Selecione um campo..." />
+                                        </SelectTrigger>
+                                        <SelectContent className="rounded-xl">
+                                          {Object.entries(entityData?.metadata || {})
+                                            .filter(([k]) => k.toLowerCase().includes("img") || k.toLowerCase().includes("foto") || k.toLowerCase().includes("url"))
+                                            .map(([key]) => (
+                                              <SelectItem key={key} value={key}>{key}</SelectItem>
+                                            ))
+                                          }
+                                          <SelectItem value="display_name">Nome (como placeholder)</SelectItem>
+                                        </SelectContent>
+                                      </Select>
+                                    </div>
                                   </div>
                                 ) : (
                                   <div className="space-y-3">

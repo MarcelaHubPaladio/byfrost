@@ -16,6 +16,7 @@ export type Layer = {
   zIndex: number;
   isVariable?: boolean;
   variableField?: string;
+  variableRoomType?: string;
   borderRadius?: number;
 };
 
@@ -28,10 +29,11 @@ type MediaKitCanvasProps = {
   onUpdateLayer: (id: string, delta: Partial<Layer>, pushHistory?: boolean) => void;
   scale: number;
   entityData?: any;
+  entityPhotos?: any[];
 };
 
 export const MediaKitCanvas = forwardRef<{ exportImage: () => Promise<string> }, MediaKitCanvasProps>(
-  ({ layers, width, height, selectedLayerId, onSelectLayer, onUpdateLayer, scale, entityData }, ref) => {
+  ({ layers, width, height, selectedLayerId, onSelectLayer, onUpdateLayer, scale, entityData, entityPhotos }, ref) => {
     const canvasRef = useRef<HTMLDivElement>(null);
 
     useImperativeHandle(ref, () => ({
@@ -63,6 +65,24 @@ export const MediaKitCanvas = forwardRef<{ exportImage: () => Promise<string> },
         return String(entityData.metadata[layer.variableField]);
       }
       
+      return layer.content;
+    };
+
+    const getEffectiveImage = (layer: Layer) => {
+      if (!layer.isVariable || !entityData) return layer.content;
+
+      // New: variableRoomType takes precedence for images
+      if (layer.variableRoomType && entityPhotos) {
+        const photo = entityPhotos.find(p => p.room_type === layer.variableRoomType);
+        if (photo) return photo.url;
+      }
+
+      if (!layer.variableField) return layer.content;
+
+      // Fallback to legacy variableField logic
+      if (entityData[layer.variableField]) return entityData[layer.variableField];
+      if (entityData.metadata?.[layer.variableField]) return entityData.metadata[layer.variableField];
+
       return layer.content;
     };
 
@@ -241,7 +261,7 @@ export const MediaKitCanvas = forwardRef<{ exportImage: () => Promise<string> },
               )}
               {layer.type === "image" && (
                 <img
-                  src={layer.isVariable ? getEffectiveValue(layer) : replacePlaceholders(layer.content)}
+                  src={layer.isVariable ? getEffectiveImage(layer) : replacePlaceholders(layer.content)}
                   alt=""
                   style={{
                     width: layer.width,

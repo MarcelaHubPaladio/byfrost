@@ -441,8 +441,8 @@ const fn = "public-proposal";
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
-    return new Response("ok", { 
-      status: 204, // Use 204 No Content for OPTIONS
+    return new Response(null, { 
+      status: 204, 
       headers: corsHeaders 
     });
   }

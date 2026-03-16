@@ -872,7 +872,14 @@ export default function LinkManager() {
                                                         });
 
                                                         if (upError || !json?.ok) {
-                                                            throw new Error(upError?.message || json?.error || "Erro no upload");
+                                                            let msg = upError?.message || json?.error || "Erro no upload";
+                                                            if (upError && (upError as any).context) {
+                                                                try {
+                                                                    const errorData = await (upError as any).context.json();
+                                                                    if (errorData?.error) msg = errorData.error;
+                                                                } catch (e) { }
+                                                            }
+                                                            throw new Error(msg);
                                                         }
 
                                                         setEditingRedirect(p => ({ ...p, image_url: json.publicUrl }));

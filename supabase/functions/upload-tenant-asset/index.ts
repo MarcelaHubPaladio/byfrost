@@ -137,7 +137,7 @@ serve(async (req) => {
 
     if (memErr || (!membership && !isSuperAdmin)) {
       console.warn(`[${fn}] forbidden`, { tenantId: tenantIdStr, userId, memErr });
-      return err(`${fn}:forbidden`, 403);
+      return err(`${fn}:forbidden:tenant:${tenantIdStr}:user:${userId}`, 403);
     }
 
     if (action === "sign") {
@@ -162,7 +162,8 @@ serve(async (req) => {
     // action === "upload"
     const kind = kindStr as UploadKind;
     if (kind !== "participants" && kind !== "events" && kind !== "branding" && kind !== "links") {
-      return err(`${fn}:invalid_kind:${kindStr}`, 400);
+      const dbg = contentTypeHeader.includes("multipart") ? "multipart_data_received" : JSON.stringify(decodedBody);
+      return err(`${fn}:invalid_kind:${kindStr}:body:${dbg}`, 400);
     }
 
     if (!fileBytes || fileBytes.length === 0) return err(`${fn}:missing_file_content`, 400);

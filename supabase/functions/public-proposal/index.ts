@@ -5,7 +5,8 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 // Some Supabase deploy flows bundle only the function folder and do not include sibling imports like ../_shared/*.
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-requested-with, prefer",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
 };
 
 function createSupabaseAdmin() {
@@ -439,7 +440,12 @@ function inferOrigin(req: Request) {
 const fn = "public-proposal";
 
 serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { 
+      status: 204, // Use 204 No Content for OPTIONS
+      headers: corsHeaders 
+    });
+  }
 
   try {
     const { tenant_slug, token } = getInput(req);

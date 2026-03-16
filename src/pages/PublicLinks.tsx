@@ -259,7 +259,7 @@ export default function PublicLinks() {
                                 Me surpreenda (Escolha Aleatória)
                             </Button>
                         )}
-                        <div className="grid gap-3">
+                        <div className="grid gap-3 max-h-[60vh] overflow-y-auto pr-2 custom-scrollbar">
                             {selectedItem?.redirects?.map((r: any) => (
                                 <button
                                     key={r.id || r.store_name}

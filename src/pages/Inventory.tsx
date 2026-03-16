@@ -90,7 +90,7 @@ export default function Inventory() {
             <div className="space-y-6">
                 <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between bg-white p-6 rounded-2xl border shadow-sm">
                     <div>
-                        <h1 className="text-2xl font-bold text-slate-900">Repositório de Ofertas</h1>
+                        <h1 className="text-2xl font-bold text-slate-900">Inventário</h1>
                         <p className="text-sm text-slate-500">Gerenciamento de imóveis, produtos e ativos.</p>
                     </div>
                     <div className="flex items-center gap-2">

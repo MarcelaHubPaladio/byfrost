@@ -47,7 +47,7 @@ export default function PublicLinks() {
         if (publicDataQ.data && !autoOpened) {
             const directItemId = searchParams.get("item");
             if (directItemId) {
-                const item = (publicDataQ.data as any).items?.find((i: any) => i.id === directItemId && i.link_type === 'assessment');
+                const item = (publicDataQ.data as any).items?.find((i: any) => i.id === directItemId && (i.link_type === 'assessment' || i.link_type === 'smart'));
                 if (item) {
                     setSelectedItem(item);
                     setAutoOpened(true);
@@ -56,7 +56,7 @@ export default function PublicLinks() {
         }
     }, [publicDataQ.data, searchParams, autoOpened]);
 
-    const handleAssessmentClick = async (item: any) => {
+    const handleSelectorClick = async (item: any) => {
         setSelectedItem(item);
         setSelectedStoreUrl("");
         // Track click on the item itself (even before choosing a store)
@@ -66,29 +66,6 @@ export default function PublicLinks() {
                 p_item_id: item.id
             });
         } catch (e) { console.error("Tracking error", e); }
-    };
-
-    const handleSmartClick = async (item: any) => {
-        const redirects = item.redirects || [];
-        if (redirects.length === 0) {
-            if (item.url) window.open(item.url, '_blank');
-            return;
-        }
-
-        // Random rotation logic
-        const randomIndex = Math.floor(Math.random() * redirects.length);
-        const selected = redirects[randomIndex];
-
-        // Track click with redirect_id
-        try {
-            await supabase.rpc("track_link_click", {
-                p_tenant_id: item.tenant_id,
-                p_item_id: item.id,
-                p_redirect_id: selected.id
-            });
-        } catch (e) { console.error("Tracking error", e); }
-
-        window.location.href = selected.redirect_url;
     };
 
     const handleRedirect = async (redirect: any) => {
@@ -201,9 +178,9 @@ export default function PublicLinks() {
                         >
                             <button
                                 onClick={() => {
-                                    if (item.link_type === 'assessment') handleAssessmentClick(item);
-                                    else if (item.link_type === 'smart') handleSmartClick(item);
-                                    else {
+                                    if (item.link_type === 'assessment' || item.link_type === 'smart') {
+                                        handleSelectorClick(item);
+                                    } else {
                                         // Standard link click tracking
                                         (async () => {
                                             await supabase.rpc("track_link_click", {

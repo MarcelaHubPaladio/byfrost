@@ -7,9 +7,12 @@ CREATE TABLE IF NOT EXISTS public.core_property_room_types (
   is_default boolean NOT NULL DEFAULT false,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
-  deleted_at timestamptz,
-  CONSTRAINT core_property_room_types_name_tenant_unique UNIQUE(tenant_id, name) WHERE deleted_at IS NULL
+  deleted_at timestamptz
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS core_property_room_types_name_tenant_unique 
+  ON public.core_property_room_types(tenant_id, name) 
+  WHERE deleted_at IS NULL;
 
 SELECT public.byfrost_enable_rls('public.core_property_room_types'::regclass);
 SELECT public.byfrost_ensure_tenant_policies('public.core_property_room_types'::regclass, 'tenant_id');

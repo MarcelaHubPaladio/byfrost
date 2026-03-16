@@ -250,7 +250,7 @@ export function ImovelImportDialog({
           await supabase.from("core_entity_photos").upsert({
             tenant_id: tenantId,
             entity_id: entityData.id,
-            room_type: "geral",
+            room_type: "Geral",
             url: finalPhotoUrl,
             is_main: true,
             metadata: { imported: true }

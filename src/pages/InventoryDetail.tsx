@@ -200,17 +200,42 @@ export default function InventoryDetail() {
                     .eq("id", id!)
                     .eq("tenant_id", activeTenantId);
                 if (error) throw error;
+
+                // Sync to core_entity_photos if photo_url is present
+                if (values.photo_url) {
+                    await supabase.from("core_entity_photos").upsert({
+                        tenant_id: activeTenantId,
+                        entity_id: id!,
+                        room_type: "Geral",
+                        url: values.photo_url,
+                        is_main: true,
+                    }, { onConflict: 'entity_id, url' });
+                }
+
                 showSuccess("Produto atualizado!");
             } else {
-                const { error } = await supabase.from("core_entities").insert({
+                const { data, error } = await supabase.from("core_entities").insert({
                     tenant_id: activeTenantId,
                     entity_type: "offering",
                     subtype: values.subtype,
                     display_name: values.display_name,
                     status: "active",
                     metadata,
-                });
+                }).select("id").single();
+                
                 if (error) throw error;
+
+                // Sync to core_entity_photos if photo_url is present
+                if (values.photo_url && data?.id) {
+                    await supabase.from("core_entity_photos").upsert({
+                        tenant_id: activeTenantId,
+                        entity_id: data.id,
+                        room_type: "Geral",
+                        url: values.photo_url,
+                        is_main: true,
+                    }, { onConflict: 'entity_id, url' });
+                }
+
                 showSuccess("Produto criado!");
             }
 

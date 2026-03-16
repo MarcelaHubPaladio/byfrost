@@ -14,7 +14,11 @@ const RLMarker = Marker as any;
 function ClampCenter({ center, zoom }: { center: LatLng; zoom?: number }) {
   const map = useMap();
   useEffect(() => {
-    map.setView([center.lat, center.lng] as any, zoom ?? map.getZoom(), { animate: true } as any);
+    const lat = Number(center.lat);
+    const lng = Number(center.lng);
+    if (!isNaN(lat) && !isNaN(lng)) {
+      map.setView([lat, lng] as any, zoom ?? map.getZoom(), { animate: true } as any);
+    }
   }, [center.lat, center.lng, zoom, map]);
   return null;
 }
@@ -68,8 +72,16 @@ export function LocationPinSelector({
 
   const canUseGeolocation = typeof navigator !== "undefined" && "geolocation" in navigator;
 
-  // Default to -25.4284, -49.2733 (Curitiba) if no value
-  const center = useMemo(() => value || { lat: -25.4284, lng: -49.2733 }, [value?.lat, value?.lng]);
+  const DEFAULT_LAT = -25.4284;
+  const DEFAULT_LNG = -49.2733;
+
+  // Ensure center always has valid numbers
+  const center = useMemo(() => {
+    const lat = Number(value?.lat);
+    const lng = Number(value?.lng);
+    if (!isNaN(lat) && !isNaN(lng)) return { lat, lng };
+    return { lat: DEFAULT_LAT, lng: DEFAULT_LNG };
+  }, [value?.lat, value?.lng]);
 
   const recenterToMe = async () => {
     if (!canUseGeolocation) return;
@@ -114,7 +126,12 @@ export function LocationPinSelector({
       </div>
 
       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
-        <RLMapContainer center={[center.lat, center.lng]} zoom={zoom} scrollWheelZoom className="h-[240px] w-full">
+        <RLMapContainer 
+          center={[center.lat, center.lng]} 
+          zoom={zoom} 
+          scrollWheelZoom 
+          className="h-[240px] w-full"
+        >
           <RLTileLayer
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"

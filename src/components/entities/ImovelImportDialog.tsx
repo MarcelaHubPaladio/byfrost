@@ -211,7 +211,7 @@ export function ImovelImportDialog({
             subtype: "imovel",
             display_name: row.name || "Sem nome",
             status: "active",
-            deleted_at: null, // CRITICAL: Restore soft-deleted entities
+            deleted_at: null,
             legacy_id: row.legacyId || null,
             business_type: busType,
             location_json: { address: row.address },

@@ -227,7 +227,7 @@ export default function EntityDetail() {
                       {entityQ.data?.subtype === "imovel" && (
                         <div className="mt-4 pt-4 border-t space-y-3">
                           <div className="text-xs font-bold text-slate-400 uppercase">Localização</div>
-                          {entityQ.data.location_json?.lat ? (
+                          {Number.isFinite(entityQ.data.location_json?.lat) && Number.isFinite(entityQ.data.location_json?.lng) ? (
                             <div className="space-y-2">
                               <div className="text-sm text-slate-700 font-medium">{entityQ.data.location_json.address || "Endereço não informado"}</div>
                               <div className="h-40 rounded-xl overflow-hidden border border-slate-200">

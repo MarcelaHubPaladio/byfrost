@@ -521,9 +521,9 @@ export function AppShell({
   const roleKey = String(activeTenant?.role ?? "");
   const financeEnabledForTenant = isSuperAdmin || isFinanceEnabled(activeTenant?.modules_json);
   const linkManagerEnabledForTenant = isSuperAdmin || isLinkManagerEnabled(activeTenant?.modules_json);
-  const simulatorEnabledForTenant = isSuperAdmin || isSimulatorEnabled(activeTenant?.modules_json);
+  const simulatorEnabledForTenant = isSimulatorEnabled(activeTenant?.modules_json);
   const goalsEnabledForTenant = isGoalsEnabled(activeTenant?.modules_json);
-  const tvCorporativaEnabledForTenant = isSuperAdmin || isTvCorporativaEnabled(activeTenant?.modules_json);
+  const tvCorporativaEnabledForTenant = isTvCorporativaEnabled(activeTenant?.modules_json);
   const portalEnabledForTenant = isSuperAdmin || isPortalEnabled(activeTenant?.modules_json);
   const mediaKitEnabledForTenant = isSuperAdmin || isMediaKitEnabled(activeTenant?.modules_json);
   const communicationEnabledForTenant = isSuperAdmin || isCommunicationEnabled(activeTenant?.modules_json);

@@ -1137,7 +1137,7 @@ export default function MediaKitEditor() {
                        </div>
                     </div>
                   </>
-                ) : (
+                ) : activePage ? (
                   <MediaKitLayers 
                     layers={activePage.layers} 
                     selectedLayerId={selectedLayerId?.pageId === activePage.id ? selectedLayerId.layerId : null}
@@ -1146,6 +1146,11 @@ export default function MediaKitEditor() {
                     onReorder={(layerId, dir) => reorderLayer(layerId, dir)}
                     onDragReorder={(updatedLayers) => handleDragReorder(activePage.id, updatedLayers)}
                   />
+                ) : (
+                  <div className="flex flex-col items-center justify-center h-full text-slate-400 gap-2">
+                    <Layers className="h-8 w-8 opacity-20" />
+                    <p className="text-xs">Nenhuma página selecionada</p>
+                  </div>
                 )}
               </div>
             </aside>

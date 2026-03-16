@@ -133,7 +133,7 @@ export function ImovelImportDialog({
            }
         }
 
-        const { error } = await supabase.from("core_entities").insert({
+        const { data: entityData, error: entityErr } = await supabase.from("core_entities").insert({
           tenant_id: tenantId,
           entity_type: "offering",
           subtype: "imovel",
@@ -148,8 +148,21 @@ export function ImovelImportDialog({
             imported: true,
             import_date: new Date().toISOString()
           }
-        });
-        if (error) throw error;
+        }).select("id").single();
+
+        if (entityErr) throw entityErr;
+
+        // NEW: Also insert into core_entity_photos for room photo management
+        if (finalPhotoUrl && entityData) {
+          await supabase.from("core_entity_photos").insert({
+            tenant_id: tenantId,
+            entity_id: entityData.id,
+            room_type: "geral",
+            url: finalPhotoUrl,
+            is_main: true,
+            metadata: { imported: true }
+          });
+        }
       } catch (e) {
         console.error("Erro na linha", row.rowNo, e);
       }

@@ -18,9 +18,11 @@ import {
   Trash2, 
   Plus, 
   Search,
-  Loader2
+  Loader2,
+  Building2
 } from "lucide-react";
 import { showSuccess, showError } from "@/utils/toast";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 type Asset = {
   id: string;
@@ -38,11 +40,13 @@ export function MediaKitGallery({ open, onOpenChange, onSelect }: MediaKitGaller
   const { activeTenantId } = useTenant();
   const qc = useQueryClient();
   const [searchTerm, setSearchTerm] = useState("");
+  const [entitySearch, setEntitySearch] = useState("");
+  const [activeTab, setActiveTab] = useState("library");
   const [isUploading, setIsUploading] = useState(false);
 
   const assetsQ = useQuery({
     queryKey: ["media_kit_assets", activeTenantId, searchTerm],
-    enabled: !!activeTenantId && open,
+    enabled: !!activeTenantId && open && activeTab === "library",
     queryFn: async () => {
       let query = supabase
         .from("media_kit_assets")
@@ -58,6 +62,36 @@ export function MediaKitGallery({ open, onOpenChange, onSelect }: MediaKitGaller
       const { data, error } = await query;
       if (error) throw error;
       return data as Asset[];
+    },
+  });
+
+  const entityPhotosQ = useQuery({
+    queryKey: ["media_kit_entity_photos", activeTenantId, entitySearch],
+    enabled: !!activeTenantId && open && activeTab === "entities",
+    queryFn: async () => {
+      let query = supabase
+        .from("core_entity_photos")
+        .select(`
+          id,
+          url,
+          room_type,
+          core_entities!inner(display_name)
+        `)
+        .eq("tenant_id", activeTenantId!)
+        .is("deleted_at", null)
+        .order("created_at", { ascending: false });
+
+      if (entitySearch) {
+        query = query.ilike("core_entities.display_name", `%${entitySearch}%`);
+      }
+
+      const { data, error } = await query;
+      if (error) throw error;
+      return (data || []).map((row: any) => ({
+        id: row.id,
+        url: row.url,
+        name: `${row.core_entities?.display_name || "Sem nome"} - ${row.room_type || "Geral"}`
+      }));
     },
   });
 
@@ -134,69 +168,129 @@ export function MediaKitGallery({ open, onOpenChange, onSelect }: MediaKitGaller
           </DialogTitle>
         </DialogHeader>
 
-        <div className="p-4 border-b bg-slate-50 flex items-center gap-4">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-            <Input 
-              placeholder="Buscar imagens..." 
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-10 rounded-xl"
-            />
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col overflow-hidden">
+          <div className="px-6 py-2 border-b bg-slate-50/50">
+            <TabsList className="grid w-full grid-cols-2 rounded-xl">
+              <TabsTrigger value="library" className="rounded-lg">Biblioteca de Mídia</TabsTrigger>
+              <TabsTrigger value="entities" className="rounded-lg">Imagens de Imóveis</TabsTrigger>
+            </TabsList>
           </div>
-          <Button variant="outline" className="rounded-xl relative overflow-hidden" disabled={isUploading}>
-            {isUploading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Upload className="h-4 w-4 mr-2" />}
-            Fazer Upload
-            <input 
-              type="file" 
-              className="absolute inset-0 opacity-0 cursor-pointer" 
-              accept="image/*"
-              onChange={handleFileChange}
-              disabled={isUploading}
-            />
-          </Button>
-        </div>
 
-        <div className="flex-1 overflow-y-auto p-6 scroll-area custom-scrollbar">
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
-            {assetsQ.data?.map((asset) => (
-              <div 
-                key={asset.id} 
-                className="group relative aspect-square rounded-xl border overflow-hidden bg-slate-100 cursor-pointer hover:ring-2 hover:ring-blue-500 transition-all"
-                onClick={() => {
-                  onSelect(asset.url);
-                  onOpenChange(false);
-                }}
-              >
-                <img src={asset.url} alt={asset.name} className="w-full h-full object-cover" />
-                <div className="absolute inset-x-0 bottom-0 p-2 bg-black/50 text-white text-[10px] truncate opacity-0 group-hover:opacity-100 transition-opacity">
-                  {asset.name}
-                </div>
-                <Button
-                  variant="destructive"
-                  size="icon"
-                  className="absolute top-1 right-1 h-6 w-6 rounded-full opacity-0 group-hover:opacity-100 transition-opacity z-10"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    deleteM.mutate(asset.id);
-                  }}
-                >
-                  <Trash2 className="h-3 w-3" />
-                </Button>
+          <TabsContent value="library" className="flex-1 flex flex-col min-h-0 m-0 border-0">
+            <div className="p-4 border-b bg-slate-50 flex items-center gap-4">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                <Input 
+                  placeholder="Buscar imagens na biblioteca..." 
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-10 rounded-xl"
+                />
               </div>
-            ))}
-            {assetsQ.data?.length === 0 && !assetsQ.isLoading && (
-              <div className="col-span-full py-12 text-center text-slate-400">
-                {searchTerm ? "Nenhuma imagem encontrada." : "Nenhuma imagem na galeria. Faça o primeiro upload!"}
+              <Button variant="outline" className="rounded-xl relative overflow-hidden" disabled={isUploading}>
+                {isUploading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Upload className="h-4 w-4 mr-2" />}
+                Fazer Upload
+                <input 
+                  type="file" 
+                  className="absolute inset-0 opacity-0 cursor-pointer" 
+                  accept="image/*"
+                  onChange={handleFileChange}
+                  disabled={isUploading}
+                />
+              </Button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-6 scroll-area custom-scrollbar">
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+                {assetsQ.data?.map((asset) => (
+                  <div 
+                    key={asset.id} 
+                    className="group relative aspect-square rounded-xl border overflow-hidden bg-slate-100 cursor-pointer hover:ring-2 hover:ring-blue-500 transition-all"
+                    onClick={() => {
+                      onSelect(asset.url);
+                      onOpenChange(false);
+                    }}
+                  >
+                    <img src={asset.url} alt={asset.name} className="w-full h-full object-cover" />
+                    <div className="absolute inset-x-0 bottom-0 p-2 bg-black/50 text-white text-[10px] truncate opacity-0 group-hover:opacity-100 transition-opacity">
+                      {asset.name}
+                    </div>
+                    <Button
+                      variant="destructive"
+                      size="icon"
+                      className="absolute top-1 right-1 h-6 w-6 rounded-full opacity-0 group-hover:opacity-100 transition-opacity z-10"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        deleteM.mutate(asset.id);
+                      }}
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </Button>
+                  </div>
+                ))}
+                {assetsQ.data?.length === 0 && !assetsQ.isLoading && (
+                  <div className="col-span-full py-12 text-center text-slate-400">
+                    {searchTerm ? "Nenhuma imagem encontrada." : "Nenhuma imagem na galeria. Faça o primeiro upload!"}
+                  </div>
+                )}
+                {assetsQ.isLoading && (
+                  <div className="col-span-full py-12 text-center text-slate-400">
+                    Carregando imagens...
+                  </div>
+                )}
               </div>
-            )}
-            {assetsQ.isLoading && (
-              <div className="col-span-full py-12 text-center text-slate-400">
-                Carregando imagens...
+            </div>
+          </TabsContent>
+
+          <TabsContent value="entities" className="flex-1 flex flex-col min-h-0 m-0 border-0">
+            <div className="p-4 border-b bg-slate-50">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                <Input 
+                  placeholder="Buscar por nome do imóvel..." 
+                  value={entitySearch}
+                  onChange={(e) => setEntitySearch(e.target.value)}
+                  className="pl-10 rounded-xl"
+                />
               </div>
-            )}
-          </div>
-        </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-6 scroll-area custom-scrollbar">
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+                {entityPhotosQ.data?.map((asset) => (
+                  <div 
+                    key={asset.id} 
+                    className="group relative aspect-square rounded-xl border overflow-hidden bg-slate-100 cursor-pointer hover:ring-2 hover:ring-blue-500 transition-all"
+                    onClick={() => {
+                      onSelect(asset.url);
+                      onOpenChange(false);
+                    }}
+                  >
+                    <img src={asset.url} alt={asset.name} className="w-full h-full object-cover" />
+                    <div className="absolute inset-x-0 bottom-0 p-2 bg-black/50 text-white text-[10px] truncate opacity-0 group-hover:opacity-100 transition-opacity whitespace-pre-wrap line-clamp-2 h-10 flex items-center px-1">
+                      {asset.name}
+                    </div>
+                    <div className="absolute top-1 left-1">
+                      <div className="bg-white/90 backdrop-blur rounded p-1 shadow-sm">
+                        <Building2 className="h-3 w-3 text-indigo-600" />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                {entityPhotosQ.data?.length === 0 && !entityPhotosQ.isLoading && (
+                  <div className="col-span-full py-12 text-center text-slate-400">
+                    {entitySearch ? "Nenhuma foto de imóvel encontrada." : "Nenhuma foto de imóvel disponível."}
+                  </div>
+                )}
+                {entityPhotosQ.isLoading && (
+                  <div className="col-span-full py-12 text-center text-slate-400">
+                    Carregando fotos...
+                  </div>
+                )}
+              </div>
+            </div>
+          </TabsContent>
+        </Tabs>
 
         <DialogFooter className="p-4 border-t bg-slate-50">
           <Button variant="ghost" onClick={() => onOpenChange(false)} className="rounded-xl">

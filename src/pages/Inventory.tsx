@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Search, Package, Image as ImageIcon, LayoutGrid, List as ListIcon } from "lucide-react";
+import { Plus, Search, Package, Image as ImageIcon, LayoutGrid, List as ListIcon, MapPin, Tag as TagIcon, Home } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useNavigate } from "react-router-dom";
 
@@ -25,7 +25,14 @@ type InventoryItem = {
         stock_quantity?: number;
         price_sale?: number;
         price_cost?: number;
+        location_json?: {
+           address?: string;
+           lat?: number;
+           lng?: number;
+        };
+        business_type?: 'sale' | 'rent' | 'both';
     };
+    tags?: string[];
     updated_at: string;
 };
 
@@ -41,7 +48,15 @@ export default function Inventory() {
         queryFn: async () => {
             let base = supabase
                 .from("core_entities")
-                .select("id, display_name, subtype, status, metadata, updated_at")
+                .select(`
+                    id, 
+                    display_name, 
+                    subtype, 
+                    status, 
+                    metadata, 
+                    updated_at,
+                    core_entity_tags(tag)
+                `)
                 .eq("tenant_id", activeTenantId!)
                 .eq("entity_type", "offering")
                 .is("deleted_at", null)
@@ -53,7 +68,10 @@ export default function Inventory() {
 
             const { data, error } = await base;
             if (error) throw error;
-            return (data ?? []) as InventoryItem[];
+            return (data ?? []).map((r: any) => ({
+                ...r,
+                tags: (r.core_entity_tags || []).map((t: any) => t.tag)
+            })) as InventoryItem[];
         },
     });
 
@@ -72,8 +90,8 @@ export default function Inventory() {
             <div className="space-y-6">
                 <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between bg-white p-6 rounded-2xl border shadow-sm">
                     <div>
-                        <h1 className="text-2xl font-bold text-slate-900">Inventário</h1>
-                        <p className="text-sm text-slate-500">Gerenciamento de produtos, estoque e preços.</p>
+                        <h1 className="text-2xl font-bold text-slate-900">Repositório de Ofertas</h1>
+                        <p className="text-sm text-slate-500">Gerenciamento de imóveis, produtos e ativos.</p>
                     </div>
                     <div className="flex items-center gap-2">
                         <div className="flex border rounded-lg overflow-hidden h-10">
@@ -92,7 +110,7 @@ export default function Inventory() {
                         </div>
                         <Button onClick={handleCreate} className="rounded-xl h-10 bg-indigo-600 hover:bg-indigo-700">
                             <Plus className="w-4 h-4 mr-2" />
-                            Novo Produto
+                            Novo Ativo
                         </Button>
                     </div>
                 </div>
@@ -135,7 +153,21 @@ export default function Inventory() {
                                             <ImageIcon className="w-12 h-12" />
                                         </div>
                                     )}
-                                    {item.metadata.stock_quantity !== undefined && (
+                                    {item.metadata.business_type && (
+                                        <Badge
+                                            className={cn(
+                                                "absolute top-3 left-3 shadow-sm border-0",
+                                                item.metadata.business_type === 'sale' ? "bg-emerald-500 text-white" : 
+                                                item.metadata.business_type === 'rent' ? "bg-blue-500 text-white" : 
+                                                "bg-amber-500 text-white"
+                                            )}
+                                        >
+                                            {item.metadata.business_type === 'sale' ? "Venda" : 
+                                             item.metadata.business_type === 'rent' ? "Aluguel" : 
+                                             "Venda/Aluguel"}
+                                        </Badge>
+                                    )}
+                                    {item.metadata.stock_quantity !== undefined && item.subtype !== 'imovel' && (
                                         <Badge
                                             variant={item.metadata.stock_quantity > 0 ? "secondary" : "destructive"}
                                             className="absolute top-3 right-3 shadow-sm bg-white/90 backdrop-blur-sm"
@@ -148,17 +180,38 @@ export default function Inventory() {
                                     <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">
                                         {item.subtype || "Produto"}
                                     </div>
-                                    <h3 className="font-bold text-slate-900 line-clamp-1 mb-2">{item.display_name}</h3>
-                                    <div className="flex items-center justify-between">
+                                    <h3 className="font-bold text-slate-900 line-clamp-1 mb-1">{item.display_name}</h3>
+                                    
+                                    {item.metadata.location_json?.address && (
+                                        <div className="flex items-center gap-1 text-[11px] text-slate-500 mb-2 truncate">
+                                            <MapPin className="w-3 h-3 flex-shrink-0" />
+                                            <span className="truncate">{item.metadata.location_json.address}</span>
+                                        </div>
+                                    )}
+
+                                    <div className="flex items-center justify-between mb-3">
                                         <div className="text-lg font-black text-indigo-600">
                                             {item.metadata.price_sale
                                                 ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(item.metadata.price_sale)
                                                 : "—"}
                                         </div>
                                         {item.metadata.internal_code && (
-                                            <span className="text-[10px] text-slate-400 font-mono">#{item.metadata.internal_code}</span>
+                                            <span className="text-[10px] text-slate-400 font-mono bg-slate-100 px-1.5 py-0.5 rounded">#{item.metadata.internal_code}</span>
                                         )}
                                     </div>
+
+                                    {item.tags && item.tags.length > 0 && (
+                                        <div className="flex flex-wrap gap-1">
+                                            {item.tags.slice(0, 3).map(t => (
+                                                <Badge key={t} variant="outline" className="text-[9px] px-1.5 h-4 bg-slate-50 text-slate-500 border-slate-200 uppercase font-bold tracking-tighter">
+                                                    {t}
+                                                </Badge>
+                                            ))}
+                                            {item.tags.length > 3 && (
+                                                <span className="text-[9px] text-slate-400">+{item.tags.length - 3}</span>
+                                            )}
+                                        </div>
+                                    )}
                                 </div>
                             </Card>
                         ))}
@@ -170,9 +223,9 @@ export default function Inventory() {
                                 <thead>
                                     <tr className="bg-slate-50 text-left border-b border-slate-200">
                                         <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-widest w-16">Foto</th>
-                                        <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-widest">Produto</th>
+                                        <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-widest">Ativo</th>
                                         <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-widest">Código</th>
-                                        <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-widest">Estoque</th>
+                                        <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-widest">Status / Tags</th>
                                         <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-widest">Preço</th>
                                         <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-widest text-right">Ações</th>
                                     </tr>
@@ -199,9 +252,14 @@ export default function Inventory() {
                                                 {item.metadata.internal_code || "—"}
                                             </td>
                                             <td className="px-6 py-3">
-                                                <span className={cn("font-bold", (item.metadata.stock_quantity ?? 0) > 0 ? "text-slate-700" : "text-red-500")}>
-                                                    {item.metadata.stock_quantity ?? "—"}
-                                                </span>
+                                                <div className="flex flex-wrap gap-1 max-w-[200px]">
+                                                    {item.metadata.business_type === 'sale' && <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100 border-0 text-[10px]">Venda</Badge>}
+                                                    {item.metadata.business_type === 'rent' && <Badge className="bg-blue-100 text-blue-700 hover:bg-blue-100 border-0 text-[10px]">Aluguel</Badge>}
+                                                    {item.metadata.business_type === 'both' && <Badge className="bg-amber-100 text-amber-700 hover:bg-amber-100 border-0 text-[10px]">Venda/Aluguel</Badge>}
+                                                    {item.tags?.map(t => (
+                                                        <Badge key={t} variant="outline" className="text-[10px] border-slate-200 text-slate-500 uppercase font-medium">{t}</Badge>
+                                                    ))}
+                                                </div>
                                             </td>
                                             <td className="px-6 py-3 font-bold text-indigo-600">
                                                 {item.metadata.price_sale

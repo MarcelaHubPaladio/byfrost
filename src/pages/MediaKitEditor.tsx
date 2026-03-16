@@ -154,6 +154,7 @@ export default function MediaKitEditor() {
       if (config.pages) {
         setPages(config.pages);
         if (config.pages.length > 0) setActivePageId(config.pages[0].id);
+        setHistory([config.pages]);
       } else if (config.layouts) {
         // Mask format: convert layouts to pages for the editor
         const maskPages = Object.entries(config.layouts).map(([tid, layers], idx) => ({
@@ -163,10 +164,13 @@ export default function MediaKitEditor() {
         }));
         setPages(maskPages);
         if (maskPages.length > 0) setActivePageId(maskPages[0].id);
+        setHistory([maskPages]);
       } else if (config.layers) {
         // Migration of old data format
-        setPages([{ id: "p1", templateId: "unknown", layers: config.layers }]);
+        const migratedPages = [{ id: "p1", templateId: "unknown", layers: config.layers }];
+        setPages(migratedPages);
         setActivePageId("p1");
+        setHistory([migratedPages]);
       }
       setEditorState("editing");
     }
@@ -312,8 +316,14 @@ export default function MediaKitEditor() {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Ignore if typing in an input or textarea
+      const target = e.target as HTMLElement;
+      if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable) {
+        return;
+      }
+
       // Undo
-      if ((e.ctrlKey || e.metaKey) && e.key === "z") {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
         e.preventDefault();
         undo();
       }
@@ -542,13 +552,15 @@ export default function MediaKitEditor() {
     const mask = masksQ.data?.find(m => m.id === maskId);
     if (!mask) return;
 
-    setPages(pages.map(p => {
+    const updatedPages = pages.map(p => {
       const maskLayers = (mask.config as any)?.layouts?.[p.templateId] || [];
       return {
         ...p,
         layers: maskLayers.length > 0 ? maskLayers : p.layers
       };
-    }));
+    });
+    setPages(updatedPages);
+    pushToHistory(updatedPages);
     showSuccess(`Máscara "${mask.name}" aplicada.`);
   };
   

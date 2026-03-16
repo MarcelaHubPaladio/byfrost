@@ -226,11 +226,15 @@ export default function PublicLinks() {
                                     </div>
                                     <div>
                                         <div className="font-bold text-slate-900 dark:text-white group-hover:opacity-80 transition-opacity">{item.label}</div>
-                                        {item.link_type === 'assessment' && (
-                                            <div className="text-[10px] font-medium uppercase tracking-wider" style={{ color: primaryColor }}>Avaliação Premiada</div>
+                                        {item.link_type === 'assessment' && (item.metadata?.custom_badge !== " " && (item.metadata?.custom_badge || "Avaliação Premiada")) && (
+                                            <div className="text-[10px] font-medium uppercase tracking-wider" style={{ color: primaryColor }}>
+                                                {item.metadata?.custom_badge || "Avaliação Premiada"}
+                                            </div>
                                         )}
-                                        {item.link_type === 'smart' && (
-                                            <div className="text-[10px] font-medium uppercase tracking-wider text-blue-500">Smart Link</div>
+                                        {item.link_type === 'smart' && (item.metadata?.custom_badge !== " " && (item.metadata?.custom_badge || "Smart Link")) && (
+                                            <div className="text-[10px] font-medium uppercase tracking-wider text-blue-500">
+                                                {item.metadata?.custom_badge || "Smart Link"}
+                                            </div>
                                         )}
                                     </div>
                                 </div>

@@ -50,6 +50,9 @@ type LinkItem = {
     icon: string | null;
     sort_order: number;
     is_active: boolean;
+    metadata: {
+        custom_badge?: string;
+    } | null;
 };
 
 type ItemRedirect = {
@@ -518,10 +521,10 @@ export default function LinkManager() {
                                                                     <div className="flex items-center gap-2">
                                                                         <span className="font-bold text-slate-900">{item.label}</span>
                                                                         {item.link_type === 'assessment' && (
-                                                                            <Badge variant="secondary" className="bg-blue-50 text-blue-600 border-blue-100">Avaliação</Badge>
+                                                                            <Badge variant="secondary" className="bg-blue-50 text-blue-600 border-blue-100">{item.metadata?.custom_badge || "Avaliação"}</Badge>
                                                                         )}
                                                                         {item.link_type === 'smart' && (
-                                                                            <Badge variant="secondary" className="bg-purple-50 text-purple-600 border-purple-100">Smart Link</Badge>
+                                                                            <Badge variant="secondary" className="bg-purple-50 text-purple-600 border-purple-100">{item.metadata?.custom_badge || "Smart Link"}</Badge>
                                                                         )}
                                                                         {!item.is_active && (
                                                                             <Badge variant="outline" className="text-slate-400">Inativo</Badge>
@@ -855,6 +858,23 @@ export default function LinkManager() {
                                         </SelectContent>
                                     </Select>
                                 </div>
+                                
+                                {(editingItem?.link_type === 'assessment' || editingItem?.link_type === 'smart') && (
+                                    <div className="grid gap-2">
+                                        <Label htmlFor="custom_badge">Texto do Badge (Opcional)</Label>
+                                        <Input
+                                            id="custom_badge"
+                                            value={editingItem?.metadata?.custom_badge || ""}
+                                            onChange={e => setEditingItem(p => ({ 
+                                                ...p, 
+                                                metadata: { ...p.metadata, custom_badge: e.target.value } 
+                                            }))}
+                                            placeholder={editingItem.link_type === 'assessment' ? "Padrão: Avaliação" : "Padrão: Smart Link"}
+                                            className="rounded-xl"
+                                        />
+                                        <p className="text-[10px] text-slate-400">Deixe em branco para usar o padrão, ou digite algo para personalizar. Se quiser ocultar o badge, digite um espaço.</p>
+                                    </div>
+                                )}
 
                                 {editingItem?.link_type === 'standard' && (
                                     <div className="grid gap-2">

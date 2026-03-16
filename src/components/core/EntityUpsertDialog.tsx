@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useMemo, useState, useEffect } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { showError, showSuccess } from "@/utils/toast";
 import {
@@ -13,6 +13,20 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
 import {
   Select,
   SelectContent,
@@ -20,7 +34,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Tag, X, Plus as PlusIcon, Check } from "lucide-react";
 import { LocationPinSelector } from "@/components/crm/LocationPinSelector";
+import { cn } from "@/lib/utils";
 
 export type CoreEntityType = "party" | "offering";
 
@@ -169,6 +185,11 @@ export function EntityUpsertDialog({
   const [location, setLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [address, setAddress] = useState<string>("");
 
+  // Tags
+  const [tags, setTags] = useState<string[]>([]);
+  const [tagPickerOpen, setTagPickerOpen] = useState(false);
+  const [tagInput, setTagInput] = useState("");
+
   useEffect(() => {
     if (!open) return;
 
@@ -197,7 +218,29 @@ export function EntityUpsertDialog({
     const loc = initial?.metadata?.location_json || null;
     setLocation(loc?.lat ? { lat: loc.lat, lng: loc.lng } : null);
     setAddress(String(loc?.address ?? ""));
+
+    // Tags fetch
+    if (initial?.id) {
+       supabase.from("core_entity_tags").select("tag").eq("entity_id", initial.id).eq("tenant_id", tenantId)
+       .then(({data}) => {
+         setTags((data || []).map(r => r.tag));
+       });
+    } else {
+       setTags([]);
+    }
   }, [open, initial?.id]);
+
+  const allTenantTagsQ = useQuery({
+    queryKey: ["all_entity_tags", tenantId],
+    enabled: Boolean(tenantId && open),
+    queryFn: async () => {
+      const { data } = await supabase.from("core_entity_tags").select("tag").eq("tenant_id", tenantId).limit(1000);
+      const unique = Array.from(new Set((data || []).map(r => r.tag))).sort();
+      return unique;
+    }
+  });
+
+  const normalizeTag = (s: string) => s.trim().toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "").replace(/\s+/g, " ").slice(0, 32);
 
   const entityType: CoreEntityType = useMemo(() => {
     if (lockedEntityType) return lockedEntityType;
@@ -268,6 +311,7 @@ export function EntityUpsertDialog({
         legacy_id: subtype === "imovel" ? legacyId.trim() : baseMetadata?.legacy_id,
         business_type: subtype === "imovel" ? businessType : baseMetadata?.business_type,
         location_json: subtype === "imovel" ? { ...location, address: address.trim() } : baseMetadata?.location_json,
+        tags: tags, // keeping semantic copy in metadata if needed, but primary is table
       };
 
       const entityData = {
@@ -291,6 +335,13 @@ export function EntityUpsertDialog({
           .eq("id", String(initial?.id))
           .is("deleted_at", null);
         if (error) throw error;
+        
+        const entityId = String(initial?.id);
+        // Sync tags
+        await supabase.from("core_entity_tags").delete().eq("entity_id", entityId).eq("tenant_id", tenantId);
+        if (tags.length > 0) {
+           await supabase.from("core_entity_tags").insert(tags.map(t => ({ entity_id: entityId, tenant_id: tenantId, tag: t })));
+        }
 
         showSuccess("Entidade atualizada.");
         await qc.invalidateQueries({ queryKey: ["entities"] });
@@ -308,8 +359,13 @@ export function EntityUpsertDialog({
           .select("id")
           .single();
         if (error) throw error;
+        
+        const newId = data.id;
+        // Sync tags
+        if (tags.length > 0) {
+           await supabase.from("core_entity_tags").insert(tags.map(t => ({ entity_id: newId, tenant_id: tenantId, tag: t })));
+        }
 
-        const newId = String((data as any)?.id ?? "");
         showSuccess("Entidade criada.");
         await qc.invalidateQueries({ queryKey: ["entities"] });
         onSaved?.(newId);
@@ -458,6 +514,77 @@ export function EntityUpsertDialog({
               </SelectContent>
             </Select>
             <div className="text-[11px] text-slate-500">Entidades inativas não aparecem na TV Corporativa nem em novos compromissos.</div>
+          </div>
+
+          <div className="grid gap-2">
+            <Label className="flex items-center gap-2">
+               <Tag className="h-3.5 w-3.5 text-slate-400" />
+               Tags / Categorias
+            </Label>
+            <div className="flex flex-wrap gap-2 min-h-[44px] p-2 rounded-2xl border border-slate-200 bg-white">
+               {tags.map(t => (
+                 <Badge key={t} variant="secondary" className="pl-2 pr-1 h-7 rounded-lg gap-1 bg-indigo-50 text-indigo-700 border-indigo-100 uppercase text-[10px] font-bold">
+                    {t}
+                    <button type="button" onClick={() => setTags(tags.filter(x => x !== t))} className="hover:bg-indigo-200/50 rounded-md p-0.5">
+                       <X className="h-3 w-3" />
+                    </button>
+                 </Badge>
+               ))}
+               
+               <Popover open={tagPickerOpen} onOpenChange={setTagPickerOpen}>
+                  <PopoverTrigger asChild>
+                     <Button type="button" variant="ghost" size="sm" className="h-7 rounded-lg text-[10px] font-bold uppercase tracking-wider text-slate-400 hover:text-indigo-600">
+                        <PlusIcon className="mr-1 h-3 w-3" /> Adicionar Tag
+                     </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[240px] p-0 rounded-2xl overflow-hidden shadow-2xl border-indigo-100" align="start">
+                     <Command>
+                        <CommandInput 
+                           placeholder="Buscar ou criar tag..." 
+                           value={tagInput}
+                           onValueChange={setTagInput}
+                        />
+                        <CommandList>
+                           <CommandEmpty>
+                              <div className="p-2 space-y-2">
+                                 <p className="text-[11px] text-slate-500">Nenhuma tag encontrada.</p>
+                                 {tagInput.trim() && (
+                                   <Button 
+                                      className="w-full h-8 rounded-xl text-xs" 
+                                      onClick={() => {
+                                        const nt = normalizeTag(tagInput);
+                                        if (nt && !tags.includes(nt)) setTags([...tags, nt]);
+                                        setTagInput("");
+                                        setTagPickerOpen(false);
+                                      }}
+                                   >
+                                      Criar "{tagInput}"
+                                   </Button>
+                                 )}
+                              </div>
+                           </CommandEmpty>
+                           <CommandGroup heading="Sugestões">
+                              {allTenantTagsQ.data?.filter(t => !tags.includes(t)).map(t => (
+                                <CommandItem 
+                                   key={t} 
+                                   onSelect={() => {
+                                     setTags([...tags, t]);
+                                     setTagPickerOpen(false);
+                                     setTagInput("");
+                                   }}
+                                   className="rounded-xl"
+                                >
+                                   <Check className={cn("mr-2 h-4 w-4 opacity-0", tags.includes(t) && "opacity-100")} />
+                                   {t}
+                                </CommandItem>
+                              ))}
+                           </CommandGroup>
+                        </CommandList>
+                     </Command>
+                  </PopoverContent>
+               </Popover>
+            </div>
+            <div className="text-[10px] text-slate-400">Classifique para facilitar a busca e gestão posterior.</div>
           </div>
 
           {subtype === "imovel" && (

@@ -22,6 +22,7 @@ type ParsedRow = {
   businessType: string;
   price: string;
   address: string;
+  photoUrl: string;
 };
 
 export function ImovelImportDialog({
@@ -72,6 +73,7 @@ export function ImovelImportDialog({
       const idxBusiness = headers.findIndex(h => h.includes("tipo") || h.includes("negocio") || h.includes("business"));
       const idxPrice = headers.findIndex(h => h.includes("preco") || h.includes("price") || h.includes("valor"));
       const idxAddress = headers.findIndex(h => h.includes("endereco") || h.includes("address") || h.includes("localizacao"));
+      const idxPhoto = headers.findIndex(h => h.includes("foto") || h.includes("photo") || h.includes("imagem") || h.includes("image") || h.includes("url"));
 
       const out: ParsedRow[] = [];
       for (let i = 1; i < lines.length; i++) {
@@ -87,6 +89,7 @@ export function ImovelImportDialog({
           businessType: idxBusiness >= 0 ? cols[idxBusiness]?.toLowerCase() || "sale" : "sale",
           price: idxPrice >= 0 ? cols[idxPrice] || "0" : "0",
           address: idxAddress >= 0 ? cols[idxAddress] || "" : "",
+          photoUrl: idxPhoto >= 0 ? cols[idxPhoto] || "" : "",
         });
       }
       return out;
@@ -107,6 +110,29 @@ export function ImovelImportDialog({
           ? (row.businessType.includes("venda") || row.businessType.includes("sale") ? "both" : "rent")
           : "sale";
 
+        let finalPhotoUrl = null;
+        if (row.photoUrl && row.photoUrl.startsWith("http")) {
+           try {
+              const res = await fetch(row.photoUrl);
+              const blob = await res.blob();
+              const ext = row.photoUrl.split(".").pop()?.split(/[#?]/)[0] || "jpg";
+              const path = `${tenantId}/imports/${crypto.randomUUID()}.${ext}`;
+              
+              const { error: upErr } = await supabase.storage
+                .from("media-kit")
+                .upload(path, blob);
+                
+              if (!upErr) {
+                 const { data: { publicUrl } } = supabase.storage
+                   .from("media-kit")
+                   .getPublicUrl(path);
+                 finalPhotoUrl = publicUrl;
+              }
+           } catch (err) {
+              console.warn("Falha ao importar foto da URL:", row.photoUrl, err);
+           }
+        }
+
         const { error } = await supabase.from("core_entities").insert({
           tenant_id: tenantId,
           entity_type: "offering",
@@ -118,6 +144,7 @@ export function ImovelImportDialog({
           location_json: { address: row.address },
           metadata: {
             price_sale: parseFloat(row.price.replace(",", ".")) || 0,
+            photo_url: finalPhotoUrl,
             imported: true,
             import_date: new Date().toISOString()
           }

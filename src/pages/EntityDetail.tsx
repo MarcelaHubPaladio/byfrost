@@ -75,7 +75,10 @@ export default function EntityDetail() {
         .maybeSingle();
       if (error) throw error;
       if (!data) throw new Error("entity_not_found");
-      return data as EntityRow;
+
+      const { data: tagsData } = await supabase.from("core_entity_tags").select("tag").eq("entity_id", entityId).eq("tenant_id", activeTenantId!);
+      
+      return { ...data, tags: (tagsData || []).map(r => r.tag) } as EntityRow & { tags: string[] };
     },
     staleTime: 5_000,
   });
@@ -142,6 +145,9 @@ export default function EntityDetail() {
                   {entityQ.data?.internal_code && (
                     <Badge variant="secondary" className="bg-indigo-50 text-indigo-700 font-mono">#{entityQ.data.internal_code}</Badge>
                   )}
+                  {(entityQ.data as any)?.tags?.map((t: string) => (
+                    <Badge key={t} variant="secondary" className="bg-slate-100 text-slate-600 border-slate-200 uppercase text-[10px] font-bold">{t}</Badge>
+                  ))}
                   <span className="text-xs text-slate-500">id: {entityId}</span>
                 </div>
               </div>

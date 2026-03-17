@@ -1,5 +1,5 @@
 import React, { useRef, useImperativeHandle, forwardRef } from "react";
-import { cn } from "@/lib/utils";
+import { cn, hexToRgba } from "@/lib/utils";
 import * as Icons from "lucide-react";
 
 export type Layer = {
@@ -31,6 +31,11 @@ export type Layer = {
   listSeparator?: string;
   listShowIcons?: boolean;
   listLayout?: "horizontal" | "vertical";
+  shadowOffsetX?: number;
+  shadowOffsetY?: number;
+  shadowBlur?: number;
+  shadowOpacity?: number;
+  shadowColor?: string;
 };
 
 type MediaKitCanvasProps = {
@@ -388,6 +393,7 @@ export const MediaKitCanvas = forwardRef<{ exportImage: () => Promise<string> },
                 border: layer.borderWidth ? `${layer.borderWidth}px solid ${layer.borderColor || "#000"}` : undefined,
                 pointerEvents: layer.locked ? "none" : "auto",
                 overflow: "hidden",
+                boxShadow: layer.type !== "text" && layer.shadowBlur !== undefined ? `${layer.shadowOffsetX || 0}px ${layer.shadowOffsetY || 0}px ${layer.shadowBlur}px ${hexToRgba(layer.shadowColor || "#000", layer.shadowOpacity ?? 0.5)}` : undefined,
               }}
             >
               {layer.type === "text" && (
@@ -402,6 +408,7 @@ export const MediaKitCanvas = forwardRef<{ exportImage: () => Promise<string> },
                     whiteSpace: "pre-wrap",
                     width: "100%",
                     height: "100%",
+                    textShadow: layer.shadowBlur !== undefined ? `${layer.shadowOffsetX || 0}px ${layer.shadowOffsetY || 0}px ${layer.shadowBlur}px ${hexToRgba(layer.shadowColor || "#000", layer.shadowOpacity ?? 0.5)}` : undefined,
                   }}
                 >
                   {layer.isVariable ? getEffectiveValue(layer) : replacePlaceholders(layer.content)}

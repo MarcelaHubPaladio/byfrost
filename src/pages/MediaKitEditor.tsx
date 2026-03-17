@@ -1569,6 +1569,82 @@ export default function MediaKitEditor() {
                                min={0} max={100} step={1}
                                onValueChange={([v]) => updateLayer(selectedLayerIds!.pageId, selectedLayer.id, { opacity: v / 100 }, true)}
                              />
+                           </div>
+
+                           <div className="space-y-4 py-4 border-t border-slate-100">
+                             <div className="flex items-center justify-between">
+                               <Label className="text-xs font-bold text-slate-700">Sombra</Label>
+                               <Switch 
+                                 checked={selectedLayer.shadowBlur !== undefined}
+                                 onCheckedChange={(val) => updateLayer(selectedLayerIds!.pageId, selectedLayer.id, { 
+                                   shadowBlur: val ? 10 : undefined,
+                                   shadowOffsetX: val ? 2 : undefined,
+                                   shadowOffsetY: val ? 2 : undefined,
+                                   shadowOpacity: val ? 0.3 : undefined,
+                                   shadowColor: val ? "#000000" : undefined
+                                 }, true)}
+                               />
+                             </div>
+
+                             {selectedLayer.shadowBlur !== undefined && (
+                               <div className="space-y-4 pt-2">
+                                 <div className="grid grid-cols-2 gap-4">
+                                   <div className="space-y-1">
+                                     <Label className="text-[10px] font-bold text-slate-400 uppercase">Distância X</Label>
+                                     <Input 
+                                       type="number"
+                                       value={selectedLayer.shadowOffsetX || 0}
+                                       onChange={(e) => updateLayer(selectedLayerIds!.pageId, selectedLayer.id, { shadowOffsetX: parseInt(e.target.value) }, true)}
+                                       className="h-8 text-xs rounded-xl"
+                                     />
+                                   </div>
+                                   <div className="space-y-1">
+                                     <Label className="text-[10px] font-bold text-slate-400 uppercase">Distância Y</Label>
+                                     <Input 
+                                       type="number"
+                                       value={selectedLayer.shadowOffsetY || 0}
+                                       onChange={(e) => updateLayer(selectedLayerIds!.pageId, selectedLayer.id, { shadowOffsetY: parseInt(e.target.value) }, true)}
+                                       className="h-8 text-xs rounded-xl"
+                                     />
+                                   </div>
+                                 </div>
+
+                                 <div className="space-y-2">
+                                   <Label className="text-[10px] font-bold text-slate-400 uppercase">Blur: {selectedLayer.shadowBlur}px</Label>
+                                   <Slider 
+                                     value={[selectedLayer.shadowBlur || 0]}
+                                     min={0} max={100} step={1}
+                                     onValueChange={([v]) => updateLayer(selectedLayerIds!.pageId, selectedLayer.id, { shadowBlur: v }, true)}
+                                   />
+                                 </div>
+
+                                 <div className="space-y-2">
+                                   <Label className="text-[10px] font-bold text-slate-400 uppercase">Opacidade: {Math.round((selectedLayer.shadowOpacity || 0.5) * 100)}%</Label>
+                                   <Slider 
+                                     value={[(selectedLayer.shadowOpacity || 0.5) * 100]}
+                                     min={0} max={100} step={1}
+                                     onValueChange={([v]) => updateLayer(selectedLayerIds!.pageId, selectedLayer.id, { shadowOpacity: v / 100 }, true)}
+                                   />
+                                 </div>
+
+                                 <div className="space-y-2">
+                                   <Label className="text-[10px] font-bold text-slate-400 uppercase">Cor da Sombra</Label>
+                                   <div className="flex gap-2">
+                                     <Input 
+                                       type="color" 
+                                       value={selectedLayer.shadowColor || "#000000"} 
+                                       onChange={(e) => updateLayer(selectedLayerIds!.pageId, selectedLayer.id, { shadowColor: e.target.value }, true)} 
+                                       className="w-10 h-8 p-1 border-none cursor-pointer"
+                                     />
+                                     <Input 
+                                       value={selectedLayer.shadowColor || "#000000"} 
+                                       onChange={(e) => updateLayer(selectedLayerIds!.pageId, selectedLayer.id, { shadowColor: e.target.value }, true)} 
+                                       className="flex-1 h-8 rounded-xl text-[10px] uppercase"
+                                     />
+                                   </div>
+                                 </div>
+                               </div>
+                             )}
                           </div>
                         </>
                       )}

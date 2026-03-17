@@ -1150,7 +1150,7 @@ export default function MediaKitEditor() {
               onMouseUp={() => setIsPanning(false)}
               onMouseLeave={() => setIsPanning(false)}
               className={cn(
-                "flex-1 overflow-auto bg-slate-100 flex flex-col items-center gap-16 py-20 px-4 custom-scrollbar overscroll-x-none transition-all",
+                "flex-1 overflow-auto bg-slate-100 custom-scrollbar overscroll-x-none transition-all",
                 isSpacePressed && (isPanning ? "cursor-grabbing" : "cursor-grab")
               )}
               style={{ overscrollBehaviorX: "none" }}
@@ -1177,64 +1177,66 @@ export default function MediaKitEditor() {
                 </Button>
               </div>
 
-              {pages.map((page, idx) => {
-                const template = templatesQ.data?.find(t => t.id === page.templateId);
-                return (
-                  <div key={page.id} ref={(el) => { pageRefs.current[page.id] = el; }} className="flex flex-col items-center gap-4 group">
-                    <div className="flex items-center justify-between w-full px-2">
-                       <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                         Página {idx + 1} • {template?.name || "Original"} ({template?.width}x{template?.height})
-                       </span>
-                       <Button 
-                        variant="ghost" 
-                        size="icon" 
-                        onClick={() => setActivePageId(page.id)}
-                        className={`h-6 w-6 rounded-full ${activePageId === page.id ? "text-blue-500 bg-blue-50" : "text-slate-300"}`}
-                       >
-                         <Check className="h-3 w-3" />
-                       </Button>
-                    </div>
-                    <div className={`relative p-2 rounded-xl transition-all ${activePageId === page.id ? "ring-2 ring-blue-400 ring-offset-8" : "hover:ring-2 hover:ring-slate-300 hover:ring-offset-8"}`}>
-                      <MediaKitCanvas
-                        ref={(el) => { if (el) canvasRefs.current[page.id] = el; }}
-                        layers={page.layers}
-                        width={template?.width || 1080}
-                        height={template?.height || 1080}
-                        selectedLayerIds={selectedLayerIds?.pageId === page.id ? selectedLayerIds.layerIds : null}
-                        onSelectLayer={(layerId, isShift) => {
-                          setActivePageId(page.id);
-                          if (isShift) {
-                            const currentIds = selectedLayerIds?.pageId === page.id ? selectedLayerIds.layerIds : [];
-                            if (currentIds.includes(layerId)) {
-                              setSelectedLayerIds({ pageId: page.id, layerIds: currentIds.filter(id => id !== layerId) });
+              <div className="min-w-full min-h-full flex flex-col items-center gap-16 py-20 px-4">
+                {pages.map((page, idx) => {
+                  const template = templatesQ.data?.find(t => t.id === page.templateId);
+                  return (
+                    <div key={page.id} ref={(el) => { pageRefs.current[page.id] = el; }} className="flex flex-col items-center gap-4 group">
+                      <div className="flex items-center justify-between w-full px-2">
+                         <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                           Página {idx + 1} • {template?.name || "Original"} ({template?.width}x{template?.height})
+                         </span>
+                         <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          onClick={() => setActivePageId(page.id)}
+                          className={`h-6 w-6 rounded-full ${activePageId === page.id ? "text-blue-500 bg-blue-50" : "text-slate-300"}`}
+                         >
+                           <Check className="h-3 w-3" />
+                         </Button>
+                      </div>
+                      <div className={`relative p-2 rounded-xl transition-all ${activePageId === page.id ? "ring-2 ring-blue-400 ring-offset-8" : "hover:ring-2 hover:ring-slate-300 hover:ring-offset-8"}`}>
+                        <MediaKitCanvas
+                          ref={(el) => { if (el) canvasRefs.current[page.id] = el; }}
+                          layers={page.layers}
+                          width={template?.width || 1080}
+                          height={template?.height || 1080}
+                          selectedLayerIds={selectedLayerIds?.pageId === page.id ? selectedLayerIds.layerIds : null}
+                          onSelectLayer={(layerId, isShift) => {
+                            setActivePageId(page.id);
+                            if (isShift) {
+                              const currentIds = selectedLayerIds?.pageId === page.id ? selectedLayerIds.layerIds : [];
+                              if (currentIds.includes(layerId)) {
+                                setSelectedLayerIds({ pageId: page.id, layerIds: currentIds.filter(id => id !== layerId) });
+                              } else {
+                                setSelectedLayerIds({ pageId: page.id, layerIds: [...currentIds, layerId] });
+                              }
                             } else {
-                              setSelectedLayerIds({ pageId: page.id, layerIds: [...currentIds, layerId] });
+                              setSelectedLayerIds(layerId ? { pageId: page.id, layerIds: [layerId] } : null);
                             }
-                          } else {
-                            setSelectedLayerIds(layerId ? { pageId: page.id, layerIds: [layerId] } : null);
-                          }
-                        }}
-                        onSelectLayers={(ids) => {
-                          setActivePageId(page.id);
-                          setSelectedLayerIds(ids.length > 0 ? { pageId: page.id, layerIds: ids } : null);
-                        }}
-                        onUpdateLayer={(layerId, delta) => updateLayer(page.id, layerId, delta)}
-                        onUpdateLayers={(layerIds, delta) => updateLayers(page.id, layerIds, delta)}
-                        scale={scale}
-                        entityData={entityData}
-                        entityPhotos={entityPhotosQ.data || []}
-                        roomCounts={roomCounts}
-                      />
+                          }}
+                          onSelectLayers={(ids) => {
+                            setActivePageId(page.id);
+                            setSelectedLayerIds(ids.length > 0 ? { pageId: page.id, layerIds: ids } : null);
+                          }}
+                          onUpdateLayer={(layerId, delta) => updateLayer(page.id, layerId, delta)}
+                          onUpdateLayers={(layerIds, delta) => updateLayers(page.id, layerIds, delta)}
+                          scale={scale}
+                          entityData={entityData}
+                          entityPhotos={entityPhotosQ.data || []}
+                          roomCounts={roomCounts}
+                        />
+                      </div>
                     </div>
+                  );
+                })}
+                {pages.length === 0 && (
+                  <div className="flex flex-col items-center justify-center text-slate-400 gap-4 mt-20">
+                    <Layers className="h-16 w-16 opacity-20" />
+                    <p>Nenhuma página configurada.</p>
                   </div>
-                );
-              })}
-              {pages.length === 0 && (
-                <div className="flex flex-col items-center justify-center text-slate-400 gap-4 mt-20">
-                  <Layers className="h-16 w-16 opacity-20" />
-                  <p>Nenhuma página configurada.</p>
-                </div>
-              )}
+                )}
+              </div>
             </main>
 
             {/* Right Properties Panel - Fixed */}

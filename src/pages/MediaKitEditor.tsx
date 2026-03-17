@@ -1148,6 +1148,7 @@ export default function MediaKitEditor() {
                         scale={scale}
                         entityData={entityData}
                         entityPhotos={entityPhotosQ.data?.photos || []}
+                        roomCounts={entityPhotosQ.data?.roomCounts || {}}
                       />
                     </div>
                   </div>

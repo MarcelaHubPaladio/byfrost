@@ -50,10 +50,11 @@ type MediaKitCanvasProps = {
   scale: number;
   entityData?: any;
   entityPhotos?: any[];
+  roomCounts?: Record<string, number>;
 };
 
 export const MediaKitCanvas = forwardRef<{ exportImage: () => Promise<string> }, MediaKitCanvasProps>(
-  ({ layers, width, height, selectedLayerIds, onSelectLayer, onSelectLayers, onUpdateLayer, onUpdateLayers, scale, entityData, entityPhotos }, ref) => {
+  ({ layers, width, height, selectedLayerIds, onSelectLayer, onSelectLayers, onUpdateLayer, onUpdateLayers, scale, entityData, entityPhotos, roomCounts }, ref) => {
     const canvasRef = useRef<HTMLDivElement>(null);
     const [selectionBox, setSelectionBox] = React.useState<{ x: number; y: number; width: number; height: number } | null>(null);
     const [editingId, setEditingId] = React.useState<string | null>(null);
@@ -75,9 +76,9 @@ export const MediaKitCanvas = forwardRef<{ exportImage: () => Promise<string> },
     }));
 
     const getEffectiveValue = (layer: Layer) => {
-      if (layer.isList && entityPhotos) {
+      if (layer.isList && roomCounts) {
         // If it's a list of rooms
-        const roomEntries = Object.entries((entityPhotos as any)?.roomCounts || {});
+        const roomEntries = Object.entries(roomCounts);
         if (roomEntries.length === 0) return layer.content;
 
         const items = roomEntries.map(([room, count]) => `${room}: ${count}`);
@@ -90,9 +91,9 @@ export const MediaKitCanvas = forwardRef<{ exportImage: () => Promise<string> },
       const field = layer.variableField;
       
       // Special check for room counts
-      if (field.startsWith("room_") && entityPhotos) {
+      if (field.startsWith("room_") && roomCounts) {
         const roomName = field.replace("room_", "");
-        const count = (entityPhotos as any)?.roomCounts?.[roomName];
+        const count = roomCounts[roomName];
         return count !== undefined ? String(count) : "0";
       }
 
@@ -133,9 +134,9 @@ export const MediaKitCanvas = forwardRef<{ exportImage: () => Promise<string> },
         const trimmedKey = key.trim();
         
         // Handle room_ prefix in placeholders
-        if (trimmedKey.startsWith("room_") && entityPhotos) {
+        if (trimmedKey.startsWith("room_") && roomCounts) {
           const roomName = trimmedKey.replace("room_", "");
-          const count = (entityPhotos as any)?.roomCounts?.[roomName];
+          const count = roomCounts[roomName];
           return count !== undefined ? String(count) : "0";
         }
 
@@ -448,7 +449,7 @@ export const MediaKitCanvas = forwardRef<{ exportImage: () => Promise<string> },
                       }}
                     />
                   ) : (
-                    layer.isVariable ? getEffectiveValue(layer) : replacePlaceholders(layer.content)
+                    layer.isVariable || layer.isList ? getEffectiveValue(layer) : replacePlaceholders(layer.content)
                   )}
                 </div>
               )}

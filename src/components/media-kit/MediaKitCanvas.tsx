@@ -56,6 +56,7 @@ export const MediaKitCanvas = forwardRef<{ exportImage: () => Promise<string> },
   ({ layers, width, height, selectedLayerIds, onSelectLayer, onSelectLayers, onUpdateLayer, onUpdateLayers, scale, entityData, entityPhotos }, ref) => {
     const canvasRef = useRef<HTMLDivElement>(null);
     const [selectionBox, setSelectionBox] = React.useState<{ x: number; y: number; width: number; height: number } | null>(null);
+    const [editingId, setEditingId] = React.useState<string | null>(null);
 
     useImperativeHandle(ref, () => ({
       exportImage: async () => {
@@ -241,6 +242,7 @@ export const MediaKitCanvas = forwardRef<{ exportImage: () => Promise<string> },
     const handleMouseDown = (e: React.MouseEvent, layer: Layer) => {
       e.stopPropagation();
       if (layer.locked) return;
+      if (editingId === layer.id) return;
       
       const isPartofSelection = selectedLayerIds?.includes(layer.id);
       if (!isPartofSelection) {
@@ -378,6 +380,12 @@ export const MediaKitCanvas = forwardRef<{ exportImage: () => Promise<string> },
             <div
               key={layer.id}
               onMouseDown={(e) => handleMouseDown(e, layer)}
+              onDoubleClick={(e) => {
+                if (layer.type === "text" && !layer.locked && !layer.isVariable && !layer.isList) {
+                  e.stopPropagation();
+                  setEditingId(layer.id);
+                }
+              }}
               className={cn(
                 "absolute cursor-move select-none group pointer-events-auto bg-transparent",
                 selectedLayerIds?.includes(layer.id) && "ring-2 ring-blue-500 ring-offset-2 shadow-lg"
@@ -411,7 +419,37 @@ export const MediaKitCanvas = forwardRef<{ exportImage: () => Promise<string> },
                     textShadow: layer.shadowBlur !== undefined ? `${layer.shadowOffsetX || 0}px ${layer.shadowOffsetY || 0}px ${layer.shadowBlur}px ${hexToRgba(layer.shadowColor || "#000", layer.shadowOpacity ?? 0.5)}` : undefined,
                   }}
                 >
-                  {layer.isVariable ? getEffectiveValue(layer) : replacePlaceholders(layer.content)}
+                  {editingId === layer.id ? (
+                    <textarea
+                      autoFocus
+                      defaultValue={layer.content}
+                      onBlur={(e) => {
+                        onUpdateLayer(layer.id, { content: e.target.value }, true);
+                        setEditingId(null);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && !e.shiftKey) {
+                          e.preventDefault();
+                          onUpdateLayer(layer.id, { content: (e.target as HTMLTextAreaElement).value }, true);
+                          setEditingId(null);
+                        }
+                        if (e.key === "Escape") {
+                          setEditingId(null);
+                        }
+                      }}
+                      className="bg-transparent border-none outline-none resize-none p-0 m-0 w-full h-full block leading-tight overflow-hidden"
+                      style={{
+                        fontSize: "inherit",
+                        color: "inherit",
+                        fontWeight: "inherit",
+                        fontFamily: "inherit",
+                        fontStyle: "inherit",
+                        textAlign: "inherit",
+                      }}
+                    />
+                  ) : (
+                    layer.isVariable ? getEffectiveValue(layer) : replacePlaceholders(layer.content)
+                  )}
                 </div>
               )}
               {layer.type === "image" && (

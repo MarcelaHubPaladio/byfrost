@@ -347,6 +347,51 @@ export default function MediaKitEditor() {
     }, 100);
   };
 
+  const saveM = useMutation({
+    mutationFn: async () => {
+      // If saving a mask, we need to convert pages back to layouts
+      const config = mode === "mask" 
+        ? { 
+            layouts: pages.reduce((acc, p) => ({ ...acc, [p.templateId]: p.layers }), {}) 
+          }
+        : { pages };
+
+      const payload: any = {
+        name,
+        tenant_id: activeTenantId!,
+        config,
+        updated_at: new Date().toISOString(),
+      };
+
+      if (mode === "kit") {
+        payload.entity_id = entityId;
+      }
+
+      const table = mode === "mask" ? "media_kit_masks" : "media_kits";
+
+      if (id && id !== "new") {
+        const { error } = await supabase
+          .from(table)
+          .update(payload)
+          .eq("id", id);
+        if (error) throw error;
+      } else {
+        const { data, error } = await supabase
+          .from(table)
+          .insert([payload])
+          .select()
+          .single();
+        if (error) throw error;
+        nav(`/app/media-kit/editor/${data.id}?mode=${mode}`, { replace: true });
+      }
+    },
+    onSuccess: () => {
+      showSuccess(mode === "mask" ? "Máscara salva." : "Mídia Kit salvo.");
+      qc.invalidateQueries({ queryKey: [mode === "mask" ? "media_kit_masks" : "media_kits"] });
+    },
+    onError: (err: any) => showError(err.message),
+  });
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Ignore if typing in an input or textarea
@@ -440,55 +485,18 @@ export default function MediaKitEditor() {
           true
         );
       }
+
+      // Save shortcut
+      if ((e.ctrlKey || e.metaKey) && e.key === "s") {
+        e.preventDefault();
+        saveM.mutate();
+      }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [history, selectedLayerIds, pages, activePageId, clipboard]);
+  }, [history, selectedLayerIds, pages, activePageId, clipboard, saveM]);
 
-  const saveM = useMutation({
-    mutationFn: async () => {
-      // If saving a mask, we need to convert pages back to layouts
-      const config = mode === "mask" 
-        ? { 
-            layouts: pages.reduce((acc, p) => ({ ...acc, [p.templateId]: p.layers }), {}) 
-          }
-        : { pages };
 
-      const payload: any = {
-        name,
-        tenant_id: activeTenantId!,
-        config,
-        updated_at: new Date().toISOString(),
-      };
-
-      if (mode === "kit") {
-        payload.entity_id = entityId;
-      }
-
-      const table = mode === "mask" ? "media_kit_masks" : "media_kits";
-
-      if (id && id !== "new") {
-        const { error } = await supabase
-          .from(table)
-          .update(payload)
-          .eq("id", id);
-        if (error) throw error;
-      } else {
-        const { data, error } = await supabase
-          .from(table)
-          .insert([payload])
-          .select()
-          .single();
-        if (error) throw error;
-        nav(`/app/media-kit/editor/${data.id}?mode=${mode}`, { replace: true });
-      }
-    },
-    onSuccess: () => {
-      showSuccess(mode === "mask" ? "Máscara salva." : "Mídia Kit salvo.");
-      qc.invalidateQueries({ queryKey: [mode === "mask" ? "media_kit_masks" : "media_kits"] });
-    },
-    onError: (err: any) => showError(err.message),
-  });
 
   const addLayer = (type: Layer["type"]) => {
     if (!activePageId) return;

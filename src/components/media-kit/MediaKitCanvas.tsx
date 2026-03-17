@@ -1,6 +1,9 @@
 import React, { useRef, useImperativeHandle, forwardRef } from "react";
 import { cn, hexToRgba } from "@/lib/utils";
-import * as Icons from "lucide-react";
+import * as LucideIcons from "lucide-react";
+import * as FaIcons from "react-icons/fa6";
+import * as MdIcons from "react-icons/md";
+import * as IoIcons from "react-icons/io5";
 
 export type Layer = {
   id: string;
@@ -486,7 +489,12 @@ export const MediaKitCanvas = forwardRef<{ exportImage: () => Promise<string> },
                   }}
                 >
                   {(() => {
-                    const IconComponent = (Icons as any)[layer.content];
+                    let IconComponent = (LucideIcons as any)[layer.content];
+                    
+                    if (layer.content.startsWith("Fa")) IconComponent = (FaIcons as any)[layer.content];
+                    else if (layer.content.startsWith("Md")) IconComponent = (MdIcons as any)[layer.content];
+                    else if (layer.content.startsWith("Io")) IconComponent = (IoIcons as any)[layer.content];
+
                     return IconComponent ? <IconComponent size={layer.width} /> : null;
                   })()}
                 </div>

@@ -1339,13 +1339,15 @@ export default function MediaKitEditor() {
                             <div className="flex gap-2">
                               <Input 
                                 type="color" 
-                                value={selectedLayer.color} 
-                                onChange={(e) => updateLayer(selectedLayerIds!.pageId, selectedLayer.id, { color: e.target.value }, true)} 
+                                value={selectedLayer.color || "#000000"} 
+                                onChange={(e) => updateLayer(selectedLayerIds!.pageId, selectedLayer.id, { color: e.target.value })} 
+                                onBlur={(e) => updateLayer(selectedLayerIds!.pageId, selectedLayer.id, { color: e.target.value }, true)}
                                 className="w-12 h-10 p-1 border-none cursor-pointer"
                               />
                               <Input 
-                                value={selectedLayer.color} 
-                                onChange={(e) => updateLayer(selectedLayerIds!.pageId, selectedLayer.id, { color: e.target.value }, true)} 
+                                value={selectedLayer.color || "#000000"} 
+                                onChange={(e) => updateLayer(selectedLayerIds!.pageId, selectedLayer.id, { color: e.target.value })} 
+                                onBlur={(e) => updateLayer(selectedLayerIds!.pageId, selectedLayer.id, { color: e.target.value }, true)}
                                 className="flex-1 rounded-xl text-xs uppercase"
                                 placeholder="#000000"
                               />
@@ -1543,19 +1545,21 @@ export default function MediaKitEditor() {
                               />
                             </div>
                           </div>
-                          {selectedLayer.type === "icon" && (
+                          {(selectedLayer.type === "icon" || selectedLayer.type === "shape") && (
                              <div className="space-y-2">
-                              <Label className="text-xs text-slate-500">Cor do Ícone</Label>
+                              <Label className="text-xs text-slate-500">{selectedLayer.type === "icon" ? "Cor do Ícone" : "Cor da Forma"}</Label>
                               <div className="flex gap-2">
                                 <Input 
                                   type="color" 
-                                  value={selectedLayer.color} 
-                                  onChange={(e) => updateLayer(selectedLayerIds!.pageId, selectedLayer.id, { color: e.target.value }, true)} 
+                                  value={selectedLayer.color || (selectedLayer.type === "shape" ? "#3b82f6" : "#000000")} 
+                                  onChange={(e) => updateLayer(selectedLayerIds!.pageId, selectedLayer.id, { color: e.target.value })} 
+                                  onBlur={(e) => updateLayer(selectedLayerIds!.pageId, selectedLayer.id, { color: e.target.value }, true)}
                                   className="w-12 h-10 p-1 border-none cursor-pointer"
                                 />
                                 <Input 
-                                  value={selectedLayer.color} 
-                                  onChange={(e) => updateLayer(selectedLayerIds!.pageId, selectedLayer.id, { color: e.target.value }, true)} 
+                                  value={selectedLayer.color || (selectedLayer.type === "shape" ? "#3b82f6" : "#000000")} 
+                                  onChange={(e) => updateLayer(selectedLayerIds!.pageId, selectedLayer.id, { color: e.target.value })} 
+                                  onBlur={(e) => updateLayer(selectedLayerIds!.pageId, selectedLayer.id, { color: e.target.value }, true)}
                                   className="flex-1 rounded-xl text-xs uppercase"
                                   placeholder="#3b82f6"
                                 />
@@ -1595,7 +1599,8 @@ export default function MediaKitEditor() {
                                      <Input 
                                        type="number"
                                        value={selectedLayer.shadowOffsetX || 0}
-                                       onChange={(e) => updateLayer(selectedLayerIds!.pageId, selectedLayer.id, { shadowOffsetX: parseInt(e.target.value) }, true)}
+                                       onChange={(e) => updateLayer(selectedLayerIds!.pageId, selectedLayer.id, { shadowOffsetX: parseInt(e.target.value) })}
+                                       onBlur={(e) => updateLayer(selectedLayerIds!.pageId, selectedLayer.id, { shadowOffsetX: parseInt(e.target.value) }, true)}
                                        className="h-8 text-xs rounded-xl"
                                      />
                                    </div>
@@ -1604,7 +1609,8 @@ export default function MediaKitEditor() {
                                      <Input 
                                        type="number"
                                        value={selectedLayer.shadowOffsetY || 0}
-                                       onChange={(e) => updateLayer(selectedLayerIds!.pageId, selectedLayer.id, { shadowOffsetY: parseInt(e.target.value) }, true)}
+                                       onChange={(e) => updateLayer(selectedLayerIds!.pageId, selectedLayer.id, { shadowOffsetY: parseInt(e.target.value) })}
+                                       onBlur={(e) => updateLayer(selectedLayerIds!.pageId, selectedLayer.id, { shadowOffsetY: parseInt(e.target.value) }, true)}
                                        className="h-8 text-xs rounded-xl"
                                      />
                                    </div>
@@ -1634,12 +1640,14 @@ export default function MediaKitEditor() {
                                      <Input 
                                        type="color" 
                                        value={selectedLayer.shadowColor || "#000000"} 
-                                       onChange={(e) => updateLayer(selectedLayerIds!.pageId, selectedLayer.id, { shadowColor: e.target.value }, true)} 
+                                       onChange={(e) => updateLayer(selectedLayerIds!.pageId, selectedLayer.id, { shadowColor: e.target.value })} 
+                                       onBlur={(e) => updateLayer(selectedLayerIds!.pageId, selectedLayer.id, { shadowColor: e.target.value }, true)} 
                                        className="w-10 h-8 p-1 border-none cursor-pointer"
                                      />
                                      <Input 
                                        value={selectedLayer.shadowColor || "#000000"} 
-                                       onChange={(e) => updateLayer(selectedLayerIds!.pageId, selectedLayer.id, { shadowColor: e.target.value }, true)} 
+                                       onChange={(e) => updateLayer(selectedLayerIds!.pageId, selectedLayer.id, { shadowColor: e.target.value })} 
+                                       onBlur={(e) => updateLayer(selectedLayerIds!.pageId, selectedLayer.id, { shadowColor: e.target.value }, true)} 
                                        className="flex-1 h-8 rounded-xl text-[10px] uppercase"
                                      />
                                    </div>

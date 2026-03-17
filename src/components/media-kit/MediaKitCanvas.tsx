@@ -19,6 +19,14 @@ export type Layer = {
   variableField?: string;
   variableRoomType?: string;
   borderRadius?: number;
+  name?: string;
+  locked?: boolean;
+  borderWidth?: number;
+  borderColor?: string;
+  fontFamily?: string;
+  fontStyle?: "normal" | "italic";
+  textAlign?: "left" | "center" | "right";
+  objectFit?: "cover" | "contain" | "fill";
 };
 
 type MediaKitCanvasProps = {
@@ -100,69 +108,90 @@ export const MediaKitCanvas = forwardRef<{ exportImage: () => Promise<string> },
 
     const handleResizeMouseDown = (e: React.MouseEvent, layer: Layer) => {
       e.stopPropagation();
+      if (layer.locked) return;
       onSelectLayer(layer.id);
 
       const startX = e.clientX;
       const startY = e.clientY;
-      const startWidth = layer.width || 0;
-      const startHeight = layer.height || 0;
-      const startFontSize = layer.fontSize || 16;
-      const aspectRatio = startWidth / startHeight;
+      
+      // Get all selected layers for multi-resize
+      const selectedLayers = layers.filter(l => selectedLayerIds?.includes(l.id));
+      const startStates = selectedLayers.map(l => ({
+        id: l.id,
+        width: l.width || 0,
+        height: l.height || 0,
+        fontSize: l.fontSize || 16,
+        x: l.x,
+        y: l.y
+      }));
+
+      const primaryStartWidth = layer.width || 0;
+      const primaryStartHeight = layer.height || 0;
+      const aspectRatio = primaryStartWidth / primaryStartHeight;
 
       const onMouseMove = (moveEvent: MouseEvent) => {
-        let dw = (moveEvent.clientX - startX) / scale;
-        let dh = (moveEvent.clientY - startY) / scale;
+        const dw = (moveEvent.clientX - startX) / scale;
+        const dh = (moveEvent.clientY - startY) / scale;
 
-        if (layer.type === "text") {
-          const newFontSize = Math.max(12, startFontSize + (dw * 0.5));
-          onUpdateLayer(layer.id, {
-            fontSize: Math.round(newFontSize),
-          });
-        } else {
-          let newWidth = Math.max(10, startWidth + dw);
-          let newHeight = Math.max(10, startHeight + dh);
-
-          if (moveEvent.shiftKey) {
-            if (newWidth / newHeight > aspectRatio) {
-              newWidth = newHeight * aspectRatio;
-            } else {
-              newHeight = newWidth / aspectRatio;
-            }
-          }
-
-          onUpdateLayer(layer.id, {
-            width: Math.round(newWidth),
-            height: Math.round(newHeight),
-          });
+        // Calculate scale factors based on primary layer
+        const scaleX = (primaryStartWidth + dw) / primaryStartWidth;
+        const scaleY = (primaryStartHeight + dh) / primaryStartHeight;
+        
+        let usedScale = scaleX;
+        if (moveEvent.shiftKey || layer.type === "icon" || layer.type === "text") {
+           usedScale = scaleX;
         }
+
+        startStates.forEach(state => {
+          const l = layers.find(lay => lay.id === state.id);
+          if (!l) return;
+
+          if (l.type === "text") {
+            const newFontSize = Math.max(8, state.fontSize * scaleX);
+            onUpdateLayer(l.id, { fontSize: Math.round(newFontSize) });
+          } else {
+            let newWidth = Math.max(10, state.width * scaleX);
+            let newHeight = Math.max(10, state.height * (moveEvent.shiftKey ? scaleX : scaleY));
+            
+            if (moveEvent.shiftKey || l.type === "icon") {
+              newHeight = state.height * scaleX;
+            }
+
+            onUpdateLayer(l.id, {
+              width: Math.round(newWidth),
+              height: Math.round(newHeight),
+            });
+          }
+        });
       };
 
       const onMouseUp = (upEvent: MouseEvent) => {
-        let dw = (upEvent.clientX - startX) / scale;
-        let dh = (upEvent.clientY - startY) / scale;
+        const dw = (upEvent.clientX - startX) / scale;
+        const dh = (upEvent.clientY - startY) / scale;
+        const scaleX = (primaryStartWidth + dw) / primaryStartWidth;
+        const scaleY = (primaryStartHeight + dh) / primaryStartHeight;
 
-        if (layer.type === "text") {
-          const newFontSize = Math.max(12, startFontSize + (dw * 0.5));
-          onUpdateLayer(layer.id, {
-            fontSize: Math.round(newFontSize),
-          }, true);
-        } else {
-          let newWidth = Math.max(10, startWidth + dw);
-          let newHeight = Math.max(10, startHeight + dh);
+        startStates.forEach(state => {
+          const l = layers.find(lay => lay.id === state.id);
+          if (!l) return;
 
-          if (upEvent.shiftKey) {
-            if (newWidth / newHeight > aspectRatio) {
-              newWidth = newHeight * aspectRatio;
-            } else {
-              newHeight = newWidth / aspectRatio;
+          if (l.type === "text") {
+            const newFontSize = Math.max(8, state.fontSize * scaleX);
+            onUpdateLayer(l.id, { fontSize: Math.round(newFontSize) }, true);
+          } else {
+            let newWidth = Math.max(10, state.width * scaleX);
+            let newHeight = Math.max(10, state.height * (upEvent.shiftKey ? scaleX : scaleY));
+
+            if (upEvent.shiftKey || l.type === "icon") {
+              newHeight = state.height * scaleX;
             }
-          }
 
-          onUpdateLayer(layer.id, {
-            width: Math.round(newWidth),
-            height: Math.round(newHeight),
-          }, true);
-        }
+            onUpdateLayer(l.id, {
+              width: Math.round(newWidth),
+              height: Math.round(newHeight),
+            }, true);
+          }
+        });
 
         document.removeEventListener("mousemove", onMouseMove);
         document.removeEventListener("mouseup", onMouseUp as any);
@@ -174,6 +203,7 @@ export const MediaKitCanvas = forwardRef<{ exportImage: () => Promise<string> },
 
     const handleMouseDown = (e: React.MouseEvent, layer: Layer) => {
       e.stopPropagation();
+      if (layer.locked) return;
       onSelectLayer(layer.id, e.shiftKey);
 
       const startX = e.clientX;
@@ -236,6 +266,7 @@ export const MediaKitCanvas = forwardRef<{ exportImage: () => Promise<string> },
         if (currentBox) {
           const selectedIds = layers
             .filter(l => {
+              if (l.locked) return false;
               const lx = l.x;
               const ly = l.y;
               const lw = l.width || 0;
@@ -298,7 +329,8 @@ export const MediaKitCanvas = forwardRef<{ exportImage: () => Promise<string> },
                 zIndex: layer.zIndex,
                 opacity: layer.opacity ?? 1,
                 borderRadius: layer.borderRadius || 0,
-                overflow: layer.borderRadius ? "hidden" : undefined,
+                border: layer.borderWidth ? `${layer.borderWidth}px solid ${layer.borderColor || "#000"}` : undefined,
+                pointerEvents: layer.locked ? "none" : "auto",
               }}
             >
               {layer.type === "text" && (
@@ -306,8 +338,13 @@ export const MediaKitCanvas = forwardRef<{ exportImage: () => Promise<string> },
                   style={{
                     fontSize: layer.fontSize,
                     color: layer.color,
-                    fontWeight: layer.fontWeight,
-                    whiteSpace: "nowrap",
+                    fontWeight: layer.fontWeight || "normal",
+                    fontFamily: layer.fontFamily || "inherit",
+                    fontStyle: layer.fontStyle || "normal",
+                    textAlign: layer.textAlign || "left",
+                    whiteSpace: "pre-wrap",
+                    width: "100%",
+                    height: "100%",
                   }}
                 >
                   {layer.isVariable ? getEffectiveValue(layer) : replacePlaceholders(layer.content)}
@@ -321,7 +358,7 @@ export const MediaKitCanvas = forwardRef<{ exportImage: () => Promise<string> },
                     width: layer.width,
                     height: layer.height,
                     pointerEvents: "none",
-                    objectFit: "cover",
+                    objectFit: (layer.objectFit as any) || "cover",
                   }}
                 />
               )}

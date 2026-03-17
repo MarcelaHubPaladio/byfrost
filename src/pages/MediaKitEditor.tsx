@@ -1,4 +1,6 @@
 import { useState, useEffect, useRef } from "react";
+import { cn } from "@/lib/utils";
+import * as Icons from "lucide-react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { AppShell } from "@/components/AppShell";
@@ -401,6 +403,24 @@ export default function MediaKitEditor() {
             layerIds: newLayerData.map(l => l.id) 
           });
         }
+      }
+
+      // Delete / Backspace keys
+      if ((e.key === "Delete" || e.key === "Backspace") && selectedLayerIds?.layerIds.length) {
+        const target = e.target as HTMLElement;
+        if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable) return;
+        
+        e.preventDefault();
+        setPages(prev => {
+          const updatedPages = prev.map(p => 
+            p.id === selectedLayerIds.pageId 
+              ? { ...p, layers: p.layers.filter(l => !selectedLayerIds.layerIds.includes(l.id)) } 
+              : p
+          );
+          pushToHistory(updatedPages);
+          return updatedPages;
+        });
+        setSelectedLayerIds(null);
       }
     };
     window.addEventListener("keydown", handleKeyDown);
@@ -1140,21 +1160,31 @@ export default function MediaKitEditor() {
                   </div>
                 ) : selectedLayer ? (
                   <>
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <Button 
-                          variant="ghost" 
-                          size="icon" 
-                          onClick={() => setSelectedLayerIds(null)}
-                          className="h-8 w-8 rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-100"
-                        >
-                          <ChevronLeft className="h-5 w-5" />
-                        </Button>
-                        <h3 className="font-bold text-slate-900 capitalize leading-none">{selectedLayer.type} Props</h3>
+                    <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+                      <div className="flex flex-col gap-1 min-w-0">
+                        <Input 
+                          value={selectedLayer.name || ""} 
+                          onChange={(e) => updateLayer(selectedLayerIds!.pageId, selectedLayer.id, { name: e.target.value })}
+                          onBlur={(e) => updateLayer(selectedLayerIds!.pageId, selectedLayer.id, { name: e.target.value }, true)}
+                          className="h-7 text-sm font-bold bg-transparent border-none p-0 focus-visible:ring-0 placeholder:text-slate-300"
+                          placeholder="Nome da camada..."
+                        />
+                        <span className="text-[10px] text-slate-400 uppercase tracking-wider font-bold">{selectedLayer.type}</span>
                       </div>
-                      <Button variant="destructive" size="icon" onClick={() => removeLayer(selectedLayerIds!.pageId, selectedLayer.id)} className="h-8 w-8 rounded-full">
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
+                      <div className="flex items-center gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className={cn("h-8 w-8 rounded-lg", selectedLayer.locked ? "text-amber-600 bg-amber-50" : "text-slate-400")}
+                          onClick={() => updateLayer(selectedLayerIds!.pageId, selectedLayer.id, { locked: !selectedLayer.locked }, true)}
+                          title={selectedLayer.locked ? "Desbloquear" : "Bloquear"}
+                        >
+                          {selectedLayer.locked ? <Icons.Lock className="h-4 w-4" /> : <Icons.Unlock className="h-4 w-4" />}
+                        </Button>
+                        <Button variant="ghost" size="icon" onClick={() => removeLayer(selectedLayerIds!.pageId, selectedLayer.id)} className="h-8 w-8 rounded-lg text-slate-400 hover:text-red-600">
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </div>
 
                     <div className="space-y-4">
@@ -1237,6 +1267,63 @@ export default function MediaKitEditor() {
                                 placeholder="#000000"
                               />
                             </div>
+                          </div>
+                          <div className="grid grid-cols-2 gap-2">
+                             <div className="space-y-2">
+                               <Label className="text-xs text-slate-500">Fonte</Label>
+                               <Select 
+                                 value={selectedLayer.fontFamily || "inherit"} 
+                                 onValueChange={(val) => updateLayer(selectedLayerIds!.pageId, selectedLayer.id, { fontFamily: val }, true)}
+                               >
+                                 <SelectTrigger className="rounded-xl h-9 text-xs">
+                                   <SelectValue />
+                                 </SelectTrigger>
+                                 <SelectContent>
+                                   <SelectItem value="inherit">Padrão</SelectItem>
+                                   <SelectItem value="Inter">Inter</SelectItem>
+                                   <SelectItem value="Roboto">Roboto</SelectItem>
+                                   <SelectItem value="Playfair Display">Serif</SelectItem>
+                                   <SelectItem value="Monospace">Mono</SelectItem>
+                                 </SelectContent>
+                               </Select>
+                             </div>
+                             <div className="space-y-2">
+                               <Label className="text-xs text-slate-500">Estilo</Label>
+                               <div className="flex gap-1">
+                                 <Button 
+                                   variant={selectedLayer.fontWeight === "bold" ? "default" : "outline"} 
+                                   size="sm" className="flex-1 h-9 rounded-xl"
+                                   onClick={() => updateLayer(selectedLayerIds!.pageId, selectedLayer.id, { fontWeight: selectedLayer.fontWeight === "bold" ? "normal" : "bold" }, true)}
+                                 >
+                                   <Icons.Bold className="h-3 w-3" />
+                                 </Button>
+                                 <Button 
+                                   variant={selectedLayer.fontStyle === "italic" ? "default" : "outline"} 
+                                   size="sm" className="flex-1 h-9 rounded-xl"
+                                   onClick={() => updateLayer(selectedLayerIds!.pageId, selectedLayer.id, { fontStyle: selectedLayer.fontStyle === "italic" ? "normal" : "italic" }, true)}
+                                 >
+                                   <Icons.Italic className="h-3 w-3" />
+                                 </Button>
+                               </div>
+                             </div>
+                          </div>
+
+                          <div className="space-y-2">
+                             <Label className="text-xs text-slate-500">Alinhamento</Label>
+                             <div className="flex gap-1">
+                               {(['left', 'center', 'right'] as const).map(align => (
+                                 <Button
+                                   key={align}
+                                   variant={selectedLayer.textAlign === align ? "default" : "outline"}
+                                   size="sm" className="flex-1 h-9 rounded-xl"
+                                   onClick={() => updateLayer(selectedLayerIds!.pageId, selectedLayer.id, { textAlign: align }, true)}
+                                 >
+                                   {align === 'left' && <Icons.AlignLeft className="h-3 w-3" />}
+                                   {align === 'center' && <Icons.AlignCenter className="h-3 w-3" />}
+                                   {align === 'right' && <Icons.AlignRight className="h-3 w-3" />}
+                                 </Button>
+                               ))}
+                             </div>
                           </div>
                         </>
                       )}

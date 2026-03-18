@@ -178,6 +178,16 @@ export function EntityTvCorporativaTab({ tenantId, entityId }: { tenantId: strin
     const handleTogglePlan = async (planId: string, isActive: boolean, existingRecordId?: string) => {
         try {
             if (existingRecordId) {
+                // Before activating this one, if isActive is true, let's deactivate ANY OTHER active plan
+                if (isActive) {
+                    await supabase
+                        .from("tv_entity_plans")
+                        .update({ is_active: false, deleted_at: new Date().toISOString() })
+                        .eq("entity_id", entityId)
+                        .is("deleted_at", null)
+                        .neq("id", existingRecordId);
+                }
+
                 // Toggle existing (could be activating a previously disabled or soft-deleted one)
                 const { error } = await supabase
                     .from("tv_entity_plans")
@@ -185,6 +195,15 @@ export function EntityTvCorporativaTab({ tenantId, entityId }: { tenantId: strin
                     .eq("id", existingRecordId);
                 if (error) throw error;
             } else {
+                // Before activating a new one, deactivate ANY OTHER active plan
+                if (isActive) {
+                    await supabase
+                        .from("tv_entity_plans")
+                        .update({ is_active: false, deleted_at: new Date().toISOString() })
+                        .eq("entity_id", entityId)
+                        .is("deleted_at", null);
+                }
+
                 // Create new
                 const { error } = await supabase
                     .from("tv_entity_plans")

@@ -5,7 +5,7 @@ import { Card } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { CalendarDays, FilterX } from "lucide-react";
+import { CalendarDays, FilterX, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 type EntityFinanceTabProps = {
@@ -42,6 +42,7 @@ export function EntityFinanceTab({ tenantId, entityId }: EntityFinanceTabProps) 
         (new Date().getMonth() + 1).toString().padStart(2, "0")
     );
     const [selectedYear, setSelectedYear] = useState<string>(new Date().getFullYear().toString());
+    const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
 
     const txQuery = useQuery({
         queryKey: ["entity_financial_transactions", tenantId, entityId],
@@ -73,6 +74,7 @@ export function EntityFinanceTab({ tenantId, entityId }: EntityFinanceTabProps) 
         const list = txQuery.data || [];
         return list.filter((tx) => {
             if (!tx.transaction_date) return false;
+            
             const isAllMonths = selectedMonth === "all";
             const isAllYears = selectedYear === "all";
 
@@ -80,10 +82,11 @@ export function EntityFinanceTab({ tenantId, entityId }: EntityFinanceTabProps) 
             
             const monthMatch = isAllMonths || month === selectedMonth;
             const yearMatch = isAllYears || year === selectedYear;
+            const categoryMatch = !selectedCategoryId || tx.category_id === selectedCategoryId;
 
-            return monthMatch && yearMatch;
+            return monthMatch && yearMatch && categoryMatch;
         });
-    }, [txQuery.data, selectedMonth, selectedYear]);
+    }, [txQuery.data, selectedMonth, selectedYear, selectedCategoryId]);
 
     const summary = useMemo(() => {
         let totalCredit = 0;
@@ -120,57 +123,77 @@ export function EntityFinanceTab({ tenantId, entityId }: EntityFinanceTabProps) 
     const resetFilters = () => {
         setSelectedMonth("all");
         setSelectedYear("all");
+        setSelectedCategoryId(null);
     };
+
+    const activeCategoryName = useMemo(() => {
+        if (!selectedCategoryId || !txQuery.data) return null;
+        const tx = txQuery.data.find(t => t.category_id === selectedCategoryId);
+        return (tx?.financial_categories as any)?.name || "Categoria";
+    }, [selectedCategoryId, txQuery.data]);
 
     return (
         <div className="space-y-4">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-white/50 p-3 rounded-2xl border border-slate-200 backdrop-blur-sm">
-                <div className="flex items-center gap-2">
-                    <div className="h-8 w-8 rounded-lg bg-indigo-50 flex items-center justify-center text-indigo-600">
-                        <CalendarDays className="h-4 w-4" />
+            <div className="flex flex-col gap-3 bg-white/50 p-3 rounded-2xl border border-slate-200 backdrop-blur-sm">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                    <div className="flex items-center gap-2">
+                        <div className="h-8 w-8 rounded-lg bg-indigo-50 flex items-center justify-center text-indigo-600">
+                            <CalendarDays className="h-4 w-4" />
+                        </div>
+                        <div>
+                            <h4 className="text-xs font-bold text-slate-900 leading-tight">Filtrar Período</h4>
+                            <p className="text-[10px] text-slate-500 uppercase tracking-tight">Competência dos lançamentos</p>
+                        </div>
                     </div>
-                    <div>
-                        <h4 className="text-xs font-bold text-slate-900 leading-tight">Filtrar Período</h4>
-                        <p className="text-[10px] text-slate-500 uppercase tracking-tight">Competência dos lançamentos</p>
+
+                    <div className="flex items-center gap-2 w-full sm:w-auto">
+                        <Select value={selectedMonth} onValueChange={setSelectedMonth}>
+                            <SelectTrigger className="h-9 w-full sm:w-[140px] rounded-xl text-xs bg-white border-slate-200">
+                                <SelectValue placeholder="Mês" />
+                            </SelectTrigger>
+                            <SelectContent className="rounded-xl">
+                                <SelectItem value="all">Todos os Meses</SelectItem>
+                                {MONTHS.map(m => (
+                                    <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+
+                        <Select value={selectedYear} onValueChange={setSelectedYear}>
+                            <SelectTrigger className="h-9 w-full sm:w-[100px] rounded-xl text-xs bg-white border-slate-200">
+                                <SelectValue placeholder="Ano" />
+                            </SelectTrigger>
+                            <SelectContent className="rounded-xl">
+                                <SelectItem value="all">Todos</SelectItem>
+                                {years.map(y => (
+                                    <SelectItem key={y} value={y}>{y}</SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+
+                        {(selectedMonth !== "all" || selectedYear !== "all" || selectedCategoryId) && (
+                            <Button 
+                                variant="ghost" 
+                                size="icon" 
+                                className="h-9 w-9 rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50"
+                                onClick={resetFilters}
+                            >
+                                <FilterX className="h-4 w-4" />
+                            </Button>
+                        )}
                     </div>
                 </div>
 
-                <div className="flex items-center gap-2 w-full sm:w-auto">
-                    <Select value={selectedMonth} onValueChange={setSelectedMonth}>
-                        <SelectTrigger className="h-9 w-full sm:w-[140px] rounded-xl text-xs bg-white border-slate-200">
-                            <SelectValue placeholder="Mês" />
-                        </SelectTrigger>
-                        <SelectContent className="rounded-xl">
-                            <SelectItem value="all">Todos os Meses</SelectItem>
-                            {MONTHS.map(m => (
-                                <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
-
-                    <Select value={selectedYear} onValueChange={setSelectedYear}>
-                        <SelectTrigger className="h-9 w-full sm:w-[100px] rounded-xl text-xs bg-white border-slate-200">
-                            <SelectValue placeholder="Ano" />
-                        </SelectTrigger>
-                        <SelectContent className="rounded-xl">
-                            <SelectItem value="all">Todos</SelectItem>
-                            {years.map(y => (
-                                <SelectItem key={y} value={y}>{y}</SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
-
-                    {(selectedMonth !== "all" || selectedYear !== "all") && (
-                        <Button 
-                            variant="ghost" 
-                            size="icon" 
-                            className="h-9 w-9 rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50"
-                            onClick={resetFilters}
-                        >
-                            <FilterX className="h-4 w-4" />
-                        </Button>
-                    )}
-                </div>
+                {selectedCategoryId && (
+                    <div className="flex items-center gap-2 pt-2 border-t border-slate-100">
+                        <Badge variant="secondary" className="bg-indigo-50 text-indigo-700 border-indigo-100 py-1 px-2 text-[10px] font-bold uppercase tracking-tight gap-1.5 flex items-center">
+                            <span>Filtrando por: {activeCategoryName}</span>
+                            <button onClick={() => setSelectedCategoryId(null)} className="hover:text-indigo-900">
+                                <X className="h-3 w-3" />
+                            </button>
+                        </Badge>
+                    </div>
+                )}
             </div>
 
             <div className="grid gap-4 md:grid-cols-3">
@@ -225,7 +248,11 @@ export function EntityFinanceTab({ tenantId, entityId }: EntityFinanceTabProps) 
                                     </TableCell>
                                     <TableCell>
                                         {(t.financial_categories as any)?.name ? (
-                                            <Badge variant="outline" className="bg-slate-50 text-[10px] font-medium border-slate-200">
+                                            <Badge 
+                                                variant="outline" 
+                                                className="bg-slate-50 text-[10px] font-medium border-slate-200 hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-200 cursor-pointer transition-colors"
+                                                onClick={() => setSelectedCategoryId(t.category_id)}
+                                            >
                                                 {(t.financial_categories as any).name}
                                             </Badge>
                                         ) : (

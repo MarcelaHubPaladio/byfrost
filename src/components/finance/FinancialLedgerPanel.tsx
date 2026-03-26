@@ -57,13 +57,13 @@ type CategoryRow = {
 };
 
 const CATEGORY_LABELS: Record<CategoryType, string> = {
-  revenue: "Revenue",
-  cost: "Direct Costs",
-  fixed: "Fixed Expenses",
-  variable: "Variable Expenses",
-  investment: "Investments",
-  financing: "Financing",
-  other: "Others",
+  revenue: "Receita",
+  cost: "Custo Direto",
+  fixed: "Custo Fixo",
+  variable: "Custo Variável",
+  investment: "Investimento",
+  financing: "Financiamento",
+  other: "Outros",
 };
 
 function normalizeDescription(s: string) {
@@ -1608,7 +1608,7 @@ export function FinancialLedgerPanel() {
                   <DialogHeader>
                     <DialogTitle>Editar tipo das categorias</DialogTitle>
                     <DialogDescription>
-                      Depois da importação, ajuste o tipo (revenue/cost/fixed/variable/other). As alterações são salvas na
+                      Depois da importação, ajuste o tipo (receita/custo/fixo/variável/outro). As alterações são salvas na
                       hora.
                     </DialogDescription>
                   </DialogHeader>

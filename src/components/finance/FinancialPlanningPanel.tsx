@@ -25,13 +25,13 @@ type CategoryRow = {
 };
 
 const CATEGORY_LABELS: Record<CategoryRow["type"], string> = {
-  revenue: "Revenue",
-  cost: "Direct Costs",
-  fixed: "Fixed Expenses",
-  variable: "Variable Expenses",
-  investment: "Investments",
-  financing: "Financing",
-  other: "Others",
+  revenue: "Receita",
+  cost: "Custo Direto",
+  fixed: "Custo Fixo",
+  variable: "Custo Variável",
+  investment: "Investimento",
+  financing: "Financiamento",
+  other: "Outros",
 };
 
 function parseMoneyInput(v: string) {

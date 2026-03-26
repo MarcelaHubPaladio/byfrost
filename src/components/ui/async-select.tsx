@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Check, ChevronsUpDown, Loader2 } from "lucide-react";
+import { Check, ChevronsUpDown, Loader2, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
@@ -26,6 +26,7 @@ type AsyncSelectProps = {
     initialLabel?: string | null;
     onChange: (value: string | null) => void;
     loadOptions: (inputValue: string) => Promise<Option[]>;
+    onCreate?: (searchTerm: string) => void;
     placeholder?: string;
     defaultOptions?: boolean;
     className?: string;
@@ -52,12 +53,14 @@ function useDebounceValue<T>(value: T, delay: number): T {
     return debouncedValue;
 }
 
+// Simple hook if useDebounce is not available globally, but usually it is.
 
 export function AsyncSelect({
     value,
     initialLabel,
     onChange,
     loadOptions,
+    onCreate,
     placeholder = "Select...",
     defaultOptions = false,
     className,
@@ -163,6 +166,19 @@ export function AsyncSelect({
                                 {option.label}
                             </CommandItem>
                         ))}
+
+                        {onCreate && searchTerm.trim() && !loading && (
+                            <CommandItem
+                                onSelect={() => {
+                                    onCreate(searchTerm);
+                                    setOpen(false);
+                                }}
+                                className="flex items-center gap-2 text-indigo-600 font-medium cursor-pointer border-t border-slate-100 mt-1"
+                            >
+                                <Plus className="h-4 w-4" />
+                                Cadastrar "{searchTerm}"
+                            </CommandItem>
+                        )}
                     </CommandList>
                 </Command>
             </PopoverContent>

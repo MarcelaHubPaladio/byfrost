@@ -602,6 +602,83 @@ export function FinancialLedgerPanel() {
     },
   });
 
+  // Quick Create Dialogs
+  const [quickEntityOpen, setQuickEntityOpen] = useState(false);
+  const [quickEntityName, setQuickEntityName] = useState("");
+  const [quickEntitySubtype, setQuickEntitySubtype] = useState("cliente");
+  const [quickEntityTxId, setQuickEntityTxId] = useState<string | null>(null);
+
+  const [quickCatOpen, setQuickCatOpen] = useState(false);
+  const [quickCatName, setQuickCatName] = useState("");
+  const [quickCatType, setQuickCatType] = useState<CategoryType>("variable");
+  const [quickCatTxId, setQuickCatTxId] = useState<string | null>(null);
+
+  const quickCreateEntityM = useMutation({
+    mutationFn: async () => {
+      if (!activeTenantId) throw new Error("Tenant inválido");
+      const { data, error } = await supabase
+        .from("core_entities")
+        .insert({
+          tenant_id: activeTenantId,
+          display_name: quickEntityName,
+          subtype: quickEntitySubtype,
+          entity_type: ["cliente", "fornecedor", "indicador", "banco", "pintor"].includes(quickEntitySubtype) ? "party" : "offering",
+          status: "active"
+        })
+        .select()
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: async (newEntity) => {
+      showSuccess(`Entidade "${newEntity.display_name}" criada.`);
+      if (quickEntityTxId) {
+        updateTxEntityM.mutate({ 
+          id: quickEntityTxId, 
+          description: sortedTransactions.find(t => t.id === quickEntityTxId)?.description || "", 
+          entityId: newEntity.id 
+        });
+      }
+      setQuickEntityOpen(false);
+      setQuickEntityName("");
+      setQuickEntityTxId(null);
+      await qc.invalidateQueries({ queryKey: ["core_entities", activeTenantId] });
+    },
+    onError: (e: any) => showError(e.message || "Erro ao criar entidade")
+  });
+
+  const quickCreateCategoryM = useMutation({
+    mutationFn: async () => {
+      if (!activeTenantId) throw new Error("Tenant inválido");
+      const { data, error } = await supabase
+        .from("financial_categories")
+        .insert({
+          tenant_id: activeTenantId,
+          name: quickCatName,
+          type: quickCatType
+        })
+        .select()
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: async (newCat) => {
+      showSuccess(`Categoria "${newCat.name}" criada.`);
+      if (quickCatTxId) {
+        updateTxCategoryM.mutate({ 
+          id: quickCatTxId, 
+          description: sortedTransactions.find(t => t.id === quickCatTxId)?.description || "", 
+          categoryId: newCat.id 
+        });
+      }
+      setQuickCatOpen(false);
+      setQuickCatName("");
+      setQuickCatTxId(null);
+      await qc.invalidateQueries({ queryKey: ["financial_categories", activeTenantId] });
+    },
+    onError: (e: any) => showError(e.message || "Erro ao criar categoria")
+  });
+
   // --------------------------
   // Category type editing
   // --------------------------
@@ -1206,6 +1283,11 @@ export function FinancialLedgerPanel() {
                           setEntityTouched(true);
                           setTxEntityId(v);
                         }}
+                        onCreate={(val) => {
+                          setQuickEntityName(val);
+                          setQuickEntityTxId(null); // No txId when creating manual
+                          setQuickEntityOpen(true);
+                        }}
                         placeholder="Buscar cliente/fornec..."
                         loadOptions={async (val) => {
                           if (!activeTenantId || val.length < 2) return [];
@@ -1362,6 +1444,11 @@ export function FinancialLedgerPanel() {
                             onChange={(v) => {
                               updateTxEntityM.mutate({ id: t.id, description: t.description, entityId: v });
                             }}
+                            onCreate={(val) => {
+                              setQuickEntityName(val);
+                              setQuickEntityTxId(t.id);
+                              setQuickEntityOpen(true);
+                            }}
                             placeholder="(sem entidade)"
                             loadOptions={async (val) => {
                               if (!activeTenantId || val.length < 2) return [];
@@ -1403,6 +1490,11 @@ export function FinancialLedgerPanel() {
                             onChange={(v) =>
                               updateTxCategoryM.mutate({ id: t.id, description: t.description, categoryId: v })
                             }
+                            onCreate={(val) => {
+                              setQuickCatName(val);
+                              setQuickCatTxId(t.id);
+                              setQuickCatOpen(true);
+                            }}
                             placeholder="(sem categoria)"
                             loadOptions={async (val) => {
                               if (!activeTenantId) return [];
@@ -2186,6 +2278,11 @@ export function FinancialLedgerPanel() {
                             value={reconcileEntityId}
                             initialLabel={selectedTx?.core_entities?.display_name || null}
                             onChange={setReconcileEntityId}
+                            onCreate={(val) => {
+                              setQuickEntityName(val);
+                              setQuickEntityTxId(reconcileTxId);
+                              setQuickEntityOpen(true);
+                            }}
                             placeholder="Buscar entidade..."
                             loadOptions={async (val) => {
                               if (!activeTenantId || val.length < 2) return [];
@@ -2259,6 +2356,11 @@ export function FinancialLedgerPanel() {
                         className="h-10 rounded-2xl"
                         value={reconcileAdjustmentCatId}
                         onChange={setReconcileAdjustmentCatId}
+                        onCreate={(val) => {
+                          setQuickCatName(val);
+                          setQuickCatTxId(reconcileTxId);
+                          setQuickCatOpen(true);
+                        }}
                         placeholder="Selecione categoria (ex: Juros)..."
                         loadOptions={async (val) => {
                           if (!activeTenantId) return [];
@@ -2305,6 +2407,119 @@ export function FinancialLedgerPanel() {
           <DialogFooter className="flex-col sm:flex-row gap-2">
             <Button variant="ghost" className="h-10 rounded-2xl" onClick={() => setReconcileDialogOpen(false)}>
               Fechar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Quick Create Entity Dialog */}
+      <Dialog open={quickEntityOpen} onOpenChange={setQuickEntityOpen}>
+        <DialogContent className="sm:max-w-[425px] rounded-3xl">
+          <DialogHeader>
+            <DialogTitle>Novo Cadastro Simplificado</DialogTitle>
+            <DialogDescription>
+              Cadastre rapidamente uma nova entidade para este lançamento.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <Label htmlFor="q-name">Nome de Exibição</Label>
+              <Input
+                id="q-name"
+                value={quickEntityName}
+                onChange={(e) => setQuickEntityName(e.target.value)}
+                className="rounded-xl h-11"
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="q-subtype">Subtipo</Label>
+              <Select value={quickEntitySubtype} onValueChange={setQuickEntitySubtype}>
+                <SelectTrigger className="rounded-xl h-11">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="cliente">Cliente</SelectItem>
+                  <SelectItem value="fornecedor">Fornecedor</SelectItem>
+                  <SelectItem value="indicador">Indicador</SelectItem>
+                  <SelectItem value="banco">Banco</SelectItem>
+                  <SelectItem value="pintor">Pintor</SelectItem>
+                  <SelectItem value="servico">Serviço</SelectItem>
+                  <SelectItem value="produto">Produto</SelectItem>
+                  <SelectItem value="imovel">Imóvel</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              onClick={() => setQuickEntityOpen(false)}
+              className="rounded-xl"
+            >
+              Cancelar
+            </Button>
+            <Button
+              onClick={() => quickCreateEntityM.mutate()}
+              disabled={!quickEntityName.trim() || quickCreateEntityM.isPending}
+              className="rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white"
+            >
+              {quickCreateEntityM.isPending ? "Criando..." : "Cadastrar Entidade"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Quick Create Category Dialog */}
+      <Dialog open={quickCatOpen} onOpenChange={setQuickCatOpen}>
+        <DialogContent className="sm:max-w-[425px] rounded-3xl">
+          <DialogHeader>
+            <DialogTitle>Nova Categoria</DialogTitle>
+            <DialogDescription>
+              Crie uma nova categoria financeira para este lançamento.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <Label htmlFor="qc-name">Nome da Categoria</Label>
+              <Input
+                id="qc-name"
+                value={quickCatName}
+                onChange={(e) => setQuickCatName(e.target.value)}
+                className="rounded-xl h-11"
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="qc-type">Tipo de Categoria</Label>
+              <Select value={quickCatType} onValueChange={(v: any) => setQuickCatType(v)}>
+                <SelectTrigger className="rounded-xl h-11">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="revenue">Receita</SelectItem>
+                  <SelectItem value="cost">Custo Direto</SelectItem>
+                  <SelectItem value="fixed">Custo Fixo</SelectItem>
+                  <SelectItem value="variable">Custo Variável</SelectItem>
+                  <SelectItem value="investment">Investimento</SelectItem>
+                  <SelectItem value="financing">Financiamento</SelectItem>
+                  <SelectItem value="other">Outros</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              onClick={() => setQuickCatOpen(false)}
+              className="rounded-xl"
+            >
+              Cancelar
+            </Button>
+            <Button
+              onClick={() => quickCreateCategoryM.mutate()}
+              disabled={!quickCatName.trim() || quickCreateCategoryM.isPending}
+              className="rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white"
+            >
+              {quickCreateCategoryM.isPending ? "Criando..." : "Cadastrar Categoria"}
             </Button>
           </DialogFooter>
         </DialogContent>

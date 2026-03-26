@@ -35,7 +35,7 @@ import { showError, showSuccess } from "@/utils/toast";
 import { Checkbox } from "@/components/ui/checkbox";
 import { addMonths, format } from "date-fns";
 import {
-  Download, Landmark, Pencil, Plus, Upload, Link2, CheckCircle2, Search, Info } from "lucide-react";
+  Download, Landmark, Pencil, Plus, Upload, Link2, CheckCircle2, Search, Info, Trash2, X } from "lucide-react";
 import { AsyncSelect } from "@/components/ui/async-select";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -612,6 +612,45 @@ export function FinancialLedgerPanel() {
   const [quickCatName, setQuickCatName] = useState("");
   const [quickCatType, setQuickCatType] = useState<CategoryType>("variable");
   const [quickCatTxId, setQuickCatTxId] = useState<string | null>(null);
+
+  // Category Deletion / Remapping
+  const [categoryToDelete, setCategoryToDelete] = useState<CategoryRow | null>(null);
+  const [remappingTargetId, setRemappingTargetId] = useState<string | null>(null);
+
+  const deleteCategoryWithRemapM = useMutation({
+    mutationFn: async () => {
+      if (!activeTenantId || !categoryToDelete || !remappingTargetId) {
+        throw new Error("Dados insuficientes para exclusão.");
+      }
+      if (categoryToDelete.id === remappingTargetId) {
+        throw new Error("A categoria de destino deve ser diferente da atual.");
+      }
+
+      // 1. Update all transactions to target category
+      const { error: updErr } = await supabase
+        .from("financial_transactions")
+        .update({ category_id: remappingTargetId })
+        .eq("tenant_id", activeTenantId)
+        .eq("category_id", categoryToDelete.id);
+      if (updErr) throw updErr;
+
+      // 2. Delete the category
+      const { error: delErr } = await supabase
+        .from("financial_categories")
+        .delete()
+        .eq("tenant_id", activeTenantId)
+        .eq("id", categoryToDelete.id);
+      if (delErr) throw delErr;
+    },
+    onSuccess: async () => {
+      showSuccess(`Categoria "${categoryToDelete?.name}" removida. Lançamentos movidos.`);
+      setCategoryToDelete(null);
+      setRemappingTargetId(null);
+      await qc.invalidateQueries({ queryKey: ["financial_categories", activeTenantId] });
+      await qc.invalidateQueries({ queryKey: ["financial_transactions", activeTenantId] });
+    },
+    onError: (e: any) => showError(e?.message ?? "Falha ao remover categoria"),
+  });
 
   const quickCreateEntityM = useMutation({
     mutationFn: async () => {
@@ -1844,13 +1883,23 @@ export function FinancialLedgerPanel() {
           </div>
 
           <div className="mt-3 flex flex-wrap gap-2">
-            {(categoriesQ.data ?? []).slice(0, 48).map((c) => (
+            {(categoriesQ.data ?? []).slice(0, 80).map((c) => (
               <div
                 key={c.id}
-                className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-700 dark:border-slate-800 dark:bg-slate-950/30 dark:text-slate-200"
-                title={c.id}
+                className="group flex items-center gap-2 rounded-full border border-slate-200 bg-white pl-3 pr-1.5 py-1 text-xs text-slate-700 dark:border-slate-800 dark:bg-slate-950/30 dark:text-slate-200 hover:border-indigo-200 hover:shadow-sm transition-all"
               >
-                {c.name} <span className="text-slate-400">•</span> {c.type}
+                <span className="font-medium">{c.name}</span>
+                <span className="text-[10px] text-slate-400 font-normal uppercase tracking-tight">{CATEGORY_LABELS[c.type]}</span>
+                
+                <button
+                  onClick={() => {
+                    setCategoryToDelete(c);
+                    setRemappingTargetId(null);
+                  }}
+                  className="h-5 w-5 rounded-full flex items-center justify-center text-slate-300 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                >
+                  <X className="h-3 w-3" />
+                </button>
               </div>
             ))}
             {!categoriesQ.isLoading && !(categoriesQ.data ?? []).length ? (
@@ -2520,6 +2569,67 @@ export function FinancialLedgerPanel() {
               className="rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white"
             >
               {quickCreateCategoryM.isPending ? "Criando..." : "Cadastrar Categoria"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      {/* Remapear Lançamentos (Ao excluir categoria) */}
+      <Dialog 
+        open={Boolean(categoryToDelete)} 
+        onOpenChange={(v) => !v && setCategoryToDelete(null)}
+      >
+        <DialogContent className="sm:max-w-[425px] rounded-3xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-rose-600">
+              <Trash2 className="h-5 w-5" />
+              Remover Categoria
+            </DialogTitle>
+            <DialogDescription>
+              Você está removendo a categoria <strong>{categoryToDelete?.name}</strong>. 
+              Para qual categoria deseja mover os lançamentos existentes?
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="py-4">
+            <Label className="text-xs mb-2 block uppercase text-slate-500 font-bold">Categoria de Destino</Label>
+            <AsyncSelect
+              className="h-11 rounded-2xl"
+              value={remappingTargetId}
+              onChange={setRemappingTargetId}
+              placeholder="Selecione a nova categoria..."
+              loadOptions={async (val) => {
+                if (!activeTenantId) return [];
+                const { data } = await supabase
+                  .from("financial_categories")
+                  .select("id, name")
+                  .eq("tenant_id", activeTenantId)
+                  .ilike("name", `%${val}%`)
+                  .neq("id", categoryToDelete?.id || "") // Não pode ser ela mesma
+                  .limit(10);
+                return (data || []).map((d) => ({ value: d.id, label: d.name }));
+              }}
+            />
+            <p className="mt-4 text-[11px] text-slate-500 leading-relaxed bg-slate-50 p-3 rounded-xl border border-slate-100">
+              <Info className="h-3 w-3 inline mr-1 mb-0.5" />
+              Esta ação é permanente. Todos os lançamentos vinculados a "{categoryToDelete?.name}" serão atualizados para a nova categoria selecionada.
+            </p>
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              variant="ghost"
+              onClick={() => setCategoryToDelete(null)}
+              className="rounded-2xl"
+            >
+              Cancelar
+            </Button>
+            <Button
+              variant="destructive"
+              className="rounded-2xl bg-rose-600 hover:bg-rose-700 font-bold"
+              disabled={!remappingTargetId || deleteCategoryWithRemapM.isPending}
+              onClick={() => deleteCategoryWithRemapM.mutate()}
+            >
+              {deleteCategoryWithRemapM.isPending ? "Processando..." : "Confirmar e Remover"}
             </Button>
           </DialogFooter>
         </DialogContent>

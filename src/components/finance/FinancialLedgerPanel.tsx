@@ -2342,7 +2342,7 @@ export function FinancialLedgerPanel() {
                   <>
                     {/* Revenue Section */}
                     <TableRow className="bg-blue-50/20 dark:bg-blue-900/10 hover:bg-transparent">
-                      <TableCell className="font-bold text-blue-600 dark:text-blue-400 sticky left-0 bg-inherit z-10">(=) RECEITAS</TableCell>
+                      <TableCell className="font-bold text-blue-600 dark:text-blue-400 sticky left-0 bg-white dark:bg-slate-950 z-20 border-r-2 border-slate-200 dark:border-slate-800 shadow-[4px_0_8px_rgba(0,0,0,0.05)] pl-6">(=) RECEITAS</TableCell>
                       {drePeriods.map(p => {
                         const subRows = dreData.filter(r => r.category.type === "revenue");
                         const totalB = subRows.reduce((acc, curr) => acc + curr.periods[p.key].budget, 0);
@@ -2361,7 +2361,7 @@ export function FinancialLedgerPanel() {
                     </TableRow>
                     {dreData.filter(r => r.category.type === "revenue").map(row => (
                       <TableRow key={row.category.id} className="group hover:bg-slate-50 dark:hover:bg-slate-900/40">
-                        <TableCell className="pl-6 text-sm font-medium text-slate-700 dark:text-slate-300 sticky left-0 bg-white dark:bg-slate-950 group-hover:bg-slate-50 dark:group-hover:bg-slate-900/40 z-10 border-r-2 border-slate-100 dark:border-slate-800 shadow-[4px_0_8px_rgba(0,0,0,0.05)] overflow-hidden text-ellipsis whitespace-nowrap">{row.category.name}</TableCell>
+                        <TableCell className="pl-6 text-sm font-medium text-slate-700 dark:text-slate-300 sticky left-0 bg-white dark:bg-slate-950 group-hover:bg-slate-50 dark:group-hover:bg-slate-900/40 z-20 border-r-2 border-slate-100 dark:border-slate-800 shadow-[4px_0_8px_rgba(0,0,0,0.05)] overflow-hidden text-ellipsis whitespace-nowrap">{row.category.name}</TableCell>
                         {drePeriods.map(p => {
                           const val = row.periods[p.key];
                           const pct = val.budget > 0 ? (val.realized / val.budget) : 0;
@@ -2418,7 +2418,7 @@ export function FinancialLedgerPanel() {
 
                     {/* Expenses Section */}
                     <TableRow className="bg-rose-50/20 dark:bg-rose-900/10 hover:bg-transparent">
-                      <TableCell className="font-bold text-rose-600 dark:text-rose-400 sticky left-0 bg-inherit z-10">(-) DESPESAS</TableCell>
+                      <TableCell className="font-bold text-rose-600 dark:text-rose-400 sticky left-0 bg-white dark:bg-slate-950 z-20 border-r-2 border-slate-200 dark:border-slate-800 shadow-[4px_0_8px_rgba(0,0,0,0.05)] pl-6">(-) DESPESAS</TableCell>
                       {drePeriods.map(p => {
                         const subRows = dreData.filter(r => r.category.type !== "revenue");
                         const totalB = subRows.reduce((acc, curr) => acc + curr.periods[p.key].budget, 0);
@@ -2437,7 +2437,7 @@ export function FinancialLedgerPanel() {
                     </TableRow>
                     {dreData.filter(r => r.category.type !== "revenue").map(row => (
                       <TableRow key={row.category.id} className="group hover:bg-slate-50 dark:hover:bg-slate-900/40">
-                        <TableCell className="pl-6 text-sm font-medium text-slate-700 dark:text-slate-300 sticky left-0 bg-white dark:bg-slate-950 group-hover:bg-slate-50 dark:group-hover:bg-slate-900/40 z-10 border-r-2 border-slate-100 dark:border-slate-800 shadow-[4px_0_8px_rgba(0,0,0,0.05)] overflow-hidden text-ellipsis whitespace-nowrap">
+                        <TableCell className="pl-6 text-sm font-medium text-slate-700 dark:text-slate-300 sticky left-0 bg-white dark:bg-slate-950 group-hover:bg-slate-50 dark:group-hover:bg-slate-900/40 z-20 border-r-2 border-slate-100 dark:border-slate-800 shadow-[4px_0_8px_rgba(0,0,0,0.05)] overflow-hidden text-ellipsis whitespace-nowrap">
                           {row.category.name} <span className="text-[10px] opacity-40 uppercase">({CATEGORY_LABELS[row.category.type]})</span>
                         </TableCell>
                         {drePeriods.map(p => {
@@ -2494,7 +2494,7 @@ export function FinancialLedgerPanel() {
 
                     {/* Net Result */}
                     <TableRow className="bg-slate-100 dark:bg-slate-900 font-bold border-t-2 border-slate-300 dark:border-slate-700 hover:bg-slate-100">
-                      <TableCell className="sticky left-0 bg-slate-100 dark:bg-slate-900 z-10 border-r-2 border-slate-200 dark:border-slate-800 shadow-[4px_0_8px_rgba(0,0,0,0.05)] overflow-hidden text-ellipsis whitespace-nowrap pl-6">RESULTADO LÍQUIDO</TableCell>
+                      <TableCell className="sticky left-0 bg-slate-100 dark:bg-slate-900 z-30 border-r-2 border-slate-200 dark:border-slate-800 shadow-[4px_0_8px_rgba(0,0,0,0.05)] overflow-hidden text-ellipsis whitespace-nowrap pl-6">RESULTADO LÍQUIDO</TableCell>
                       {drePeriods.map(p => {
                         const revRows = dreData.filter(r => r.category.type === "revenue");
                         const expRows = dreData.filter(r => r.category.type !== "revenue");

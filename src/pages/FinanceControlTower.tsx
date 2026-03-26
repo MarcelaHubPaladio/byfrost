@@ -6,8 +6,8 @@ export default function FinanceControlTower() {
   return (
     <RequireAuth>
       <AppShell>
-        <div className="mx-auto w-full max-w-6xl">
-          <div className="mb-4">
+        <div className="w-full px-4 md:px-8 py-6">
+          <div className="mb-6">
             <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">
               Financeiro • Control Tower
             </h1>

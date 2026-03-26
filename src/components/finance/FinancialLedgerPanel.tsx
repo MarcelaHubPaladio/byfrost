@@ -2307,7 +2307,7 @@ export function FinancialLedgerPanel() {
           </div>
 
           <div className="relative overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800 [scrollbar-gutter:stable] max-w-full">
-            <Table className="min-w-max w-full table-fixed border-collapse">
+            <Table className="min-w-max border-separate border-spacing-0">
               <TableHeader className="sticky top-0 z-30">
                 <TableRow className="bg-slate-50 dark:bg-slate-900 border-b">
                   <TableHead className="w-[220px] min-w-[220px] sticky left-0 bg-slate-50 dark:bg-slate-900 z-40 border-r shadow-[2px_0_5px_rgba(0,0,0,0.05)]">

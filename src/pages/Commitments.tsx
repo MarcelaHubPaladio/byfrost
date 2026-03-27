@@ -35,7 +35,7 @@ function isoDatePlusDays(days: number) {
 
 export default function Commitments() {
   const qc = useQueryClient();
-  const { activeTenantId, isSuperAdmin } = useTenant();
+  const { activeTenantId, activeTenant, isSuperAdmin } = useTenant();
   const [sp] = useSearchParams();
 
   const customerPreset = String(sp.get("customer") ?? "").trim();
@@ -147,13 +147,18 @@ export default function Commitments() {
   const previewItems: CommitmentItemRow[] = useMemo(() => {
     return items
       .filter((it) => Boolean(it.offering_entity_id))
-      .map((it) => ({ offering_entity_id: it.offering_entity_id, quantity: Number(it.quantity ?? 1) }));
+      .map((it, idx) => ({ 
+        id: `preview-${idx}`,
+        offering_entity_id: it.offering_entity_id, 
+        quantity: Number(it.quantity ?? 1) 
+      }));
   }, [items]);
 
   const extraDemandMinutes = 0; // preview minutes could be summed later; keep simple.
   const extraDemandOnDate = isoDatePlusDays(7);
 
-  // Visibility of the semaphore is enforced by <RequireTenantRole> below.
+  // Visibility of the semaphore.
+  const canSeeCapacity = isSuperAdmin || ["admin", "leader", "supervisor", "manager"].includes(activeTenant?.role ?? "");
 
   const createCommitment = async () => {
     if (!activeTenantId) return;
@@ -371,7 +376,7 @@ export default function Commitments() {
               <div className="grid gap-4 lg:grid-cols-2">
                 <CommitmentDeliverablesPreview tenantId={activeTenantId} items={previewItems} />
 
-                <RequireTenantRole roles={["admin", "leader", "supervisor", "manager"]}>
+                {canSeeCapacity && (
                   <Card className="rounded-2xl border-slate-200 p-4">
                     <div className="mb-2 text-sm font-semibold text-slate-900">Capacidade (previsão)</div>
                     <div className="text-sm text-slate-600">
@@ -381,7 +386,7 @@ export default function Commitments() {
                       <CapacitySemaphore tenantId={activeTenantId} extraDemandMinutes={extraDemandMinutes} extraDemandOnDate={extraDemandOnDate} />
                     </div>
                   </Card>
-                </RequireTenantRole>
+                )}
               </div>
             ) : null}
 

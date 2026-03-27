@@ -63,7 +63,7 @@ function formatTs(ts: string) {
 export default function CommitmentDetail() {
   const { id } = useParams();
   const commitmentId = String(id ?? "");
-  const { activeTenantId } = useTenant();
+  const { activeTenantId, activeTenant, isSuperAdmin } = useTenant();
 
   const [open, setOpen] = useState(false);
   const [payload, setPayload] = useState<any>(null);
@@ -202,6 +202,7 @@ export default function CommitmentDetail() {
   }, [commitmentQ.data]);
 
   const customerName = commitmentQ.data?.customer?.display_name ?? "Cliente s/ nome";
+  const canSeeCapacity = isSuperAdmin || ["admin", "leader", "supervisor", "manager"].includes(activeTenant?.role ?? "");
 
   return (
     <RequireAuth>
@@ -247,14 +248,12 @@ export default function CommitmentDetail() {
               </div>
             </div>
 
-            {activeTenantId ? (
-              <RequireTenantRole roles={["admin", "leader", "supervisor", "manager"]}>
-                <Card className="rounded-2xl border-slate-200 p-4">
-                  <div className="mb-2 text-sm font-semibold text-slate-900">Capacidade (previsão)</div>
-                  <CapacitySemaphore tenantId={activeTenantId} />
-                </Card>
-              </RequireTenantRole>
-            ) : null}
+            {activeTenantId && canSeeCapacity && (
+              <Card className="rounded-2xl border-slate-200 p-4">
+                <div className="mb-2 text-sm font-semibold text-slate-900">Capacidade (previsão)</div>
+                <CapacitySemaphore tenantId={activeTenantId} />
+              </Card>
+            )}
 
             <div className="grid gap-4 lg:grid-cols-2">
               <Card className="rounded-2xl border-slate-200 p-4">

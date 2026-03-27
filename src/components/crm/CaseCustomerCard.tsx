@@ -8,8 +8,16 @@ import { Button } from "@/components/ui/button";
 import { supabase } from "@/lib/supabase";
 import { showError, showSuccess } from "@/utils/toast";
 import { cn } from "@/lib/utils";
-import { Phone, UserRound, Mail, Link2, ExternalLink, MapPin } from "lucide-react";
+import { Phone, UserRound, Mail, Link2, ExternalLink, MapPin, Plus, Check, ChevronsUpDown } from "lucide-react";
 import { useSession } from "@/providers/SessionProvider";
+import {
+  Command,
+  CommandEmpty,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
 type CustomerRow = {
   id: string;
@@ -40,6 +48,40 @@ export function CaseCustomerCard(props: {
   const qc = useQueryClient();
   const { user } = useSession();
   const [saving, setSaving] = useState(false);
+
+  const [entityHandling, setEntityHandling] = useState<"none" | "create" | "link">("none");
+  const [selectedEntityId, setSelectedEntityId] = useState<string | null>(null);
+  const [searchEntity, setSearchEntity] = useState("");
+  const [openEntity, setOpenEntity] = useState(false);
+  const [debouncedSearchEntity, setDebouncedSearchEntity] = useState("");
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearchEntity(searchEntity), 300);
+    return () => clearTimeout(t);
+  }, [searchEntity]);
+
+  const entitiesQ = useQuery({
+    queryKey: ["crm_parties_search", props.tenantId, debouncedSearchEntity],
+    enabled: Boolean(props.tenantId && entityHandling === "link"),
+    queryFn: async () => {
+      let q = supabase
+        .from("core_entities")
+        .select("id, display_name")
+        .eq("tenant_id", props.tenantId)
+        .in("entity_type", ["party", "tenant"])
+        .is("deleted_at", null)
+        .order("display_name", { ascending: true })
+        .limit(20);
+
+      if (debouncedSearchEntity) {
+        q = q.ilike("display_name", `%${debouncedSearchEntity}%`);
+      }
+
+      const { data, error } = await q;
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
 
   const customerQ = useQuery({
     queryKey: ["customer_account", props.tenantId, props.customerId],
@@ -90,6 +132,8 @@ export function CaseCustomerCard(props: {
     });
   };
 
+  const entityId = customerQ.data?.entity_id ?? null;
+
   const save = async () => {
     const p = normalizePhoneLoose(phone);
     if (!p) {
@@ -99,6 +143,27 @@ export function CaseCustomerCard(props: {
 
     setSaving(true);
     try {
+      let finalEntityId: string | null = entityId;
+
+      if (entityHandling === "create") {
+        const { data: entityRes, error: entityErr } = await supabase.from("core_entities").insert({
+          tenant_id: props.tenantId,
+          entity_type: "party",
+          subtype: "cliente",
+          display_name: name.trim() || phone,
+          status: "active",
+          metadata: {
+            source: "crm_manual_detail",
+            whatsapp: phone.replace(/\D/g, ""),
+            email: email.trim().toLowerCase() || null,
+          }
+        }).select("id").single();
+        if (entityErr) throw entityErr;
+        finalEntityId = entityRes.id;
+      } else if (entityHandling === "link" && selectedEntityId) {
+        finalEntityId = selectedEntityId;
+      }
+
       // 1) Se já existe customer_id, só atualiza.
       if (props.customerId) {
         const { error } = await supabase
@@ -107,6 +172,7 @@ export function CaseCustomerCard(props: {
             phone_e164: p,
             name: name.trim() || null,
             email: email.trim() || null,
+            entity_id: finalEntityId,
             meta_json: {
               ...(customerQ.data?.meta_json || {}),
               email: email.trim() || null,
@@ -116,12 +182,22 @@ export function CaseCustomerCard(props: {
           .eq("id", props.customerId);
         if (error) throw error;
 
+        // Sincroniza também no case para garantir atualização do header
+        if (finalEntityId) {
+          await supabase
+            .from("cases")
+            .update({ customer_entity_id: finalEntityId })
+            .eq("tenant_id", props.tenantId)
+            .eq("id", props.caseId);
+        }
+
         await logTimeline("Dados do cliente atualizados.", {
           action: "updated",
           customer_id: props.customerId,
           phone_e164: p,
           name: name.trim() || null,
           email: email.trim() || null,
+          entity_id: finalEntityId,
         });
 
         showSuccess("Cliente atualizado.");
@@ -130,6 +206,8 @@ export function CaseCustomerCard(props: {
           qc.invalidateQueries({ queryKey: ["case", props.tenantId, props.caseId] }),
           qc.invalidateQueries({ queryKey: ["timeline", props.tenantId, props.caseId] }),
         ]);
+        setEntityHandling("none");
+        setSelectedEntityId(null);
         return;
       }
 
@@ -170,10 +248,21 @@ export function CaseCustomerCard(props: {
       // 3) Vincula no case
       const { error: linkErr } = await supabase
         .from("cases")
-        .update({ customer_id: idToLink })
+        .update({ 
+          customer_id: idToLink,
+          customer_entity_id: finalEntityId 
+        })
         .eq("tenant_id", props.tenantId)
         .eq("id", props.caseId);
       if (linkErr) throw linkErr;
+
+      if (finalEntityId) {
+        await supabase
+          .from("customer_accounts")
+          .update({ entity_id: finalEntityId })
+          .eq("tenant_id", props.tenantId)
+          .eq("id", idToLink);
+      }
 
       await logTimeline(createdNew ? "Cliente criado e vinculado ao case." : "Cliente vinculado ao case.", {
         action: createdNew ? "created_and_linked" : "linked",
@@ -188,6 +277,8 @@ export function CaseCustomerCard(props: {
         qc.invalidateQueries({ queryKey: ["customer_account", props.tenantId, idToLink] }),
         qc.invalidateQueries({ queryKey: ["timeline", props.tenantId, props.caseId] }),
       ]);
+      setEntityHandling("none");
+      setSelectedEntityId(null);
     } catch (e: any) {
       showError(`Falha ao salvar cliente: ${e?.message ?? "erro"}`);
     } finally {
@@ -195,7 +286,6 @@ export function CaseCustomerCard(props: {
     }
   };
 
-  const entityId = customerQ.data?.entity_id ?? null;
 
   return (
     <Card className="rounded-[22px] border-slate-200 bg-white p-4">
@@ -288,6 +378,96 @@ export function CaseCustomerCard(props: {
           </div>
         </div>
       </div>
+
+      {!entityId && (
+        <div className="mt-4 rounded-2xl border border-slate-100 bg-slate-50/50 p-4">
+          <Label className="mb-3 block text-[11px] font-bold uppercase tracking-wider text-slate-500">Vínculo de Entidade</Label>
+          <div className="mb-4 flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant={entityHandling === "none" ? "default" : "outline"}
+              className={cn("h-9 rounded-xl px-4 text-xs font-medium", entityHandling === "none" ? "bg-slate-900 text-white" : "border-slate-200 bg-white")}
+              onClick={() => {
+                setEntityHandling("none");
+                setSelectedEntityId(null);
+              }}
+            >
+              Não vincular
+            </Button>
+            <Button
+              type="button"
+              variant={entityHandling === "create" ? "default" : "outline"}
+              className={cn("h-9 rounded-xl px-4 text-xs font-medium", entityHandling === "create" ? "bg-slate-900 text-white" : "border-slate-200 bg-white")}
+              onClick={() => {
+                setEntityHandling("create");
+                setSelectedEntityId(null);
+              }}
+            >
+              <Plus className="mr-1.5 h-3.5 w-3.5" />
+              Criar entidade
+            </Button>
+            <Button
+              type="button"
+              variant={entityHandling === "link" ? "default" : "outline"}
+              className={cn("h-9 rounded-xl px-4 text-xs font-medium", entityHandling === "link" ? "bg-slate-900 text-white" : "border-slate-200 bg-white")}
+              onClick={() => setEntityHandling("link")}
+            >
+              Existente
+            </Button>
+          </div>
+
+          {entityHandling === "link" && (
+            <Popover open={openEntity} onOpenChange={setOpenEntity}>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  role="combobox"
+                  aria-expanded={openEntity}
+                  className="flex h-11 w-full items-center justify-between rounded-2xl border-slate-200 bg-white px-4 text-sm font-normal text-slate-900"
+                >
+                  <div className="truncate">
+                    {selectedEntityId
+                      ? entitiesQ.data?.find(e => e.id === selectedEntityId)?.display_name || "Entidade selecionada"
+                      : <span className="text-slate-400">Selecione uma entidade...</span>}
+                  </div>
+                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-40" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-[300px] rounded-2xl p-0" align="start">
+                <Command shouldFilter={false}>
+                  <CommandInput
+                    placeholder="Buscar entidade..."
+                    value={searchEntity}
+                    onValueChange={setSearchEntity}
+                    className="h-11 border-none focus:ring-0"
+                  />
+                  <CommandList className="max-h-[250px]">
+                    <CommandEmpty>
+                      <div className="p-4 text-center text-sm text-slate-500">
+                        Nenhuma entidade encontrada.
+                      </div>
+                    </CommandEmpty>
+                    {entitiesQ.data?.map((ent) => (
+                      <CommandItem
+                        key={ent.id}
+                        value={ent.id}
+                        onSelect={() => {
+                          setSelectedEntityId(ent.id);
+                          setOpenEntity(false);
+                        }}
+                        className="m-1 rounded-xl"
+                      >
+                        <Check className={cn("mr-2 h-4 w-4 text-emerald-600", selectedEntityId === ent.id ? "opacity-100" : "opacity-0")} />
+                        {ent.display_name}
+                      </CommandItem>
+                    ))}
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
+          )}
+        </div>
+      )}
 
       {(customerQ.data?.meta_json?.latitude || customerQ.data?.meta_json?.longitude) && (
         <div className="mt-4 flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50/50 p-3">

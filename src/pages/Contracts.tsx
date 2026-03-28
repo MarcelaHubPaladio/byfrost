@@ -35,7 +35,7 @@ type ContractWithProgress = {
   created_at: string;
   customer: { display_name: string } | null;
   items: { quantity: number | null }[];
-  deliverables: { id: string; status: string | null }[];
+  deliverables: { id: string; status: string | null; deleted_at: string | null }[];
 };
 
 export default function Contracts() {
@@ -55,7 +55,7 @@ export default function Contracts() {
           created_at,
           customer:core_entities!commercial_commitments_customer_fk(display_name),
           items:commitment_items(quantity),
-          deliverables(id, status).is(deleted_at, null)
+          deliverables(id, status, deleted_at)
         `)
         .eq("commitment_type", "contract")
         .is("deleted_at", null)
@@ -73,7 +73,7 @@ export default function Contracts() {
       const items = c.items || [];
       const totalUnits = items.reduce((acc, it) => acc + Number(it.quantity || 0), 0);
       
-      const deliverables = c.deliverables || [];
+      const deliverables = (c.deliverables || []).filter(d => d.deleted_at === null);
       const totalDeliverables = deliverables.length;
       
       // Count 'completed' OR 'done' as delivered to be safe

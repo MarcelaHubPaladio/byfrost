@@ -138,7 +138,7 @@ export default function CommitmentDetail() {
           due_date,
           entity_id,
           updated_at,
-          cases:cases(id, state, name, status)
+          cases:cases(id, state, title, status)
         `)
         .eq("tenant_id", activeTenantId!)
         .eq("commitment_id", commitmentId)
@@ -336,7 +336,7 @@ export default function CommitmentDetail() {
                               >
                                 <div className="flex items-center gap-2">
                                   <KanbanSquare className="h-3 w-3 text-slate-400" />
-                                  <span className="font-medium text-slate-700">{c.name || "Tarefa sem nome"}</span>
+                                  <span className="font-medium text-slate-700">{c.title || "Tarefa sem nome"}</span>
                                 </div>
                                 <Badge variant="outline" className="h-5 px-1.5 text-[10px] bg-white">
                                   {c.state}

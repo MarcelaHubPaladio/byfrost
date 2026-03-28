@@ -13,7 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import { showError, showSuccess } from "@/utils/toast";
-import { Loader2, Plus, Search, Trash2, Package, ShoppingCart, Info } from "lucide-react";
+import { Loader2, Plus, Search, Trash2, Package, ShoppingCart, Info, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CommitmentDeliverablesPreview } from "./CommitmentDeliverablesPreview";
 
@@ -245,24 +245,43 @@ export function PartyProposalCard({
     if (!tenantId || !partyId) return;
     setAddingItem(true);
     try {
-      // 1. Create a commercial commitment of type 'order'
-      const { data: comm, error: cErr } = await supabase
+      // 1. Try to reuse a recent draft commitment to group items
+      let commitmentId = "";
+      const { data: existingComm } = await supabase
         .from("commercial_commitments")
-        .insert({
-          tenant_id: tenantId,
-          commitment_type: "order",
-          customer_entity_id: partyId,
-          status: "draft",
-        })
         .select("id")
-        .single();
+        .eq("tenant_id", tenantId)
+        .eq("customer_entity_id", partyId)
+        .eq("status", "draft")
+        .eq("commitment_type", "order")
+        .is("deleted_at", null)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
-      if (cErr) throw cErr;
+      if (existingComm) {
+        commitmentId = existingComm.id;
+      } else {
+        // Create new one if none exists
+        const { data: comm, error: cErr } = await supabase
+          .from("commercial_commitments")
+          .insert({
+            tenant_id: tenantId,
+            commitment_type: "order",
+            customer_entity_id: partyId,
+            status: "draft",
+          })
+          .select("id")
+          .single();
 
-      // 2. Create commitment item
+        if (cErr) throw cErr;
+        commitmentId = comm.id;
+      }
+
+      // 2. Create commitment item linked to the commitmentId
       const { error: iErr } = await supabase.from("commitment_items").insert({
         tenant_id: tenantId,
-        commitment_id: comm.id,
+        commitment_id: commitmentId,
         offering_entity_id: offering.id,
         quantity: itemQty,
       });
@@ -274,8 +293,8 @@ export function PartyProposalCard({
       setSearchResults([]);
       setItemQty(1);
 
-      // Auto-select the new item for the proposal
-      setSelected(prev => ({ ...prev, [comm.id]: true }));
+      // Auto-select the commitment for the proposal
+      setSelected(prev => ({ ...prev, [commitmentId]: true }));
 
       await qc.invalidateQueries({ queryKey: ["party_commitments_with_items", tenantId, partyId] });
     } catch (e: any) {

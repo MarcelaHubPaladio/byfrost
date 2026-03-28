@@ -269,7 +269,7 @@ export default function Contracts() {
 
                           <div className="mt-6 flex items-center justify-between rounded-xl bg-slate-50/50 p-3 dark:bg-slate-900/50 border border-slate-100 dark:border-slate-800/50">
                             <div className="flex items-center gap-4">
-                              {c.metrics.total > 0 ? (
+                              {c.metrics.total > 0 && (
                                 <>
                                   <div className="text-center">
                                     <p className="text-[10px] uppercase tracking-wider text-slate-400 font-bold">Total</p>
@@ -286,12 +286,13 @@ export default function Contracts() {
                                     <p className="text-sm font-bold text-amber-600 dark:text-amber-500">{c.metrics.total - c.metrics.completed}</p>
                                   </div>
                                 </>
-                              ) : (
+                              )}
+                              {c.metrics.total_deliverables === 0 && (
                                 <div className="flex items-center gap-4 py-1">
                                   <div>
                                     <p className="text-[10px] uppercase tracking-wider text-slate-400 font-bold">Status da Operação</p>
                                     <p className="text-xs font-medium text-slate-500 italic">
-                                      {c.status === 'active' ? 'Gerando deliverables...' : 'Aguardando ativação'}
+                                      {c.status === 'active' ? 'Gerando tarefas...' : 'Aguardando ativação'}
                                     </p>
                                   </div>
                                   {c.status === 'active' && (
@@ -331,21 +332,4 @@ export default function Contracts() {
   );
 }
 
-function ChevronRight(props: any) {
-  return (
-    <svg
-      {...props}
-      xmlns="http://www.w3.org/2000/svg"
-      width="24"
-      height="24"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="m9 18 6-6-6-6" />
-    </svg>
-  );
-}
+

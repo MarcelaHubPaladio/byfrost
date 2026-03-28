@@ -2084,6 +2084,53 @@ serve(async (req: any) => {
           continue;
         }
 
+        if (job.type === "COMMITMENT_ORCHESTRATE") {
+          const commitmentId = job.payload_json?.commitment_id;
+          if (!commitmentId) throw new Error("Missing commitment_id");
+
+          const { data: items } = await supabase
+            .from("commitment_items")
+            .select("id, offering_entity_id, quantity")
+            .eq("commitment_id", commitmentId)
+            .eq("requires_fulfillment", true);
+
+          const deliverablesToInsert: any[] = [];
+
+          for (const item of (items || [])) {
+            const { data: templates } = await supabase
+              .from("deliverable_templates")
+              .select("id, name, quantity, estimated_minutes, required_resource_type")
+              .eq("offering_entity_id", item.offering_entity_id)
+              .is("deleted_at", null);
+
+            for (const t of (templates || [])) {
+              const baseQty = Number(t.quantity ?? 1);
+              const itemMultiplier = Number(item.quantity ?? 1);
+              const totalToCreate = baseQty * itemMultiplier;
+
+              for (let i = 0; i < totalToCreate; i++) {
+                deliverablesToInsert.push({
+                  tenant_id: tenantId,
+                  commitment_id: commitmentId,
+                  entity_id: item.offering_entity_id,
+                  template_id: t.id,
+                  name: t.name,
+                  status: 'pending'
+                });
+              }
+            }
+          }
+
+          if (deliverablesToInsert.length > 0) {
+            const { error: insErr } = await supabase.from("deliverables").insert(deliverablesToInsert);
+            if (insErr) throw insErr;
+          }
+
+          await supabase.from("job_queue").update({ status: "done" }).eq("id", job.id);
+          results.push({ id: job.id, ok: true, count: deliverablesToInsert.length });
+          continue;
+        }
+
         // Unknown job type
         await supabase.from("job_queue").update({ status: "failed", attempts: job.attempts + 1 }).eq("id", job.id);
         results.push({ id: job.id, ok: false, error: `Unknown job type ${job.type}` });

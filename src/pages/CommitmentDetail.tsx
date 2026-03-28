@@ -138,6 +138,7 @@ export default function CommitmentDetail() {
           due_date,
           entity_id,
           updated_at,
+          name,
           cases:cases(id, state, title, status)
         `)
         .eq("tenant_id", activeTenantId!)
@@ -349,7 +350,7 @@ export default function CommitmentDetail() {
                           )} />
                           <div>
                             <div className="flex items-center gap-2 text-sm font-bold text-slate-900">
-                              Entregável #{d.id.slice(0, 8)}
+                              {d.name || `Entregável #${d.id.slice(0, 8)}`}
                               {d.status === 'completed' && <CheckCircle2 className="h-4 w-4 text-emerald-500" />}
                             </div>
                             <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">

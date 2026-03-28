@@ -1285,7 +1285,6 @@ function addDaysIsoDate(dateIso: string, days: number) {
   d.setUTCDate(d.getUTCDate() + days);
   return d.toISOString().slice(0, 10);
 }
-
 serve(async (req: any) => {
   const fn = "jobs-processor";
   try {
@@ -1295,16 +1294,24 @@ serve(async (req: any) => {
     const supabase = createSupabaseAdmin();
 
     const batchSize = 10;
+    const body = await req.json().catch(() => ({}));
+    const manualCommitmentId = String(body.commitment_id ?? "").trim();
 
     // Fetch pending jobs
-    const { data: jobs, error: jobsErr } = await supabase
+    const jobsSelect = supabase
       .from("job_queue")
       .select("id, tenant_id, type, payload_json, attempts")
       .eq("status", "pending")
       .lte("run_after", new Date().toISOString())
-      .is("locked_at", null)
-      .order("created_at", { ascending: true })
-      .limit(batchSize);
+      .is("locked_at", null);
+
+    if (manualCommitmentId) {
+      jobsSelect.contains("payload_json", { commitment_id: manualCommitmentId });
+    } else {
+      jobsSelect.order("created_at", { ascending: true }).limit(batchSize);
+    }
+
+    const { data: jobs, error: jobsErr } = await jobsSelect;
 
     if (jobsErr) {
       console.error(`[${fn}] Failed to read jobs`, { jobsErr });

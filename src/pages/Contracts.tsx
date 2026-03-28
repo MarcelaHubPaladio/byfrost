@@ -19,15 +19,22 @@ import {
   TrendingUp,
   LayoutDashboard,
   MoreVertical,
-  Activity
+  Activity,
+  ChevronRight,
+  Loader2,
+  Play
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { showError, showSuccess } from "@/utils/toast";
+import { useQueryClient } from "@tanstack/react-query";
 
 type ContractWithProgress = {
   id: string;
   status: string | null;
   created_at: string;
   customer: { display_name: string } | null;
+  items: { quantity: number | null }[];
   deliverables: { id: string; status: string | null }[];
 };
 
@@ -47,6 +54,7 @@ export default function Contracts() {
           commitment_type,
           created_at,
           customer:core_entities!commercial_commitments_customer_fk(display_name),
+          items:commitment_items(quantity),
           deliverables(id, status).is(deleted_at, null)
         `)
         .eq("commitment_type", "contract")
@@ -62,21 +70,32 @@ export default function Contracts() {
   const processedContracts = useMemo(() => {
     const list = (contractsQ.data ?? []) as ContractWithProgress[];
     return list.map(c => {
+      const items = c.items || [];
+      const totalUnits = items.reduce((acc, it) => acc + Number(it.quantity || 0), 0);
+      
       const deliverables = c.deliverables || [];
-      const total = deliverables.length;
+      const totalDeliverables = deliverables.length;
+      
       // Count 'completed' OR 'done' as delivered to be safe
-      const completed = deliverables.filter(d => 
+      const completedDeliverablescount = deliverables.filter(d => 
         String(d.status || '').toLowerCase() === 'completed' || 
         String(d.status || '').toLowerCase() === 'done' ||
         String(d.status || '').toLowerCase() === 'entregue'
       ).length;
-      const percentage = total > 0 ? Math.round((completed / total) * 100) : 0;
+      
+      const progressRatio = totalDeliverables > 0 ? (completedDeliverablescount / totalDeliverables) : 0;
+      const percentage = Math.round(progressRatio * 100);
+      
+      // The user wants to see "X of Y units"
+      const completedUnits = Math.floor(totalUnits * progressRatio);
+      
       return {
         ...c,
         metrics: {
-          total,
-          completed,
-          percentage
+          total: totalUnits || totalDeliverables, // Fallback to deliverable count if no units (e.g. migration)
+          completed: totalUnits > 0 ? completedUnits : completedDeliverablescount,
+          percentage,
+          total_deliverables: totalDeliverables
         }
       };
     }).filter(c => 
@@ -84,6 +103,28 @@ export default function Contracts() {
       c.id.toLowerCase().includes(searchTerm.toLowerCase())
     );
   }, [contractsQ.data, searchTerm]);
+
+  const qc = useQueryClient();
+  const [isOrchestrating, setIsOrchestrating] = useState<string | null>(null);
+
+  const handleOrchestrate = async (e: React.MouseEvent, id: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsOrchestrating(id);
+    try {
+      // Direct call to edge function to force re-orchestration
+      const { data, error } = await supabase.functions.invoke("jobs-processor", {
+        body: { commitment_id: id }
+      });
+      if (error) throw error;
+      showSuccess("Orquestração iniciada.");
+      await qc.invalidateQueries({ queryKey: ["contracts_dashboard", activeTenantId] });
+    } catch (err: any) {
+      showError(err.message || "Erro ao orquestrar");
+    } finally {
+      setIsOrchestrating(null);
+    }
+  };
 
   const globalStats = useMemo(() => {
     const list = processedContracts;
@@ -246,11 +287,29 @@ export default function Contracts() {
                                   </div>
                                 </>
                               ) : (
-                                <div className="py-1">
-                                  <p className="text-[10px] uppercase tracking-wider text-slate-400 font-bold">Status da Operação</p>
-                                  <p className="text-xs font-medium text-slate-500 italic">
-                                    {c.status === 'active' ? 'Gerando deliverables...' : 'Aguardando ativação'}
-                                  </p>
+                                <div className="flex items-center gap-4 py-1">
+                                  <div>
+                                    <p className="text-[10px] uppercase tracking-wider text-slate-400 font-bold">Status da Operação</p>
+                                    <p className="text-xs font-medium text-slate-500 italic">
+                                      {c.status === 'active' ? 'Gerando deliverables...' : 'Aguardando ativação'}
+                                    </p>
+                                  </div>
+                                  {c.status === 'active' && (
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      className="h-8 gap-1 text-[10px] font-bold uppercase border-blue-200 bg-blue-50/50 text-blue-600 hover:bg-blue-100 dark:border-blue-900/30 dark:bg-blue-900/10 dark:text-blue-400"
+                                      onClick={(e) => handleOrchestrate(e, c.id)}
+                                      disabled={isOrchestrating === c.id}
+                                    >
+                                      {isOrchestrating === c.id ? (
+                                        <Loader2 className="h-3 w-3 animate-spin" />
+                                      ) : (
+                                        <Play className="h-3 w-3 fill-current" />
+                                      )}
+                                      Orquestrar
+                                    </Button>
+                                  )}
                                 </div>
                               )}
                             </div>

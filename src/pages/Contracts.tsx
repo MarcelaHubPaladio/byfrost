@@ -47,7 +47,7 @@ export default function Contracts() {
           commitment_type,
           created_at,
           customer:core_entities!commercial_commitments_customer_fk(display_name),
-          deliverables(id, status)
+          deliverables(id, status).is(deleted_at, null)
         `)
         .eq("commitment_type", "contract")
         .is("deleted_at", null)

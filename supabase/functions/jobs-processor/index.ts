@@ -1306,6 +1306,34 @@ serve(async (req: any) => {
       .is("locked_at", null);
 
     if (manualCommitmentId) {
+      // 1. Ensure a pending job exists for this commitment to be picked up
+      const { data: existingJob } = await supabase
+        .from("job_queue")
+        .select("id")
+        .eq("status", "pending")
+        .eq("type", "COMMITMENT_ORCHESTRATE")
+        .contains("payload_json", { commitment_id: manualCommitmentId })
+        .is("locked_at", null)
+        .maybeSingle();
+
+      if (!existingJob) {
+        const { data: comm } = await supabase
+          .from("commercial_commitments")
+          .select("tenant_id")
+          .eq("id", manualCommitmentId)
+          .maybeSingle();
+
+        if (comm) {
+          await supabase.from("job_queue").insert({
+            tenant_id: comm.tenant_id,
+            type: "COMMITMENT_ORCHESTRATE",
+            idempotency_key: `MANUAL_ORCHESTRATE:${manualCommitmentId}:${Date.now()}`,
+            payload_json: { commitment_id: manualCommitmentId },
+            status: "pending",
+            run_after: new Date().toISOString()
+          });
+        }
+      }
       jobsSelect.contains("payload_json", { commitment_id: manualCommitmentId });
     } else {
       jobsSelect.order("created_at", { ascending: true }).limit(batchSize);
